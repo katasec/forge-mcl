@@ -23,6 +23,7 @@ jobs:
           ./eng/import/verify.ps1
           ./eng/verify-boundaries.ps1
           ./eng/release/test-release-tag-resolution.ps1
+          ./eng/release/test-release-workflow-restore-auth.ps1
       - name: Restore locked dependencies
         run: dotnet restore src/ForgeMission.Mcl.slnx --locked-mode
         env:

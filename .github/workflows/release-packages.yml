@@ -33,6 +33,8 @@ jobs:
           dotnet-version: 10.x
       - name: Verify provenance and locked build
         shell: pwsh
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./eng/import/verify.ps1
           ./eng/verify-boundaries.ps1
