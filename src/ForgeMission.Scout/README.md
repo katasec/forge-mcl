@@ -34,7 +34,7 @@ A change belongs here only if it advances the retrieval contract or a backend im
 
 - [`IWebSearch`](IWebSearch.cs) is the backend-neutral contract injected into the pipeline.
 - [`GrokWebSearch`](Grok/GrokWebSearch.cs) implements it with optional progress reporting.
-- [`GrokWebSearchStreamTests`](../ForgeMission.Tests/Scout/GrokWebSearchStreamTests.cs) and [`SearchMissionPipelineTests`](../ForgeMission.Tests/Scout/SearchMissionPipelineTests.cs) cover stream mapping and pipeline integration.
+- [`GrokWebSearchStreamTests`](../../tests/ForgeMission.Mcl.Tests/Scout/GrokWebSearchStreamTests.cs) and [`SearchMissionPipelineTests`](../../tests/ForgeMission.Mcl.Tests/Scout/SearchMissionPipelineTests.cs) cover stream mapping and pipeline integration.
 
 ## Communicates with
 

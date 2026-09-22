@@ -26,8 +26,13 @@ PARSER_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.cspro
 PARSER_PACKAGE_DIR := artifacts/packages
 PARSER_PACKAGE_VERSION := 0.1.0
 PARSER_COMMIT := $(shell git rev-parse HEAD)
+SCOUT_PROJECT := src/ForgeMission.Scout/ForgeMission.Scout.csproj
+SCOUT_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
+SCOUT_PACKAGE_DIR := artifacts/packages
+SCOUT_PACKAGE_VERSION := 0.1.0
+SCOUT_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test test-parser pack-parser verify-parser-package install build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package install build-linux clean
 
 build:
 	dotnet build ForgeMission.slnx
@@ -43,6 +48,15 @@ pack-parser:
 
 verify-parser-package: test-parser pack-parser
 	bash ./eng/verify-parser-package.sh $(PARSER_PACKAGE_DIR) $(PARSER_COMMIT)
+
+test-scout:
+	dotnet test $(SCOUT_TEST_PROJECT) -c Release --filter "FullyQualifiedName~Scout"
+
+pack-scout:
+	dotnet pack $(SCOUT_PROJECT) -c Release --output $(SCOUT_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(SCOUT_COMMIT)
+
+verify-scout-package: test-scout pack-scout
+	bash ./eng/verify-scout-package.sh $(SCOUT_PACKAGE_DIR) $(SCOUT_COMMIT)
 
 install:
 	dotnet publish $(CLI) -c Release -r $(RID) -o $(INSTALL_DIR)
