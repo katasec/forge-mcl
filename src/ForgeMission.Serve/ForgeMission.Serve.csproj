@@ -9,7 +9,7 @@
          JsonSerializerOptions (CLAUDE.md rules). -->
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Katasec.Forge.Mcl.Serve</PackageId>
-    <Version>1.0.0</Version>
+    <Version>$(ForgeMclServePackageVersion)</Version>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 

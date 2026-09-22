@@ -1,20 +1,21 @@
 [CmdletBinding()]
 param(
     [string]$PackageDirectory = "$PSScriptRoot/../artifacts/packages",
-    [string]$RepositoryCommit
+    [string]$RepositoryCommit,
+    [string]$TrainManifestPath = "$PSScriptRoot/release/trains/mcl-v1.0.0.json"
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$expected = [ordered]@{
-    'Katasec.Forge.Mcl.Parser' = @{ Version = '1.0.0'; Dependencies = @{} }
-    'Katasec.Forge.Mcl.Core' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Parser' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.ChatClients' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Core' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.Scout' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Core' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.MissionRegistry' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Core' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.Serve' = @{ Version = '1.0.0'; Dependencies = @{} }
-    'Katasec.Forge.Docker' = @{ Version = '0.1.0'; Dependencies = @{} }
+. "$PSScriptRoot/release/release-train.ps1"
+$train = Get-ReleaseTrain -ManifestPath $TrainManifestPath
+$expected = [ordered]@{}
+foreach ($package in $train.packages) {
+    $expected[$package.id] = @{
+        Version = $package.version
+        Dependencies = Get-ReleaseTrainDependencies -Train $train -PackageId $package.id
+    }
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -57,8 +58,8 @@ foreach ($packageId in $expected.Keys) {
 }
 
 if ($null -ne $RepositoryCommit) {
-    Write-Host 'PASS: all private package identities, repository commits, and exact internal dependency ranges match policy.'
+    Write-Host "PASS: all private package identities, repository commits, and exact internal dependency ranges match release train $($train.tag)."
 }
 else {
-    Write-Host 'PASS: all private package identities and exact internal dependency ranges match policy.'
+    Write-Host "PASS: all private package identities and exact internal dependency ranges match release train $($train.tag)."
 }

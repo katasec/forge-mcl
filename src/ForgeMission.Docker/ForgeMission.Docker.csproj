@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Katasec.Forge.Docker</PackageId>
-    <Version>0.1.0</Version>
+    <Version>$(ForgeDockerPackageVersion)</Version>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 

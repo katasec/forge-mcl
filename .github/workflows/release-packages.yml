@@ -2,7 +2,7 @@ name: Release private packages
 
 on:
   push:
-    tags: [mcl-v1.0.0]
+    tags: [mcl-v*]
 
 jobs:
   publish:
@@ -20,7 +20,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = '${{ github.ref_name }}'
-          if ($tag -ne 'mcl-v1.0.0') { throw "Unexpected release tag: $tag" }
+          if ($tag -notmatch '^mcl-v\d+\.\d+\.\d+$') { throw "Unexpected release tag: $tag" }
           git fetch origin main --tags
           if ((git cat-file -t "refs/tags/$tag") -ne 'tag') { throw "$tag must be an annotated tag." }
           $commit = (git rev-parse "refs/tags/$tag^{}").Trim()
@@ -42,8 +42,9 @@ jobs:
       - name: Pack and validate release metadata
         shell: pwsh
         run: |
-          dotnet pack src/ForgeMission.Mcl.slnx -c Release --no-build --output artifacts/packages /p:RepositoryCommit=${{ steps.release.outputs.commit }}
-          ./eng/verify-packages.ps1 -PackageDirectory artifacts/packages -RepositoryCommit ${{ steps.release.outputs.commit }}
+          $train = "eng/release/trains/${{ steps.release.outputs.tag }}.json"
+          ./eng/release/pack-release-train.ps1 -TrainManifestPath $train -PackageDirectory artifacts/packages -RepositoryCommit ${{ steps.release.outputs.commit }}
+          ./eng/verify-packages.ps1 -PackageDirectory artifacts/packages -RepositoryCommit ${{ steps.release.outputs.commit }} -TrainManifestPath $train
       - name: Install Native AOT prerequisites
         run: |
           sudo apt-get update
@@ -62,9 +63,10 @@ jobs:
             -PackageDirectory artifacts/packages `
             -RepositoryCommit ${{ steps.release.outputs.commit }} `
             -ReleaseTag ${{ steps.release.outputs.tag }} `
-            -ManifestPath artifacts/release/mcl-v1.0.0-packages.json
+            -TrainManifestPath eng/release/trains/${{ steps.release.outputs.tag }}.json `
+            -ManifestPath artifacts/release/${{ steps.release.outputs.tag }}-packages.json
       - name: Create private release evidence
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.release.outputs.tag }}" artifacts/release/mcl-v1.0.0-packages.json --repo katasec/forge-mcl --target "${{ steps.release.outputs.commit }}" --title "MCL packages 1.0.0" --notes "Private package manifest for ${{ steps.release.outputs.commit }}."
+          gh release create "${{ steps.release.outputs.tag }}" "artifacts/release/${{ steps.release.outputs.tag }}-packages.json" --repo katasec/forge-mcl --target "${{ steps.release.outputs.commit }}" --title "MCL packages ${{ steps.release.outputs.tag }}" --notes "Private package manifest for ${{ steps.release.outputs.commit }}."
