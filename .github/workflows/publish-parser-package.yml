@@ -85,21 +85,24 @@ jobs:
         run: |
           set -euo pipefail
           package_endpoint="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/nuget/Katasec.Forge.Mcl.Parser"
-          gh api "$package_endpoint" > "${RUNNER_TEMP}/parser-package.json"
-          jq -e \
-            --arg repository "${GITHUB_REPOSITORY}" \
-            '.visibility == "private" and .repository.full_name == $repository' \
-            "${RUNNER_TEMP}/parser-package.json" > /dev/null
           versions_endpoint="${package_endpoint}/versions?per_page=100"
           versions_json="${RUNNER_TEMP}/parser-versions.json"
+          package_json="${RUNNER_TEMP}/parser-package.json"
+          api_error="${RUNNER_TEMP}/parser-package-visibility.err"
           for attempt in {1..12}; do
-            gh api --paginate --slurp "${versions_endpoint}" > "${versions_json}"
-            if jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length == 1' "${versions_json}" > /dev/null; then
+            if gh api "${package_endpoint}" > "${package_json}" 2> "${api_error}" \
+              && jq -e \
+                --arg repository "${GITHUB_REPOSITORY}" \
+                '.visibility == "private" and .repository.full_name == $repository' \
+                "${package_json}" > /dev/null \
+              && gh api --paginate --slurp "${versions_endpoint}" > "${versions_json}" 2>> "${api_error}" \
+              && jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length == 1' "${versions_json}" > /dev/null; then
               exit 0
             fi
             if (( attempt < 12 )); then
               sleep 5
             fi
           done
-          echo "Katasec.Forge.Mcl.Parser ${PACKAGE_VERSION} did not become visible after publication." >&2
+          echo "Katasec.Forge.Mcl.Parser ${PACKAGE_VERSION} did not become private, repository-associated, and version-visible after publication." >&2
+          cat "${api_error}" >&2 || true
           exit 1
