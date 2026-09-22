@@ -56,11 +56,12 @@ jobs:
       - name: Refuse to overwrite the immutable package version
         env:
           GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: 0.1.0
         run: |
           set -euo pipefail
           endpoint="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/nuget/Katasec.Forge.Mcl.Parser/versions?per_page=100"
-          if gh api --paginate "$endpoint" > "${RUNNER_TEMP}/parser-versions.json" 2> "${RUNNER_TEMP}/parser-versions.err"; then
-            if jq -e '[.[] | select(.name == "0.1.0")] | length > 0' "${RUNNER_TEMP}/parser-versions.json" > /dev/null; then
+          if gh api --paginate --slurp "$endpoint" > "${RUNNER_TEMP}/parser-versions.json" 2> "${RUNNER_TEMP}/parser-versions.err"; then
+            if jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length > 0' "${RUNNER_TEMP}/parser-versions.json" > /dev/null; then
               echo "Katasec.Forge.Mcl.Parser 0.1.0 is already published." >&2
               exit 1
             fi
@@ -80,6 +81,7 @@ jobs:
       - name: Verify GitHub Packages ownership and visibility
         env:
           GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: 0.1.0
         run: |
           set -euo pipefail
           package_endpoint="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/nuget/Katasec.Forge.Mcl.Parser"
@@ -88,5 +90,16 @@ jobs:
             --arg repository "${GITHUB_REPOSITORY}" \
             '.visibility == "private" and .repository.full_name == $repository' \
             "${RUNNER_TEMP}/parser-package.json" > /dev/null
-          gh api --paginate "${package_endpoint}/versions?per_page=100" > "${RUNNER_TEMP}/parser-versions.json"
-          jq -e '[.[] | select(.name == "0.1.0")] | length == 1' "${RUNNER_TEMP}/parser-versions.json" > /dev/null
+          versions_endpoint="${package_endpoint}/versions?per_page=100"
+          versions_json="${RUNNER_TEMP}/parser-versions.json"
+          for attempt in {1..12}; do
+            gh api --paginate --slurp "${versions_endpoint}" > "${versions_json}"
+            if jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length == 1' "${versions_json}" > /dev/null; then
+              exit 0
+            fi
+            if (( attempt < 12 )); then
+              sleep 5
+            fi
+          done
+          echo "Katasec.Forge.Mcl.Parser ${PACKAGE_VERSION} did not become visible after publication." >&2
+          exit 1
