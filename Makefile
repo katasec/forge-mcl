@@ -51,8 +51,13 @@ SERVE_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
 SERVE_PACKAGE_DIR := artifacts/packages
 SERVE_PACKAGE_VERSION := 0.1.0
 SERVE_COMMIT := $(shell git rev-parse HEAD)
+DOCKER_PROJECT := src/ForgeMission.Docker/ForgeMission.Docker.csproj
+DOCKER_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
+DOCKER_PACKAGE_DIR := artifacts/packages
+DOCKER_PACKAGE_VERSION := 0.1.0
+DOCKER_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package test-serve pack-serve verify-serve-package install build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package test-serve pack-serve verify-serve-package test-docker pack-docker verify-docker-package install build-linux clean
 
 build:
 	dotnet build ForgeMission.slnx
@@ -113,6 +118,15 @@ pack-serve:
 
 verify-serve-package: test-serve pack-serve
 	bash ./eng/verify-serve-package.sh $(SERVE_PACKAGE_DIR) $(SERVE_COMMIT)
+
+test-docker:
+	dotnet test $(DOCKER_TEST_PROJECT) -c Release --filter "FullyQualifiedName~ForgeMission.Tests.Docker"
+
+pack-docker:
+	dotnet pack $(DOCKER_PROJECT) -c Release --output $(DOCKER_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(DOCKER_COMMIT)
+
+verify-docker-package: test-docker pack-docker
+	bash ./eng/verify-docker-package.sh $(DOCKER_PACKAGE_DIR) $(DOCKER_COMMIT)
 
 install:
 	dotnet publish $(CLI) -c Release -r $(RID) -o $(INSTALL_DIR)

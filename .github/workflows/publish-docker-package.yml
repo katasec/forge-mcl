@@ -1,0 +1,108 @@
+name: Publish Docker package
+
+on:
+  push:
+    tags:
+      - docker-v0.1.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish Katasec.Forge.Mcl.Docker 0.1.0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require an exact release ref already merged into the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "docker-v0.1.0" ]]; then
+            echo "Only docker-v0.1.0 may publish this package." >&2
+            exit 1
+          fi
+          git fetch origin "${DEFAULT_BRANCH}" --depth=1
+          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/${DEFAULT_BRANCH}"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore, build, and test the Docker slice
+        env:
+          NUGET_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          dotnet restore ForgeMission.slnx
+          dotnet build src/ForgeMission.Docker/ForgeMission.Docker.csproj -c Release --no-restore
+          dotnet test tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~ForgeMission.Tests.Docker"
+
+      - name: Pack Docker 0.1.0 with source provenance
+        run: |
+          dotnet pack src/ForgeMission.Docker/ForgeMission.Docker.csproj \
+            -c Release \
+            --no-build \
+            --output artifacts/packages \
+            -p:ContinuousIntegrationBuild=true \
+            -p:RepositoryCommit="${GITHUB_SHA}"
+          bash ./eng/verify-docker-package.sh artifacts/packages "${GITHUB_SHA}"
+
+      - name: Refuse to overwrite the immutable package version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: 0.1.0
+        run: |
+          set -euo pipefail
+          endpoint="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/nuget/Katasec.Forge.Mcl.Docker/versions?per_page=100"
+          if gh api --paginate --slurp "$endpoint" > "${RUNNER_TEMP}/docker-versions.json" 2> "${RUNNER_TEMP}/docker-versions.err"; then
+            if jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length > 0' "${RUNNER_TEMP}/docker-versions.json" > /dev/null; then
+              echo "Katasec.Forge.Mcl.Docker 0.1.0 is already published." >&2
+              exit 1
+            fi
+          elif ! grep -Fq "404" "${RUNNER_TEMP}/docker-versions.err"; then
+            cat "${RUNNER_TEMP}/docker-versions.err" >&2
+            exit 1
+          fi
+
+      - name: Publish private package
+        env:
+          NUGET_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          dotnet nuget push artifacts/packages/Katasec.Forge.Mcl.Docker.0.1.0.nupkg \
+            --source "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json" \
+            --api-key "${NUGET_AUTH_TOKEN}"
+
+      - name: Verify GitHub Packages ownership and visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: 0.1.0
+        run: |
+          set -euo pipefail
+          package_endpoint="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/nuget/Katasec.Forge.Mcl.Docker"
+          versions_endpoint="${package_endpoint}/versions?per_page=100"
+          versions_json="${RUNNER_TEMP}/docker-versions.json"
+          package_json="${RUNNER_TEMP}/docker-package.json"
+          api_error="${RUNNER_TEMP}/docker-package-visibility.err"
+          for attempt in {1..12}; do
+            if gh api "${package_endpoint}" > "${package_json}" 2> "${api_error}" \
+              && jq -e \
+                --arg repository "${GITHUB_REPOSITORY}" \
+                '.visibility == "private" and .repository.full_name == $repository' \
+                "${package_json}" > /dev/null \
+              && gh api --paginate --slurp "${versions_endpoint}" > "${versions_json}" 2>> "${api_error}" \
+              && jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length == 1' "${versions_json}" > /dev/null; then
+              exit 0
+            fi
+            if (( attempt < 12 )); then
+              sleep 5
+            fi
+          done
+          echo "Katasec.Forge.Mcl.Docker ${PACKAGE_VERSION} did not become private, repository-associated, and version-visible after publication." >&2
+          cat "${api_error}" >&2 || true
+          exit 1
