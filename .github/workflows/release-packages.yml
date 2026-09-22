@@ -1,0 +1,70 @@
+name: Release private packages
+
+on:
+  push:
+    tags: [mcl-v1.0.0]
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve immutable annotated release tag
+        id: release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = '${{ github.ref_name }}'
+          if ($tag -ne 'mcl-v1.0.0') { throw "Unexpected release tag: $tag" }
+          git fetch origin main --tags
+          if ((git cat-file -t "refs/tags/$tag") -ne 'tag') { throw "$tag must be an annotated tag." }
+          $commit = (git rev-parse "refs/tags/$tag^{}").Trim()
+          $main = (git rev-parse origin/main).Trim()
+          if ($commit -ne $main) { throw "$tag must peel to the current origin/main commit." }
+          "tag=$tag" | Add-Content -Path $env:GITHUB_OUTPUT
+          "commit=$commit" | Add-Content -Path $env:GITHUB_OUTPUT
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+      - name: Verify provenance and locked build
+        shell: pwsh
+        run: |
+          ./eng/import/verify.ps1
+          ./eng/verify-boundaries.ps1
+          dotnet restore src/ForgeMission.Mcl.slnx --locked-mode
+          dotnet build src/ForgeMission.Mcl.slnx -c Release --no-restore
+          dotnet test src/ForgeMission.Mcl.slnx -c Release --no-restore --filter "FullyQualifiedName!~GrokWebSearchIntegrationTests"
+      - name: Pack and validate release metadata
+        shell: pwsh
+        run: |
+          dotnet pack src/ForgeMission.Mcl.slnx -c Release --no-build --output artifacts/packages /p:RepositoryCommit=${{ steps.release.outputs.commit }}
+          ./eng/verify-packages.ps1 -PackageDirectory artifacts/packages -RepositoryCommit ${{ steps.release.outputs.commit }}
+      - name: Install Native AOT prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
+      - name: Publish Linux Native AOT CLI
+        run: |
+          dotnet publish src/ForgeMission.Cli/ForgeMission.Cli.csproj -c Release -r linux-x64 --no-restore -o artifacts/forge-linux-x64
+          sha256sum artifacts/forge-linux-x64/forge | tee artifacts/forge-linux-x64/forge.sha256
+      - name: Publish private package set
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./eng/release/publish-packages.ps1 `
+            -PackageDirectory artifacts/packages `
+            -RepositoryCommit ${{ steps.release.outputs.commit }} `
+            -ReleaseTag ${{ steps.release.outputs.tag }} `
+            -ManifestPath artifacts/release/mcl-v1.0.0-packages.json
+      - name: Create private release evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.release.outputs.tag }}" artifacts/release/mcl-v1.0.0-packages.json --repo katasec/forge-mcl --target "${{ steps.release.outputs.commit }}" --title "MCL packages 1.0.0" --notes "Private package manifest for ${{ steps.release.outputs.commit }}."

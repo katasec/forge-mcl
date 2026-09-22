@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$PackageDirectory = "$PSScriptRoot/../artifacts/packages"
+    [string]$PackageDirectory = "$PSScriptRoot/../artifacts/packages",
+    [string]$RepositoryCommit
 )
 
 Set-StrictMode -Version Latest
@@ -36,6 +37,9 @@ foreach ($packageId in $expected.Keys) {
         if ($null -eq $repository -or $repository.url -ne 'https://github.com/katasec/forge-mcl') {
             throw "Missing private-repository metadata in $packageId."
         }
+        if ($null -ne $RepositoryCommit -and $repository.commit -ne $RepositoryCommit) {
+            throw "Unexpected repository commit in $packageId."
+        }
         $actual = @{}
         foreach ($dependency in @($metadata.SelectNodes('.//*[local-name()="dependency"]'))) {
             if ($dependency.id -like 'Katasec.Forge.*') { $actual[$dependency.id] = $dependency.version }
@@ -52,4 +56,9 @@ foreach ($packageId in $expected.Keys) {
     }
 }
 
-Write-Host 'PASS: all private package identities and exact internal dependency ranges match policy.'
+if ($null -ne $RepositoryCommit) {
+    Write-Host 'PASS: all private package identities, repository commits, and exact internal dependency ranges match policy.'
+}
+else {
+    Write-Host 'PASS: all private package identities and exact internal dependency ranges match policy.'
+}

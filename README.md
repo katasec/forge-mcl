@@ -18,7 +18,8 @@ dotnet publish src/ForgeMission.Cli -c Release -r osx-arm64 --no-restore
 ```
 
 Run `pwsh ./eng/import/verify.ps1` to prove the bootstrap source provenance. Package publication
-is deliberately deferred until the governed private-consumer proof is complete.
+is governed by [the private package release procedure](docs/release-packages.md); consumer access
+and product cutover remain separate proof cards.
 
 ## Bootstrap provenance and rollback
 
