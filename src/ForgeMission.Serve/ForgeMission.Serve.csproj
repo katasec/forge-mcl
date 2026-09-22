@@ -8,7 +8,27 @@
          ForgeMission.Runner image. Must stay AOT-clean — STJ source-gen only, no bare
          JsonSerializerOptions (CLAUDE.md rules). -->
     <IsAotCompatible>true</IsAotCompatible>
+    <IsPackable>true</IsPackable>
+    <PackageId>Katasec.Forge.Mcl.Serve</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Katasec</Authors>
+    <Description>Shared OpenAI- and Anthropic-compatible HTTP wire mapping over caller-supplied chat clients.</Description>
+    <PackageTags>mcl;mission-control-language;http;openai;anthropic;serving;aot</PackageTags>
+    <PackageProjectUrl>https://github.com/katasec/forge-mcl</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/katasec/forge-mcl</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE.md" Pack="true" PackagePath="/" Link="LICENSE.md" />
+  </ItemGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

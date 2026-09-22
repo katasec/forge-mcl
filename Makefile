@@ -46,8 +46,13 @@ MISSIONREGISTRY_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Te
 MISSIONREGISTRY_PACKAGE_DIR := artifacts/packages
 MISSIONREGISTRY_PACKAGE_VERSION := 0.1.0
 MISSIONREGISTRY_COMMIT := $(shell git rev-parse HEAD)
+SERVE_PROJECT := src/ForgeMission.Serve/ForgeMission.Serve.csproj
+SERVE_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
+SERVE_PACKAGE_DIR := artifacts/packages
+SERVE_PACKAGE_VERSION := 0.1.0
+SERVE_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package install build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package test-serve pack-serve verify-serve-package install build-linux clean
 
 build:
 	dotnet build ForgeMission.slnx
@@ -99,6 +104,15 @@ pack-missionregistry:
 
 verify-missionregistry-package: test-missionregistry pack-missionregistry
 	bash ./eng/verify-missionregistry-package.sh $(MISSIONREGISTRY_PACKAGE_DIR) $(MISSIONREGISTRY_COMMIT)
+
+test-serve:
+	dotnet test $(SERVE_TEST_PROJECT) -c Release --filter "FullyQualifiedName~ForgeMission.Tests.Integration.ConvergedServeTests"
+
+pack-serve:
+	dotnet pack $(SERVE_PROJECT) -c Release --output $(SERVE_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(SERVE_COMMIT)
+
+verify-serve-package: test-serve pack-serve
+	bash ./eng/verify-serve-package.sh $(SERVE_PACKAGE_DIR) $(SERVE_COMMIT)
 
 install:
 	dotnet publish $(CLI) -c Release -r $(RID) -o $(INSTALL_DIR)
