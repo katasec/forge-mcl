@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "tag": "mcl-v1.0.1",
+  "packages": [
+    { "project": "src/ForgeMission.Parser/ForgeMission.Parser.csproj", "id": "Katasec.Forge.Mcl.Parser", "property": "ForgeMclParserPackageVersion", "version": "1.0.1" },
+    { "project": "src/ForgeMission.Core/ForgeMission.Core.csproj", "id": "Katasec.Forge.Mcl.Core", "property": "ForgeMclCorePackageVersion", "version": "1.0.1" },
+    { "project": "src/ForgeMission.ChatClients/ForgeMission.ChatClients.csproj", "id": "Katasec.Forge.Mcl.ChatClients", "property": "ForgeMclChatClientsPackageVersion", "version": "1.0.1" },
+    { "project": "src/ForgeMission.Scout/ForgeMission.Scout.csproj", "id": "Katasec.Forge.Mcl.Scout", "property": "ForgeMclScoutPackageVersion", "version": "1.0.1" },
+    { "project": "src/ForgeMission.MissionRegistry/ForgeMission.MissionRegistry.csproj", "id": "Katasec.Forge.Mcl.MissionRegistry", "property": "ForgeMclMissionRegistryPackageVersion", "version": "1.0.1" },
+    { "project": "src/ForgeMission.Serve/ForgeMission.Serve.csproj", "id": "Katasec.Forge.Mcl.Serve", "property": "ForgeMclServePackageVersion", "version": "1.0.1" },
+    { "project": "src/ForgeMission.Docker/ForgeMission.Docker.csproj", "id": "Katasec.Forge.Docker", "property": "ForgeDockerPackageVersion", "version": "0.1.1" }
+  ]
+}

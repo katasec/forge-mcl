@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          fetch-tags: false
       - name: Resolve immutable annotated release tag
         id: release
         shell: pwsh
@@ -21,13 +23,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $tag = '${{ github.ref_name }}'
           if ($tag -notmatch '^mcl-v\d+\.\d+\.\d+$') { throw "Unexpected release tag: $tag" }
-          git fetch origin main --tags
-          if ((git cat-file -t "refs/tags/$tag") -ne 'tag') { throw "$tag must be an annotated tag." }
-          $commit = (git rev-parse "refs/tags/$tag^{}").Trim()
-          $main = (git rev-parse origin/main).Trim()
-          if ($commit -ne $main) { throw "$tag must peel to the current origin/main commit." }
+          $release = ./eng/release/resolve-release-tag.ps1 -Tag $tag -Checkout
+          $train = "eng/release/trains/$tag.json"
+          if (-not (Test-Path -LiteralPath $train)) { throw "Missing release train: $train" }
           "tag=$tag" | Add-Content -Path $env:GITHUB_OUTPUT
-          "commit=$commit" | Add-Content -Path $env:GITHUB_OUTPUT
+          "commit=$($release.Commit)" | Add-Content -Path $env:GITHUB_OUTPUT
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.x
