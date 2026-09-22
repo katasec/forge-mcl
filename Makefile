@@ -31,8 +31,13 @@ SCOUT_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
 SCOUT_PACKAGE_DIR := artifacts/packages
 SCOUT_PACKAGE_VERSION := 0.1.0
 SCOUT_COMMIT := $(shell git rev-parse HEAD)
+CORE_PROJECT := src/ForgeMission.Core/ForgeMission.Core.csproj
+CORE_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
+CORE_PACKAGE_DIR := artifacts/packages
+CORE_PACKAGE_VERSION := 0.1.0
+CORE_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package install build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package install build-linux clean
 
 build:
 	dotnet build ForgeMission.slnx
@@ -57,6 +62,15 @@ pack-scout:
 
 verify-scout-package: test-scout pack-scout
 	bash ./eng/verify-scout-package.sh $(SCOUT_PACKAGE_DIR) $(SCOUT_COMMIT)
+
+test-core:
+	env -u MCL_API_KEY dotnet test $(CORE_TEST_PROJECT) -c Release --filter "FullyQualifiedName~ForgeMission.Tests.Adapters|FullyQualifiedName~ForgeMission.Tests.Experts|FullyQualifiedName~ForgeMission.Tests.Manifest|FullyQualifiedName~ForgeMission.Tests.Resolution|FullyQualifiedName~ForgeMission.Tests.Rules|FullyQualifiedName~ForgeMission.Tests.Runtime|FullyQualifiedName~ForgeMission.Tests.Tools"
+
+pack-core:
+	dotnet pack $(CORE_PROJECT) -c Release --output $(CORE_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(CORE_COMMIT)
+
+verify-core-package: test-core pack-core
+	bash ./eng/verify-core-package.sh $(CORE_PACKAGE_DIR) $(CORE_COMMIT)
 
 install:
 	dotnet publish $(CLI) -c Release -r $(RID) -o $(INSTALL_DIR)

@@ -6,7 +6,27 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <NoWarn>$(NoWarn);3021</NoWarn>
+    <IsPackable>true</IsPackable>
+    <PackageId>Katasec.Forge.Mcl.Core</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Katasec</Authors>
+    <Description>Provider-neutral Mission Control Language execution, resolution, and reusable capability contracts.</Description>
+    <PackageTags>mcl;mission-control-language;execution;runtime;contracts;aot</PackageTags>
+    <PackageProjectUrl>https://github.com/katasec/forge-mcl</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/katasec/forge-mcl</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE.md" Pack="true" PackagePath="/" Link="LICENSE.md" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ForgeMission.Parser\ForgeMission.Parser.csproj" />
