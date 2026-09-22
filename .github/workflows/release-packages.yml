@@ -37,8 +37,9 @@ jobs:
           ./eng/import/verify.ps1
           ./eng/verify-boundaries.ps1
           dotnet restore src/ForgeMission.Mcl.slnx --locked-mode
-          dotnet build src/ForgeMission.Mcl.slnx -c Release --no-restore
-          dotnet test src/ForgeMission.Mcl.slnx -c Release --no-restore --filter "FullyQualifiedName!~GrokWebSearchIntegrationTests"
+          $train = "eng/release/trains/${{ steps.release.outputs.tag }}.json"
+          ./eng/release/build-release-train.ps1 -TrainManifestPath $train -RepositoryCommit ${{ steps.release.outputs.commit }}
+          dotnet test src/ForgeMission.Mcl.slnx -c Release --no-restore --no-build --filter "FullyQualifiedName!~GrokWebSearchIntegrationTests"
       - name: Pack and validate release metadata
         shell: pwsh
         run: |
@@ -50,8 +51,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev
       - name: Publish Linux Native AOT CLI
+        shell: pwsh
         run: |
-          dotnet publish src/ForgeMission.Cli/ForgeMission.Cli.csproj -c Release -r linux-x64 --no-restore -o artifacts/forge-linux-x64
+          $train = "eng/release/trains/${{ steps.release.outputs.tag }}.json"
+          ./eng/release/publish-release-train-aot.ps1 -TrainManifestPath $train -RepositoryCommit ${{ steps.release.outputs.commit }} -RuntimeIdentifier linux-x64 -OutputDirectory artifacts/forge-linux-x64
           sha256sum artifacts/forge-linux-x64/forge | tee artifacts/forge-linux-x64/forge.sha256
       - name: Publish private package set
         shell: pwsh

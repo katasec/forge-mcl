@@ -113,34 +113,42 @@ function Verify-RemotePackageBytes {
 }
 
 & "$PSScriptRoot/../verify-packages.ps1" -PackageDirectory $PackageDirectory -RepositoryCommit $RepositoryCommit -TrainManifestPath $TrainManifestPath
+$localHashes = @{}
+foreach ($package in $train.packages) {
+    $path = Get-PackagePath -Package $package
+    if (-not (Test-Path -LiteralPath $path)) { throw "Missing packed package: $($package.id)." }
+    Read-PackageMetadata -Path $path -Package $package
+    $localHashes[$package.id] = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+}
+
 $states = @($train.packages | ForEach-Object { (Get-RemotePackageState -Package $_).Count })
 if ($states | Where-Object { $_ -gt 1 }) { throw 'A release-train package version is not uniquely addressable.' }
 $allAbsent = @($states | Where-Object { $_ -eq 0 }).Count -eq $states.Count
 $allPresent = @($states | Where-Object { $_ -eq 1 }).Count -eq $states.Count
 
 if ($allAbsent) {
-    $hashes = @{}
     foreach ($package in $train.packages) {
         $path = Get-PackagePath -Package $package
-        if (-not (Test-Path -LiteralPath $path)) { throw "Missing packed package: $($package.id)." }
-        Read-PackageMetadata -Path $path -Package $package
         if ((Get-RemotePackageState -Package $package).Count -ne 0) { throw "Refusing to publish existing immutable package version $($package.id) $($package.version)." }
-        $hashes[$package.id] = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
         dotnet nuget push $path --source github --api-key $env:GITHUB_TOKEN --force-english-output
         if ($LASTEXITCODE -ne 0) { throw "Package publication failed for $($package.id)." }
     }
-    foreach ($package in $train.packages) { Assert-PublishedPrivatePackage -Package $package }
-    New-ReleaseEvidence -Hashes $hashes -Source 'release-workflow'
+    foreach ($package in $train.packages) {
+        Assert-PublishedPrivatePackage -Package $package
+        $remoteHash = Verify-RemotePackageBytes -Package $package
+        if ($remoteHash -ne $localHashes[$package.id]) { throw "Published package bytes differ from the validated local package for $($package.id)." }
+    }
+    New-ReleaseEvidence -Hashes $localHashes -Source 'release-workflow'
     Write-Host "PASS: published and validated private package train $($train.tag)."
     exit 0
 }
 
 if (-not $allPresent) { throw 'Release train is partially published. Do not delete, overwrite, or push a subset; create a new additive train.' }
 
-$recoveredHashes = @{}
 foreach ($package in $train.packages) {
     Assert-PublishedPrivatePackage -Package $package
-    $recoveredHashes[$package.id] = Verify-RemotePackageBytes -Package $package
+    $remoteHash = Verify-RemotePackageBytes -Package $package
+    if ($remoteHash -ne $localHashes[$package.id]) { throw "Recovered package bytes differ from the validated local package for $($package.id)." }
 }
-New-ReleaseEvidence -Hashes $recoveredHashes -Source 'github-packages-recovery'
+New-ReleaseEvidence -Hashes $localHashes -Source 'github-packages-recovery'
 Write-Host "PASS: recovered release evidence for already-complete train $($train.tag) without a package push."

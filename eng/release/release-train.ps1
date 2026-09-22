@@ -3,13 +3,13 @@ $ErrorActionPreference = 'Stop'
 
 function Get-ReleaseTrainCatalog {
     return @(
-        [ordered]@{ id = 'Katasec.Forge.Mcl.Parser'; project = 'src/ForgeMission.Parser/ForgeMission.Parser.csproj'; property = 'ForgeMclParserPackageVersion'; dependencies = @() },
-        [ordered]@{ id = 'Katasec.Forge.Mcl.Core'; project = 'src/ForgeMission.Core/ForgeMission.Core.csproj'; property = 'ForgeMclCorePackageVersion'; dependencies = @('Katasec.Forge.Mcl.Parser') },
-        [ordered]@{ id = 'Katasec.Forge.Mcl.ChatClients'; project = 'src/ForgeMission.ChatClients/ForgeMission.ChatClients.csproj'; property = 'ForgeMclChatClientsPackageVersion'; dependencies = @('Katasec.Forge.Mcl.Core') },
-        [ordered]@{ id = 'Katasec.Forge.Mcl.Scout'; project = 'src/ForgeMission.Scout/ForgeMission.Scout.csproj'; property = 'ForgeMclScoutPackageVersion'; dependencies = @('Katasec.Forge.Mcl.Core') },
-        [ordered]@{ id = 'Katasec.Forge.Mcl.MissionRegistry'; project = 'src/ForgeMission.MissionRegistry/ForgeMission.MissionRegistry.csproj'; property = 'ForgeMclMissionRegistryPackageVersion'; dependencies = @('Katasec.Forge.Mcl.Core') },
-        [ordered]@{ id = 'Katasec.Forge.Mcl.Serve'; project = 'src/ForgeMission.Serve/ForgeMission.Serve.csproj'; property = 'ForgeMclServePackageVersion'; dependencies = @() },
-        [ordered]@{ id = 'Katasec.Forge.Docker'; project = 'src/ForgeMission.Docker/ForgeMission.Docker.csproj'; property = 'ForgeDockerPackageVersion'; dependencies = @() }
+        [ordered]@{ id = 'Katasec.Forge.Mcl.Parser'; project = 'src/ForgeMission.Parser/ForgeMission.Parser.csproj'; property = 'ForgeMclParserPackageVersion'; assembly = 'ForgeMission.Parser.dll'; dependencies = @() },
+        [ordered]@{ id = 'Katasec.Forge.Mcl.Core'; project = 'src/ForgeMission.Core/ForgeMission.Core.csproj'; property = 'ForgeMclCorePackageVersion'; assembly = 'ForgeMission.Core.dll'; dependencies = @('Katasec.Forge.Mcl.Parser') },
+        [ordered]@{ id = 'Katasec.Forge.Mcl.ChatClients'; project = 'src/ForgeMission.ChatClients/ForgeMission.ChatClients.csproj'; property = 'ForgeMclChatClientsPackageVersion'; assembly = 'ForgeMission.ChatClients.dll'; dependencies = @('Katasec.Forge.Mcl.Core') },
+        [ordered]@{ id = 'Katasec.Forge.Mcl.Scout'; project = 'src/ForgeMission.Scout/ForgeMission.Scout.csproj'; property = 'ForgeMclScoutPackageVersion'; assembly = 'ForgeMission.Scout.dll'; dependencies = @('Katasec.Forge.Mcl.Core') },
+        [ordered]@{ id = 'Katasec.Forge.Mcl.MissionRegistry'; project = 'src/ForgeMission.MissionRegistry/ForgeMission.MissionRegistry.csproj'; property = 'ForgeMclMissionRegistryPackageVersion'; assembly = 'ForgeMission.MissionRegistry.dll'; dependencies = @('Katasec.Forge.Mcl.Core') },
+        [ordered]@{ id = 'Katasec.Forge.Mcl.Serve'; project = 'src/ForgeMission.Serve/ForgeMission.Serve.csproj'; property = 'ForgeMclServePackageVersion'; assembly = 'ForgeMission.Serve.dll'; dependencies = @() },
+        [ordered]@{ id = 'Katasec.Forge.Docker'; project = 'src/ForgeMission.Docker/ForgeMission.Docker.csproj'; property = 'ForgeDockerPackageVersion'; assembly = 'ForgeMission.Docker.dll'; dependencies = @() }
     )
 }
 
