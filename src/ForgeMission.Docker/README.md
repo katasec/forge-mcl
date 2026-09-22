@@ -33,7 +33,7 @@ A change belongs here only if it advances reusable Docker command or prerequisit
 
 - [`DockerCli`](DockerCli.cs) performs the supported Docker operations.
 - [`DockerPrereqChecker`](DockerPrereqChecker.cs) produces and short-circuits ordered checks.
-- [`DockerCliTests`](../ForgeMission.Tests/ClientRuntime/DockerCliTests.cs) cover request construction.
+- [`DockerCliTests`](../../tests/ForgeMission.Mcl.Tests/Docker/DockerCliTests.cs) cover request construction.
 - [`LocalDockerMissionRuntimeLauncher`](../ForgeMission.Orchestration/LocalDockerMissionRuntimeLauncher.cs) is a lifecycle-owning consumer.
 
 ## Communicates with
