@@ -1,0 +1,18 @@
+**/bin/
+**/obj/
+.fms/
+dist/
+artifacts/
+
+# macOS
+.DS_Store
+
+# JetBrains Rider
+.idea/
+*.DotSettings.user
+
+# Visual Studio
+.vs/
+
+# Electron
+node_modules/
