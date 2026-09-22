@@ -21,14 +21,28 @@ endif
 
 INSTALL_DIR := $(HOME)/.local/bin
 CLI := src/ForgeMission.Cli
+PARSER_PROJECT := src/ForgeMission.Parser/ForgeMission.Parser.csproj
+PARSER_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
+PARSER_PACKAGE_DIR := artifacts/packages
+PARSER_PACKAGE_VERSION := 0.1.0
+PARSER_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test install build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package install build-linux clean
 
 build:
 	dotnet build ForgeMission.slnx
 
 test:
 	dotnet test ForgeMission.slnx
+
+test-parser:
+	dotnet test $(PARSER_TEST_PROJECT) -c Release --filter "FullyQualifiedName~Parser"
+
+pack-parser:
+	dotnet pack $(PARSER_PROJECT) -c Release --output $(PARSER_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(PARSER_COMMIT)
+
+verify-parser-package: test-parser pack-parser
+	bash ./eng/verify-parser-package.sh $(PARSER_PACKAGE_DIR) $(PARSER_COMMIT)
 
 install:
 	dotnet publish $(CLI) -c Release -r $(RID) -o $(INSTALL_DIR)

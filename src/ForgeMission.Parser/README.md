@@ -56,5 +56,5 @@ flowchart LR
 
 ## Related documentation
 
-- [Language grammar and syntax decisions](../../docs/design/language.md)
-- [Parse/resolve/execute architecture](../../docs/design/architecture.md#execution-phases)
+- [Language grammar and syntax decisions](https://github.com/katasec/mission-control-language/blob/main/docs/design/language.md)
+- [Parse/resolve/execute architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md#execution-phases)
