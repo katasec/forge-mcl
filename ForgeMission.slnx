@@ -1,0 +1,11 @@
+<Solution>
+  <Project Path="src/ForgeMission.Parser/ForgeMission.Parser.csproj" />
+  <Project Path="src/ForgeMission.Core/ForgeMission.Core.csproj" />
+  <Project Path="src/ForgeMission.ChatClients/ForgeMission.ChatClients.csproj" />
+  <Project Path="src/ForgeMission.Scout/ForgeMission.Scout.csproj" />
+  <Project Path="src/ForgeMission.MissionRegistry/ForgeMission.MissionRegistry.csproj" />
+  <Project Path="src/ForgeMission.Serve/ForgeMission.Serve.csproj" />
+  <Project Path="src/ForgeMission.Docker/ForgeMission.Docker.csproj" />
+  <Project Path="src/ForgeMission.Cli/ForgeMission.Cli.csproj" />
+  <Project Path="tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj" />
+</Solution>
