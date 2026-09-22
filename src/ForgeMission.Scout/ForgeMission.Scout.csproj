@@ -6,8 +6,26 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
+    <IsPackable>true</IsPackable>
+    <PackageId>Katasec.Forge.Mcl.Scout</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Katasec</Authors>
+    <Description>Provider-neutral web-search contracts and the AOT-compatible xAI Grok Responses API implementation.</Description>
+    <PackageTags>mcl;mission-control-language;search;retrieval;grok;aot</PackageTags>
+    <PackageProjectUrl>https://github.com/katasec/forge-mcl</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/katasec/forge-mcl</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <!-- AOT-clean by construction (will be referenced by the AOT `forge` CLI eventually):
          no reflection, no bare JsonSerializerOptions — STJ source-gen only (see Grok/GrokWire.cs). -->
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE.md" Pack="true" PackagePath="/" Link="LICENSE.md" />
+  </ItemGroup>
 
 </Project>
