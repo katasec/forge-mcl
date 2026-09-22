@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\ForgeMission.Core\ForgeMission.Core.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.Parser\ForgeMission.Parser.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.Scout\ForgeMission.Scout.csproj" />
+    <ProjectReference Include="..\..\src\ForgeMission.ChatClients\ForgeMission.ChatClients.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.Serve\ForgeMission.Serve.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.Docker\ForgeMission.Docker.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.MissionRegistry\ForgeMission.MissionRegistry.csproj" />
