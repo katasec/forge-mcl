@@ -1,7 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <RepositoryUrl>https://github.com/katasec/forge-mcl</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-  </PropertyGroup>
-</Project>
