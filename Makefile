@@ -36,8 +36,13 @@ CORE_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
 CORE_PACKAGE_DIR := artifacts/packages
 CORE_PACKAGE_VERSION := 0.1.0
 CORE_COMMIT := $(shell git rev-parse HEAD)
+CHATCLIENTS_PROJECT := src/ForgeMission.ChatClients/ForgeMission.ChatClients.csproj
+CHATCLIENTS_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
+CHATCLIENTS_PACKAGE_DIR := artifacts/packages
+CHATCLIENTS_PACKAGE_VERSION := 0.1.0
+CHATCLIENTS_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package install build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package install build-linux clean
 
 build:
 	dotnet build ForgeMission.slnx
@@ -71,6 +76,15 @@ pack-core:
 
 verify-core-package: test-core pack-core
 	bash ./eng/verify-core-package.sh $(CORE_PACKAGE_DIR) $(CORE_COMMIT)
+
+test-chatclients:
+	dotnet test $(CHATCLIENTS_TEST_PROJECT) -c Release --filter "FullyQualifiedName~ForgeMission.Tests.ChatClients"
+
+pack-chatclients:
+	dotnet pack $(CHATCLIENTS_PROJECT) -c Release --output $(CHATCLIENTS_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(CHATCLIENTS_COMMIT)
+
+verify-chatclients-package: test-chatclients pack-chatclients
+	bash ./eng/verify-chatclients-package.sh $(CHATCLIENTS_PACKAGE_DIR) $(CHATCLIENTS_COMMIT)
 
 install:
 	dotnet publish $(CLI) -c Release -r $(RID) -o $(INSTALL_DIR)
