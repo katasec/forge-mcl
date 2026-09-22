@@ -5,8 +5,13 @@
   <Target Name="LockPrivateProjectReferenceRanges" AfterTargets="_GetProjectReferenceVersions"
           Condition="'$(IsPackable)' == 'true'">
     <ItemGroup>
-      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)">
-        <ProjectVersion>[1.0.0]</ProjectVersion>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
+                                      Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'ForgeMission.Parser'">
+        <ProjectVersion>[$(ForgeMclParserPackageVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)"
+                                      Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'ForgeMission.Core'">
+        <ProjectVersion>[$(ForgeMclCorePackageVersion)]</ProjectVersion>
       </_ProjectReferencesWithVersions>
     </ItemGroup>
   </Target>

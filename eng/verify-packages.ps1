@@ -1,19 +1,23 @@
 [CmdletBinding()]
 param(
-    [string]$PackageDirectory = "$PSScriptRoot/../artifacts/packages"
+    [string]$PackageDirectory = "$PSScriptRoot/../artifacts/packages",
+    [string]$RepositoryCommit,
+    [string]$TrainManifestPath = "$PSScriptRoot/release/trains/mcl-v1.0.0.json"
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$expected = [ordered]@{
-    'Katasec.Forge.Mcl.Parser' = @{ Version = '1.0.0'; Dependencies = @{} }
-    'Katasec.Forge.Mcl.Core' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Parser' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.ChatClients' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Core' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.Scout' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Core' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.MissionRegistry' = @{ Version = '1.0.0'; Dependencies = @{ 'Katasec.Forge.Mcl.Core' = '[1.0.0]' } }
-    'Katasec.Forge.Mcl.Serve' = @{ Version = '1.0.0'; Dependencies = @{} }
-    'Katasec.Forge.Docker' = @{ Version = '0.1.0'; Dependencies = @{} }
+. "$PSScriptRoot/release/release-train.ps1"
+$train = Get-ReleaseTrain -ManifestPath $TrainManifestPath
+$expected = [ordered]@{}
+foreach ($package in $train.packages) {
+    $catalogEntry = @($train._catalog | Where-Object { $_.id -eq $package.id } | Select-Object -First 1)[0]
+    $expected[$package.id] = @{
+        Version = $package.version
+        Dependencies = Get-ReleaseTrainDependencies -Train $train -PackageId $package.id
+        Assembly = $catalogEntry.assembly
+    }
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -36,6 +40,26 @@ foreach ($packageId in $expected.Keys) {
         if ($null -eq $repository -or $repository.url -ne 'https://github.com/katasec/forge-mcl') {
             throw "Missing private-repository metadata in $packageId."
         }
+        if (-not [string]::IsNullOrWhiteSpace($RepositoryCommit) -and $repository.commit -ne $RepositoryCommit) {
+            throw "Unexpected repository commit in $packageId."
+        }
+        $assemblyEntry = $archive.Entries | Where-Object { $_.FullName -eq "lib/net10.0/$($expected[$packageId].Assembly)" } | Select-Object -First 1
+        if ($null -eq $assemblyEntry) { throw "Missing compiled assembly for $packageId." }
+        $temporaryAssemblyPath = [IO.Path]::GetTempFileName()
+        try {
+            $assemblyStream = $assemblyEntry.Open()
+            $assemblyFile = [IO.File]::Create($temporaryAssemblyPath)
+            try { $assemblyStream.CopyTo($assemblyFile) }
+            finally {
+                $assemblyFile.Dispose()
+                $assemblyStream.Dispose()
+            }
+            $assemblyVersion = [Reflection.AssemblyName]::GetAssemblyName($temporaryAssemblyPath).Version.ToString(3)
+            if ($assemblyVersion -ne $expected[$packageId].Version) {
+                throw "Unexpected compiled assembly version in $packageId."
+            }
+        }
+        finally { Remove-Item -Force -LiteralPath $temporaryAssemblyPath -ErrorAction SilentlyContinue }
         $actual = @{}
         foreach ($dependency in @($metadata.SelectNodes('.//*[local-name()="dependency"]'))) {
             if ($dependency.id -like 'Katasec.Forge.*') { $actual[$dependency.id] = $dependency.version }
@@ -52,4 +76,9 @@ foreach ($packageId in $expected.Keys) {
     }
 }
 
-Write-Host 'PASS: all private package identities and exact internal dependency ranges match policy.'
+if (-not [string]::IsNullOrWhiteSpace($RepositoryCommit)) {
+    Write-Host "PASS: all private package identities, repository commits, compiled assembly versions, and exact internal dependency ranges match release train $($train.tag)."
+}
+else {
+    Write-Host "PASS: all private package identities, compiled assembly versions, and exact internal dependency ranges match release train $($train.tag)."
+}

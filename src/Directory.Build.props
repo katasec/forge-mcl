@@ -17,6 +17,13 @@
          keeps crash/stack-trace diagnostics without the desktop app's published output folder
          accumulating one .pdb per referenced library project for no runtime purpose. -->
     <DebugType>embedded</DebugType>
+    <ForgeMclParserPackageVersion Condition="'$(ForgeMclParserPackageVersion)' == ''">1.0.0</ForgeMclParserPackageVersion>
+    <ForgeMclCorePackageVersion Condition="'$(ForgeMclCorePackageVersion)' == ''">1.0.0</ForgeMclCorePackageVersion>
+    <ForgeMclChatClientsPackageVersion Condition="'$(ForgeMclChatClientsPackageVersion)' == ''">1.0.0</ForgeMclChatClientsPackageVersion>
+    <ForgeMclScoutPackageVersion Condition="'$(ForgeMclScoutPackageVersion)' == ''">1.0.0</ForgeMclScoutPackageVersion>
+    <ForgeMclMissionRegistryPackageVersion Condition="'$(ForgeMclMissionRegistryPackageVersion)' == ''">1.0.0</ForgeMclMissionRegistryPackageVersion>
+    <ForgeMclServePackageVersion Condition="'$(ForgeMclServePackageVersion)' == ''">1.0.0</ForgeMclServePackageVersion>
+    <ForgeDockerPackageVersion Condition="'$(ForgeDockerPackageVersion)' == ''">0.1.0</ForgeDockerPackageVersion>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsPackable)' == 'true'">

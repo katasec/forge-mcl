@@ -7,14 +7,14 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Katasec.Forge.Mcl.Scout</PackageId>
-    <Version>1.0.0</Version>
+    <Version>$(ForgeMclScoutPackageVersion)</Version>
     <IsPackable>true</IsPackable>
     <!-- AOT-clean by construction (will be referenced by the AOT `forge` CLI eventually):
          no reflection, no bare JsonSerializerOptions — STJ source-gen only (see Grok/GrokWire.cs). -->
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ForgeMission.Core\ForgeMission.Core.csproj" TreatAsPackageReference="true" Version="[1.0.0]" />
+    <ProjectReference Include="..\ForgeMission.Core\ForgeMission.Core.csproj" TreatAsPackageReference="true" Version="[$(ForgeMclCorePackageVersion)]" />
   </ItemGroup>
 
 </Project>
