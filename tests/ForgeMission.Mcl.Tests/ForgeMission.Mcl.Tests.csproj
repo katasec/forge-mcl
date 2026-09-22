@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>ForgeMission.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.61" />
+    <PackageReference Include="Katasec.OaiServer" Version="0.1.7" />
+    <PackageReference Include="Katasec.AnthropicServer" Version="0.1.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ForgeMission.Parser/ForgeMission.Parser.csproj" />
+    <ProjectReference Include="../../src/ForgeMission.Core/ForgeMission.Core.csproj" />
+    <ProjectReference Include="../../src/ForgeMission.ChatClients/ForgeMission.ChatClients.csproj" />
+    <ProjectReference Include="../../src/ForgeMission.Scout/ForgeMission.Scout.csproj" />
+    <ProjectReference Include="../../src/ForgeMission.MissionRegistry/ForgeMission.MissionRegistry.csproj" />
+    <ProjectReference Include="../../src/ForgeMission.Serve/ForgeMission.Serve.csproj" />
+    <ProjectReference Include="../../src/ForgeMission.Docker/ForgeMission.Docker.csproj" />
+    <ProjectReference Include="../../src/ForgeMission.Cli/ForgeMission.Cli.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Missions/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
