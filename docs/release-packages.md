@@ -12,8 +12,20 @@ compiled-assembly-version checks, and Linux Native AOT publication with those sa
 properties. It validates each package's ID, version, repository URL, and repository commit before
 publication. It refuses every existing package version, never uses duplicate suppression, downloads
 every remote package after publication or recovery, requires its SHA-256 to equal the validated
-local package byte, and only then emits a SHA-256 manifest as the private GitHub Release asset. The first train is
-`mcl-v1.0.0`: all six MCL packages are `1.0.0` and Docker remains `0.1.0`.
+local package byte, and only then emits a SHA-256 manifest as the private GitHub Release asset.
+
+## Retained failed train and next candidate
+
+`mcl-v1.0.0` is a retained, burned annotated tag. Its [release workflow run](https://github.com/katasec/forge-mcl/actions/runs/35735356033)
+failed in tag resolution before restore, build, pack, AOT, package publication, release creation,
+consumer grants, or release evidence. It must never be retagged: retaining it preserves the exact
+failed-event audit trail and prevents one immutable label from naming multiple source/workflow
+states. No package or consumer contract exists for that tag.
+
+`mcl-v1.0.1` is the next additive candidate: Parser, Core, ChatClients, Scout, MissionRegistry,
+and Serve are each `1.0.1`; Docker is `0.1.1`. Its checked-in train supplies exact internal
+`[1.0.1]` pins. It changes no default source version and has no consumer impact until the workflow
+publishes the complete private set and grants a named consumer access.
 
 ## Temporary tag-integrity compensation
 
@@ -28,6 +40,11 @@ permissions. No consumer receives access until the packages and manifest are ver
 GitHub rulesets or tag protection become available, replace this compensation with a protected
 `mcl-v*` tag rule before a later package release; existing package or consumer contracts do not
 change.
+
+The workflow checks out a neutral default-branch tree, fetches the remote release tag only into
+`refs/tags/release-validation/<tag>`, and validates that shadow ref before checking out its peeled
+commit. It never fetches tags into or rewrites the checkout's canonical `refs/tags/<tag>` ref. The
+fixture covers the checkout-like state that caused the retained failure and rejects lightweight tags.
 
 ## Failure and rollback
 
