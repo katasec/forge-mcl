@@ -22,6 +22,15 @@ public static class DurableMissionPackageValidator
     private const int MaxExpertChars = 8 * 1024;
     private const int MaxExperts = 2;
 
+    /// <summary>The profile an llm step runs on when it omits <c>using</c>.</summary>
+    public const string DefaultProviderProfile = "default";
+
+    /// <summary>The only names a durable step may select with <c>using</c>. Core owns the names so
+    /// every validator (Host admission, runner, client) agrees without configuration; each
+    /// deployment owns what a name is bound to (provider, model, key) and must bind every one.</summary>
+    public static IReadOnlySet<string> ProviderProfiles { get; } =
+        new HashSet<string>(["anthropic"], StringComparer.Ordinal);
+
     public static bool TryValidate(
         DurableMissionPackageInput package,
         out ValidatedDurableMissionPackage? validated,
@@ -73,13 +82,11 @@ public static class DurableMissionPackageValidator
                 return false;
             }
 
-            foreach (var step in ast.Declarations.OfType<MissionDeclaration>().SelectMany(m => Steps(m.Pipeline)))
+            var steps = ast.Declarations.OfType<MissionDeclaration>().SelectMany(m => Steps(m.Pipeline)).ToArray();
+            if (steps.FirstOrDefault(step => step.Using is { } name && !ProviderProfiles.Contains(name)) is { } unlisted)
             {
-                if (!string.IsNullOrWhiteSpace(step.Using))
-                {
-                    reason = "Durable packages cannot select a named provider profile.";
-                    return false;
-                }
+                reason = $"Durable packages cannot select provider profile '{unlisted.Using}'; allowed: {string.Join(", ", ProviderProfiles)}.";
+                return false;
             }
 
             if (experts.Values.Any(expert => expert.Kind is not ("llm" or "rule" or "json_extract")))
@@ -88,7 +95,14 @@ public static class DurableMissionPackageValidator
                 return false;
             }
 
-            validated = new ValidatedDurableMissionPackage(package, ast, experts);
+            var profiles = LlmStepProfiles(steps, experts);
+            if (profiles.Length > 1)
+            {
+                reason = "A durable package uses one provider profile for all its llm steps.";
+                return false;
+            }
+
+            validated = new ValidatedDurableMissionPackage(package, ast, experts, profiles.SingleOrDefault() ?? DefaultProviderProfile);
             return true;
         }
         catch (Exception exception) when (exception is ExpertLoadException or AggregateExpertLoadException or ParseException or InvalidOperationException)
@@ -123,6 +137,13 @@ public static class DurableMissionPackageValidator
     private static bool IsContentHash(string expected, string content) =>
         expected.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
         string.Equals(expected["sha256:".Length..], Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))), StringComparison.OrdinalIgnoreCase);
+    // One profile per package keeps the run's model exact for settlement. Only llm steps select a
+    // runner; a step that names a sub-mission or a non-llm expert is not counted.
+    private static string[] LlmStepProfiles(IEnumerable<Step> steps, Dictionary<string, ExpertDefinition> experts) =>
+        steps.Where(step => experts.TryGetValue(step.ExpertName, out var expert) && expert.Kind == "llm")
+            .Select(step => step.Using ?? DefaultProviderProfile)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     private static IEnumerable<Step> Steps(Pipeline pipeline) => pipeline.Elements.SelectMany(element => element switch
     {
         StepElement step => (IEnumerable<Step>)[step.Step],
@@ -134,5 +155,7 @@ public static class DurableMissionPackageValidator
 public sealed record DurableResolvedExpertInput(string Name, string LockSource, string LockPath, string LockHash, string ExpertMarkdown);
 public sealed record DurableMissionPackageInput(int FormatVersion, string PackageHash, string MissionSource,
     string RootMissionName, string RootInputName, IReadOnlyList<DurableResolvedExpertInput> ResolvedExperts);
+/// <summary><see cref="ProviderProfile"/> is the one profile every llm step runs on:
+/// <see cref="DurableMissionPackageValidator.DefaultProviderProfile"/> or an allowed name.</summary>
 public sealed record ValidatedDurableMissionPackage(DurableMissionPackageInput Input, MclProgram Ast,
-    Dictionary<string, ExpertDefinition> Experts);
+    Dictionary<string, ExpertDefinition> Experts, string ProviderProfile);
