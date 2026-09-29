@@ -34,6 +34,7 @@ rootCommand.Add(BuildLoginCommand());
 rootCommand.Add(BuildWhoamiCommand());
 rootCommand.Add(BuildLogoutCommand());
 rootCommand.Add(BuildExecCommand());
+rootCommand.Add(BuildChatCommand());
 rootCommand.Add(BuildPublishCommand());
 rootCommand.Add(BuildCleanCommand());
 rootCommand.Add(BuildServeCommand());
@@ -439,6 +440,14 @@ static Command BuildExecCommand()
             result.GetValue(inputOpt),
             result.GetValue(modeOpt),
             result.GetValue(outOpt)));
+    return cmd;
+}
+
+// forge chat (53.2) — a plain chat with Janus in the default Project; reopens the last conversation.
+static Command BuildChatCommand()
+{
+    var cmd = new Command("chat", "Chat with Janus in your default Forge project");
+    cmd.SetAction(async _ => await ForgeChat.RunAsync());
     return cmd;
 }
 

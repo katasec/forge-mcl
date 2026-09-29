@@ -21,6 +21,7 @@ People need one command surface for mission lifecycle, execution, serving, and s
 - The executable entry point and command registration in [`Program`](Program.cs).
 - Command input/output, mission-file selection, and composition of Core, Chat Clients, Docker, Scout, and Serve.
 - CLI-specific OCI pulls, platform sign-in, built-in mission references, and MCP command wiring.
+- The `forge chat` loop: the order of existing `Katasec.Forge.Client` calls and what is printed.
 
 ## Does not own
 
@@ -33,6 +34,7 @@ A change belongs here only if it advances the `forge` command surface or compose
 ## Use these pieces
 
 - [`Program`](Program.cs) registers every command and is the executable entry point.
+- [`ForgeChat`](ForgeChat.cs) is `forge chat`: it opens the default Project (`~/Forge/Projects/chat`), publishes Janus on first use, reopens the last mission conversation, and runs a plain type-and-print loop, all through `ApplicationComposition` from `Katasec.Forge.Client`. It adds no ForgeAPI client of its own.
 - [`ForgeExec`](ForgeExec.cs) is the shared CLI execution helper; [`ProviderClientBuilder`](ProviderClientBuilder.cs) wires optional live search.
 - [`ChatClients`](../ForgeMission.ChatClients/ChatClients.cs), [`ForgeServe`](../ForgeMission.Serve/ForgeServe.cs), and [`DockerCli`](../ForgeMission.Docker/DockerCli.cs) are composed owners.
 - [`MissionFileResolutionTests`](../../tests/ForgeMission.Mcl.Tests/Cli/MissionFileResolutionTests.cs) covers CLI mission-file defaulting.
@@ -47,6 +49,8 @@ flowchart LR
   CLI -->|serve composition| Serve[Forge Serve]
   CLI -->|local container commands| Docker[Docker support]
   CLI -->|optional search| Scout[Scout]
+  CLI -->|forge chat| Client[Katasec.Forge.Client]
+  Client -->|mission-conversation messages| ForgeApi[ForgeAPI]
 ```
 
 ## Important flows and constraints
