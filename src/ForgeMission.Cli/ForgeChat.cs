@@ -30,6 +30,15 @@ public static class ForgeChat
 
     public static async Task<int> RunAsync()
     {
+        // Read before any network call, on both paths: a bad config stops here either way.
+        ForgeTheme theme;
+        try { theme = ForgeConfig.ReadTheme(ForgeConfig.DefaultPath); }
+        catch (ForgeConfigException bad)
+        {
+            Console.Error.WriteLine($"forge chat: {bad.Message}");
+            return 1;
+        }
+
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
         {
@@ -56,7 +65,7 @@ public static class ForgeChat
                 return await ChatAsync(app.MissionConversations, conversationId);
 
             var header = new ChatHeader(Path.GetFileName(session.Project.Home), MissionName, version, ChatProfile());
-            return await ChatTui.RunAsync(app.MissionConversations, conversationId, header);
+            return await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme);
         }
         catch (ChatStoppedException stopped)
         {

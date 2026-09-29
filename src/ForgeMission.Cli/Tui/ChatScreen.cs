@@ -9,9 +9,9 @@ namespace ForgeMission.Cli.Tui;
 /// profile the mission's definition pins.</summary>
 internal sealed record ChatHeader(string Project, string Mission, int Version, string Profile);
 
-// forge chat TUI (53.5): every visual on the screen — header, transcript, progress line, composer,
-// key bar — laid out as the accepted mockup. It renders transcript blocks; it decides nothing
-// about events (Transcript) or turns (ChatTui).
+// forge chat TUI (53.5, 53.6): every visual on the screen — header, transcript, progress line,
+// composer, key bar — laid out as the accepted mockups. It renders transcript blocks; it decides
+// nothing about events (Transcript) or turns (ChatTui), and takes every style from ForgeStyles.
 internal sealed class ChatScreen
 {
     private const string PendingBody = "▌";
@@ -22,19 +22,21 @@ internal sealed class ChatScreen
     // The blocks on screen, and per block the body of a card (null for other blocks).
     private readonly List<TranscriptBlock> _shown = [];
     private readonly List<Paragraph?> _cardBodies = [];
+    private readonly ForgeStyles _styles;
 
-    public ChatScreen(ChatHeader header)
+    public ChatScreen(ChatHeader header, ForgeStyles styles)
     {
+        _styles = styles;
         Composer = BuildComposer(header);
         Root = new DockLayout()
             .Top(new VStack(BuildHeader(header), Divider()))
-            .Content(_flow.Style(ForgeTheme.Scroll))
+            .Content(_flow.Style(styles.Scroll))
             .Bottom(new VStack(
-                new TextBlock(() => _progress.Value).Style(ForgeTheme.Progress).Margin(new Thickness(1, 0, 1, 0)),
+                new TextBlock(() => _progress.Value).Style(styles.Progress).Margin(new Thickness(1, 0, 1, 0)),
                 Divider(),
                 Composer,
-                new TextBlock($" {Keys}").Style(ForgeTheme.KeyBar).HorizontalAlignment(Align.Stretch)));
-        Root.Style(ForgeTheme.Screen);
+                new TextBlock($" {Keys}").Style(styles.KeyBar).HorizontalAlignment(Align.Stretch)));
+        Root.Style(styles.Screen);
     }
 
     public Visual Root { get; }
@@ -63,7 +65,7 @@ internal sealed class ChatScreen
         for (var i = 0; i < blocks.Count; i++)
         {
             if (_cardBodies[i] is { } body && blocks[i] is ParticipantCard card)
-                SetText(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""), ForgeTheme.CardText);
+                SetText(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""), _styles.CardText);
         }
 
         _progress.Value = Transcript.Replying(blocks) is { } expert ? $"{expert} is replying …" : "";
@@ -110,46 +112,57 @@ internal sealed class ChatScreen
                 _flow.Items.Add(YouItem(you.Text));
                 return null;
             case ParticipantCard card:
-                var body = Text("", ForgeTheme.CardText);
+                var body = Text("", _styles.CardText);
                 _flow.Items.Add(CardItem(card.Title, body));
                 return body;
             case NoticeLine notice:
-                _flow.Items.Add(NoticeItem(notice.Text));
+                _flow.Items.Add(LineItem(notice.Text, _styles.Notice));
+                return null;
+            case ErrorLine error:
+                _flow.Items.Add(LineItem(error.Text, _styles.ErrorNotice));
                 return null;
             default:
                 throw new InvalidOperationException($"No view for {block.GetType().Name}.");
         }
     }
 
-    private static DocumentFlowItem YouItem(string text) => new()
+    /// <summary>A one-line message is a capped pill; a multi-line one keeps the filled block.</summary>
+    private DocumentFlowItem YouItem(string text) => new()
     {
         Content = new FlowDocument().Add(new HStack(
-                Text($" {text} ", ForgeTheme.PillText),
-                new TextBlock("You").Style(ForgeTheme.Foreground(ForgeTheme.Muted)))
+                text.Contains('\n') ? Text($" {text} ", _styles.UserBlock) : PillOf(text, _styles.User),
+                new TextBlock("You").Style(_styles.YouLabel))
             .Spacing(1)
             .HorizontalAlignment(Align.End)),
         Alignment = DocumentFlowAlignment.Right,
         Padding = new Thickness(1, 0, 1, 0),
     };
 
-    private static DocumentFlowItem CardItem(string title, Paragraph body) => new()
+    private DocumentFlowItem CardItem(string title, Paragraph body) => new()
     {
         Content = new FlowDocument()
-            .Add(new TextBlock(title).Style(ForgeTheme.Foreground(ForgeTheme.Muted)))
+            .Add(new TextBlock(title).Style(_styles.CardTitle))
             .Add(body),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         // The border is drawn in the padding's outer cells; the inner column keeps text off it.
         Padding = new Thickness(2, 1, 2, 1),
-        BorderStyle = ForgeTheme.CardFrame,
+        BorderStyle = _styles.CardFrame,
+        BackgroundStyle = _styles.CardFill,
     };
 
-    private static DocumentFlowItem NoticeItem(string text) => new()
+    private static DocumentFlowItem LineItem(string text, Style style) => new()
     {
-        Content = new FlowDocument().Add(Text(text, ForgeTheme.NoticeText)),
+        Content = new FlowDocument().Add(Text(text, style)),
         Alignment = DocumentFlowAlignment.Left,
         Padding = new Thickness(1, 0, 1, 0),
     };
+
+    /// <summary>The text on its fill between rounded caps drawn in the fill colour.</summary>
+    private static HStack PillOf(string text, Pill pill) => new(
+        new TextBlock(pill.CapLeft).Style(pill.Cap),
+        new TextBlock($" {text} ").Style(pill.Text),
+        new TextBlock(pill.CapRight).Style(pill.Cap));
 
     /// <summary>Wrapped text that keeps its line breaks (TextBlock folds them into spaces), in one
     /// token style.</summary>
@@ -169,21 +182,19 @@ internal sealed class ChatScreen
 
     // ── Chrome ──────────────────────────────────────────────────────────────────────────────
 
-    private static Visual BuildHeader(ChatHeader header) => new Grid()
-        .Columns(new ColumnDefinition { Width = GridLength.Star() }, new ColumnDefinition { Width = GridLength.Auto })
-        .Rows(new RowDefinition { Height = GridLength.Auto })
-        .Cell(new HStack(
-                new TextBlock("forge").Style(ForgeTheme.Foreground(ForgeTheme.Accent)),
-                new TextBlock("│ PROJECT").Style(ForgeTheme.Foreground(ForgeTheme.Muted)),
-                new TextBlock(header.Project).Style(ForgeTheme.Foreground(ForgeTheme.Bright)))
-            .Spacing(1), row: 0, column: 0)
-        .Cell(new HStack(
-                new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · ").Style(ForgeTheme.Foreground(ForgeTheme.Muted)),
-                new TextBlock("APPROVED").Style(ForgeTheme.Foreground(ForgeTheme.Success)),
-                new TextBlock($" · {header.Profile}").Style(ForgeTheme.Foreground(ForgeTheme.Muted))), row: 0, column: 1)
-        .Margin(new Thickness(1, 0, 1, 0));
+    private Visual BuildHeader(ChatHeader header) => new Header()
+        .Left(new Padder(new HStack(
+                new TextBlock("forge").Style(_styles.Brand),
+                new TextBlock("│ PROJECT").Style(_styles.Label),
+                new TextBlock(header.Project).Style(_styles.Project))
+            .Spacing(1)).Padding(new Thickness(1, 0, 0, 0)))
+        .Right(new Padder(new HStack(
+                new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · ").Style(_styles.Label),
+                PillOf("APPROVED", _styles.Approved),
+                new TextBlock($" · {header.Profile}").Style(_styles.Label))).Padding(new Thickness(0, 0, 1, 0)))
+        .Style(_styles.Header);
 
-    private static PromptEditor BuildComposer(ChatHeader header)
+    private PromptEditor BuildComposer(ChatHeader header)
     {
         // Shift+Enter is the only newline gesture: the editor attaches before the kitty keyboard
         // probe completes, and the default fallback would otherwise rebind newline to Ctrl+N.
@@ -193,11 +204,11 @@ internal sealed class ChatScreen
             .AutoSizeMode(TextEditorAutoSizeMode.Height)
             .MinHeight(1)
             .MaxHeight(6)
-            .Style(ForgeTheme.Composer);
+            .Style(_styles.Composer);
         // Ctrl-C belongs to the screen (stop the run); a mouse selection is still copied by the app.
         composer.RemoveCommand("TextEditor.Copy");
         return composer;
     }
 
-    private static Rule Divider() => new Rule().Style(ForgeTheme.Divider);
+    private Rule Divider() => new Rule().Style(_styles.Divider);
 }

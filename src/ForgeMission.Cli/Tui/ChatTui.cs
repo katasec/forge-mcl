@@ -27,12 +27,13 @@ internal sealed class ChatTui
     private string? _pendingMessage;
     private CancellationTokenSource? _turn;
 
-    private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, CancellationToken session)
+    private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
+        CancellationToken session)
     {
         _conversations = conversations;
         _conversationId = conversationId;
         _session = session;
-        _screen = new ChatScreen(header);
+        _screen = new ChatScreen(header, new ForgeStyles(theme));
         _screen.Composer.Accepted((_, e) => Send(e.Text));
         AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", StopRun);
         AddKey(new KeyGesture(TerminalKey.PageUp), "Forge.PageUp", _screen.PageUp);
@@ -41,10 +42,11 @@ internal sealed class ChatTui
 
     /// <summary>Runs the TUI until Ctrl-D. A turn still running on quit keeps running on Forge;
     /// only this process stops following it.</summary>
-    public static async Task<int> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header)
+    public static async Task<int> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
+        ForgeTheme theme)
     {
         using var session = new CancellationTokenSource();
-        var tui = new ChatTui(conversations, conversationId, header, session.Token);
+        var tui = new ChatTui(conversations, conversationId, header, theme, session.Token);
         try
         {
             await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync,
@@ -101,7 +103,7 @@ internal sealed class ChatTui
         }
         catch (HttpRequestException failure)
         {
-            ShowNotice($"error: {failure.Message}");
+            ShowError($"error: {failure.Message}");
         }
         finally
         {
@@ -155,9 +157,9 @@ internal sealed class ChatTui
         _screen.Show(_blocks);
     }
 
-    private void ShowNotice(string text)
+    private void ShowError(string text)
     {
-        _blocks = [.. _blocks, new NoticeLine(text)];
+        _blocks = [.. _blocks, new ErrorLine(text)];
         _screen.Show(_blocks);
     }
 }

@@ -71,7 +71,7 @@ public sealed class ChatTranscriptTests
             Status(ConversationRunStatus.Failed));
 
         Assert.Equal([
-            "NoticeLine { Text = error: rate limited }",
+            "ErrorLine { Text = error: rate limited }",
             "NoticeLine { Text = (run failed) }",
         ], blocks);
     }
