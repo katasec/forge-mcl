@@ -1,0 +1,167 @@
+using System.Reflection;
+using ForgeMission.Conversations.Contracts;
+
+namespace ForgeMission.Tests.Cli;
+
+// forge chat TUI (53.5): the one event→block mapping used for replay and live turns, including the
+// duplicate final reply, and the switch between the TUI and the line mode. Read through reflection
+// like the other CLI tests (the test project does not reference the forge executable's assembly);
+// blocks are compared by their record text.
+public sealed class ChatTranscriptTests
+{
+    private static readonly Assembly Forge = LoadForge();
+    private static readonly MethodInfo ApplyMethod = Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
+        .GetMethod("Apply", BindingFlags.Static | BindingFlags.Public)!;
+    private static readonly MethodInfo ReplyingMethod = Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
+        .GetMethod("Replying", BindingFlags.Static | BindingFlags.Public)!;
+    private static readonly MethodInfo UsesTuiMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+        .GetMethod("UsesTui", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+    [Fact]
+    public void A_turn_maps_to_a_You_pill_and_a_card_titled_with_the_expert()
+    {
+        var blocks = Map(User("my name is Ameer"), Started("Chat:Answerer"), Step("Nice to meet you, Ameer!"));
+
+        Assert.Equal([
+            "YouBlock { Text = my name is Ameer }",
+            "ParticipantCard { Title = Answerer, Text = Nice to meet you, Ameer!, Mission = Chat }",
+        ], blocks);
+    }
+
+    [Fact]
+    public void A_step_title_without_a_mission_is_the_card_title()
+    {
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = , Mission = Answerer }"], Map(Started("Answerer")));
+    }
+
+    [Fact]
+    public void A_final_result_equal_to_the_last_step_message_is_shown_once()
+    {
+        var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Final("Hello"), Status(ConversationRunStatus.Completed));
+
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat }"], blocks);
+    }
+
+    [Fact]
+    public void A_final_result_that_differs_gets_its_own_card_titled_with_the_mission()
+    {
+        var blocks = Map(Started("Chat:Answerer"), Step("Draft"), Final("Summary"));
+
+        Assert.Equal([
+            "ParticipantCard { Title = Answerer, Text = Draft, Mission = Chat }",
+            "ParticipantCard { Title = Chat, Text = Summary, Mission = Chat }",
+        ], blocks);
+    }
+
+    [Fact]
+    public void A_step_message_fills_the_latest_card()
+    {
+        var blocks = Map(Started("Plan:Planner"), Step("plan"), Started("Plan:Writer"), Step("text"));
+
+        Assert.Equal([
+            "ParticipantCard { Title = Planner, Text = plan, Mission = Plan }",
+            "ParticipantCard { Title = Writer, Text = text, Mission = Plan }",
+        ], blocks);
+    }
+
+    [Fact]
+    public void A_mission_error_repeating_the_step_error_is_shown_once()
+    {
+        var blocks = Map(Started("Chat:Answerer"), Error("rate limited", attempt: 1), Error("rate limited", attempt: null),
+            Status(ConversationRunStatus.Failed));
+
+        Assert.Equal([
+            "ParticipantCard { Title = Answerer, Text = , Mission = Chat }",
+            "NoticeLine { Text = error: rate limited }",
+            "NoticeLine { Text = (run failed) }",
+        ], blocks);
+    }
+
+    [Theory]
+    [InlineData(ConversationRunStatus.Failed, "(run failed)")]
+    [InlineData(ConversationRunStatus.Interrupted, "(run interrupted)")]
+    [InlineData(ConversationRunStatus.Rejected, "(run rejected)")]
+    public void A_run_that_ends_unfinished_adds_a_notice(ConversationRunStatus status, string notice)
+    {
+        Assert.Equal([$"NoticeLine {{ Text = {notice} }}"], Map(Status(status)));
+    }
+
+    [Theory]
+    [InlineData(ConversationRunStatus.Completed)]
+    [InlineData(ConversationRunStatus.Running)]
+    [InlineData(ConversationRunStatus.Queued)]
+    public void A_completed_or_live_status_adds_nothing(ConversationRunStatus status)
+    {
+        Assert.Empty(Map(Status(status)));
+    }
+
+    [Fact]
+    public void Events_without_a_block_add_nothing()
+    {
+        Assert.Empty(Map(Event(ConversationEventKind.ToolRequested, null, "tool"), Event(ConversationEventKind.Artifact, null, null)));
+    }
+
+    [Fact]
+    public void The_expert_is_replying_while_its_card_is_pending_and_last()
+    {
+        Assert.Equal("Answerer", Replying(Started("Chat:Answerer")));
+        Assert.Null(Replying(Started("Chat:Answerer"), Step("done")));
+        Assert.Null(Replying(Started("Chat:Answerer"), Status(ConversationRunStatus.Interrupted)));
+        Assert.Null(Replying());
+    }
+
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    public void Only_a_terminal_on_both_ends_opens_the_TUI(bool inputRedirected, bool outputRedirected, bool expected)
+    {
+        Assert.Equal(expected, (bool)UsesTuiMethod.Invoke(null, [inputRedirected, outputRedirected])!);
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────────────────────
+
+    private static List<string> Map(params ConversationEvent[] events) =>
+        ((System.Collections.IEnumerable)Blocks(events)).Cast<object>().Select(block => block.ToString()!).ToList();
+
+    private static string? Replying(params ConversationEvent[] events) =>
+        (string?)ReplyingMethod.Invoke(null, [Blocks(events)]);
+
+    private static object Blocks(ConversationEvent[] events)
+    {
+        var blockType = Forge.GetType("ForgeMission.Cli.Tui.TranscriptBlock", throwOnError: true)!;
+        object blocks = Array.CreateInstance(blockType, 0);
+        foreach (var item in events)
+            blocks = ApplyMethod.Invoke(null, [blocks, item])!;
+        return blocks;
+    }
+
+    private static ConversationEvent User(string text) => Event(ConversationEventKind.UserMessage, null, text);
+    private static ConversationEvent Started(string step) => Event(ConversationEventKind.ParticipantStarted, 1, step);
+    private static ConversationEvent Step(string text) => Event(ConversationEventKind.ParticipantMessage, 1, text);
+    private static ConversationEvent Final(string text) => Event(ConversationEventKind.ParticipantMessage, null, text);
+
+    private static ConversationEvent Error(string reason, int? attempt) =>
+        Event(ConversationEventKind.Error, attempt, null) with { Reason = reason };
+
+    private static ConversationEvent Status(ConversationRunStatus status) =>
+        Event(ConversationEventKind.RunStatus, null, null) with { RunStatus = status };
+
+    private static ConversationEvent Event(ConversationEventKind kind, int? attempt, string? text) => new(
+        Guid.NewGuid(), 1, Guid.Empty, Guid.Empty, 1, kind, ConversationParticipant.Forge, attempt, text,
+        null, null, null, null, null, null, DateTimeOffset.UtcNow);
+
+    private static Assembly LoadForge()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
+            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
+            dir = dir.Parent;
+        }
+
+        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
+    }
+}

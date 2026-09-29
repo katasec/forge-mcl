@@ -4,6 +4,7 @@ using ForgeMission.Application.Transport;
 using ForgeMission.Conversations.Contracts;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
+using ForgeMission.Cli.Tui;
 using Microsoft.Extensions.DependencyInjection;
 // Transport and Contracts both name these; forge chat uses the surface (Transport) side.
 using CreateMissionConversationRequest = ForgeMission.Application.Transport.CreateMissionConversationRequest;
@@ -11,8 +12,9 @@ using ListMissionConversationsRequest = ForgeMission.Application.Transport.ListM
 
 namespace ForgeMission.Cli;
 
-// forge chat (53.2, 53.4): a plain type-and-print chat with the naked Chat mission (one expert on
-// Claude) in the default Project. Everything below the loop is an existing Katasec.Forge.Client call
+// forge chat (53.2, 53.4, 53.5): a chat with the naked Chat mission (one expert on Claude) in the
+// default Project — a full-screen TUI on a terminal (Tui/ChatTui), otherwise a plain type-and-print
+// loop (acceptance scripts pipe it). Everything below the loop is an existing Katasec.Forge.Client call
 // through ApplicationComposition: Project create/open, mission authoring, and the mission-conversation
 // messages on ForgeAPI. This file owns only the order of those calls and what is printed.
 public static class ForgeChat
@@ -47,10 +49,14 @@ public static class ForgeChat
 
         try
         {
-            var sessionId = await OpenDefaultProjectAsync(app.Projects);
-            var mission = await EnsureMissionAsync(app, sessionId);
-            var conversationId = await OpenConversationAsync(app.MissionConversations, sessionId, mission);
-            return await ChatAsync(app.MissionConversations, conversationId);
+            var session = await OpenDefaultProjectAsync(app.Projects);
+            var mission = await EnsureMissionAsync(app, session.SessionId);
+            var (conversationId, version) = await OpenConversationAsync(app.MissionConversations, session.SessionId, mission);
+            if (!UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected))
+                return await ChatAsync(app.MissionConversations, conversationId);
+
+            var header = new ChatHeader(Path.GetFileName(session.Project.Home), MissionName, version, ChatProfile());
+            return await ChatTui.RunAsync(app.MissionConversations, conversationId, header);
         }
         catch (ChatStoppedException stopped)
         {
@@ -68,7 +74,7 @@ public static class ForgeChat
 
     /// <summary>The default Project lives at the home a draft proposes for its title, under Forge's
     /// own projects root. Open it; create it there only when that directory does not exist.</summary>
-    private static async Task<string> OpenDefaultProjectAsync(IProjectService projects)
+    private static async Task<ProjectSession> OpenDefaultProjectAsync(IProjectService projects)
     {
         var draft = await projects.DraftAsync(new ProjectDraftRequest(ProjectGoal, ProjectTitle), CancellationToken.None);
         var home = draft.Draft?.HomePath ?? throw Stopped(draft.Error);
@@ -81,7 +87,7 @@ public static class ForgeChat
             throw new ChatStoppedException($"{home} exists but is not a Forge project.");
         var session = opened.Session ?? throw Stopped(opened.Error);
         Console.WriteLine($"Project: {session.Project.Home}");
-        return session.SessionId;
+        return session;
     }
 
     // ── Mission ─────────────────────────────────────────────────────────────────────────────
@@ -180,18 +186,29 @@ public static class ForgeChat
     // ── Conversation ────────────────────────────────────────────────────────────────────────
 
     /// <summary>Reopens this Project's most recent mission conversation when it is on Chat;
-    /// otherwise (none yet, or the latest is on another mission such as Janus) creates one on Chat.</summary>
-    private static async Task<Guid> OpenConversationAsync(
+    /// otherwise (none yet, or the latest is on another mission such as Janus) creates one on Chat.
+    /// Returns the conversation and the Chat version it runs on.</summary>
+    private static async Task<(Guid ConversationId, int Version)> OpenConversationAsync(
         IMissionConversationService conversations, string sessionId, ApprovedMissionVersionOption mission)
     {
         var listed = await conversations.ListAsync(new ListMissionConversationsRequest(sessionId), CancellationToken.None);
         var latest = (listed.Conversations ?? throw Stopped(listed.Error)).FirstOrDefault();
         if (ReusesLatest(latest?.MissionName))
-            return latest!.ConversationId;
+            return (latest!.ConversationId, latest.VersionNumber);
 
         var created = await conversations.CreateAsync(
             new CreateMissionConversationRequest(sessionId, mission.MissionId, Guid.NewGuid(), mission.MissionVersionId), CancellationToken.None);
-        return (created.Created ?? throw Stopped(created.Error)).ConversationId;
+        return ((created.Created ?? throw Stopped(created.Error)).ConversationId, mission.VersionNumber);
+    }
+
+    /// <summary>The provider profile the Chat definition pins (<c>using anthropic</c>), read from the
+    /// definition itself so the header never names a model the deployment may change.</summary>
+    private static string ChatProfile()
+    {
+        var program = ForgeMission.Parser.MclParser.Parse(StarterMissions.ChatDefinition);
+        var chat = program.Declarations.OfType<ForgeMission.Parser.MissionDeclaration>().Single(item => item.Name == MissionName);
+        var step = chat.Pipeline.Elements.OfType<ForgeMission.Parser.StepElement>().First().Step;
+        return step.Using ?? "default";
     }
 
     /// <summary>Prints the history, follows a turn that is still running, then reads a line,
@@ -200,9 +217,9 @@ public static class ForgeChat
     private static async Task<int> ChatAsync(IMissionConversationService conversations, Guid conversationId)
     {
         var snapshot = (await conversations.GetConversationAsync(conversationId, CancellationToken.None)).Snapshot;
-        var cursor = await ReplayAsync(conversations, conversationId, snapshot.LastSequence);
+        var cursor = await ReplayAsync(conversations, conversationId, snapshot.LastSequence, item => Print(item, replay: true), CancellationToken.None);
         if (snapshot.ActiveRunId is { } running && !IsTerminal(snapshot.Status))
-            cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, CancellationToken.None);
+            cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, LivePrint, CancellationToken.None);
 
         while (true)
         {
@@ -216,7 +233,7 @@ public static class ForgeChat
             Console.CancelKeyPress += stop;
             try
             {
-                cursor = await FollowTurnAsync(conversations, conversationId, cursor, turn.TurnAttemptId, cancel.Token);
+                cursor = await FollowTurnAsync(conversations, conversationId, cursor, turn.TurnAttemptId, LivePrint, cancel.Token);
             }
             catch (OperationCanceledException) when (cancel.IsCancellationRequested)
             {
@@ -231,23 +248,25 @@ public static class ForgeChat
         }
     }
 
-    private static async Task<long> ReplayAsync(IMissionConversationService conversations, Guid conversationId, long lastSequence)
+    /// <summary>Shows every stored event up to <paramref name="lastSequence"/>; returns the cursor.</summary>
+    internal static async Task<long> ReplayAsync(IMissionConversationService conversations, Guid conversationId, long lastSequence,
+        Action<ConversationEvent> show, CancellationToken ct)
     {
         var cursor = 0L;
         if (lastSequence == 0) return cursor;
-        await foreach (var item in conversations.StreamEventsAsync(conversationId, 0, CancellationToken.None))
+        await foreach (var item in conversations.StreamEventsAsync(conversationId, 0, ct))
         {
-            Print(item, replay: true);
+            show(item);
             cursor = item.Sequence;
             if (cursor >= lastSequence) break;
         }
         return cursor;
     }
 
-    /// <summary>Prints events after <paramref name="cursor"/> until the run for
+    /// <summary>Shows events after <paramref name="cursor"/> until the run for
     /// <paramref name="attemptId"/> ends. A stream that closes first is reopened from the cursor.</summary>
-    private static async Task<long> FollowTurnAsync(
-        IMissionConversationService conversations, Guid conversationId, long cursor, Guid attemptId, CancellationToken ct)
+    internal static async Task<long> FollowTurnAsync(IMissionConversationService conversations, Guid conversationId, long cursor,
+        Guid attemptId, Action<ConversationEvent> show, CancellationToken ct)
     {
         while (true)
         {
@@ -255,7 +274,7 @@ public static class ForgeChat
             {
                 if (item.Sequence <= cursor) continue;
                 cursor = item.Sequence;
-                Print(item, replay: false);
+                show(item);
                 if (EndsTurn(item.Kind, item.RunId, item.RunStatus, attemptId)) return cursor;
             }
             await Task.Delay(ReconnectDelay, ct);
@@ -263,6 +282,8 @@ public static class ForgeChat
     }
 
     // ── Output and rules ────────────────────────────────────────────────────────────────────
+
+    private static void LivePrint(ConversationEvent item) => Print(item, replay: false);
 
     private static void Print(ConversationEvent item, bool replay)
     {
@@ -287,6 +308,9 @@ public static class ForgeChat
         }
     }
 
+    /// <summary>The TUI needs a terminal on both ends; piped input or output keeps the line mode.</summary>
+    internal static bool UsesTui(bool inputRedirected, bool outputRedirected) => !inputRedirected && !outputRedirected;
+
     /// <summary>The latest conversation is reopened only when it is on the default mission; a model
     /// is pinned at create, so a conversation on another mission is never continued on Chat.</summary>
     internal static bool ReusesLatest(string? latestMissionName) =>
@@ -297,7 +321,7 @@ public static class ForgeChat
     internal static bool EndsTurn(ConversationEventKind kind, Guid? runId, ConversationRunStatus? status, Guid attemptId) =>
         kind == ConversationEventKind.RunStatus && runId == attemptId && status is { } value && IsTerminal(value);
 
-    private static bool IsTerminal(ConversationRunStatus status) => status is
+    internal static bool IsTerminal(ConversationRunStatus status) => status is
         ConversationRunStatus.Completed or ConversationRunStatus.Rejected or
         ConversationRunStatus.Interrupted or ConversationRunStatus.Failed;
 
