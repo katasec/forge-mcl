@@ -34,7 +34,7 @@ A change belongs here only if it advances the `forge` command surface or compose
 ## Use these pieces
 
 - [`Program`](Program.cs) registers every command and is the executable entry point.
-- [`ForgeChat`](ForgeChat.cs) is `forge chat`: it opens the default Project (`~/Forge/Projects/chat`), publishes Janus on first use, reopens the last mission conversation, and runs a plain type-and-print loop, all through `ApplicationComposition` from `Katasec.Forge.Client`. It adds no ForgeAPI client of its own.
+- [`ForgeChat`](ForgeChat.cs) is `forge chat`: it opens the default Project (`~/Forge/Projects/chat`), publishes the naked `Chat` mission (`StarterMissions.ChatDefinition`: one expert `using anthropic`) on first use, reopens the latest mission conversation only when it is on Chat (otherwise creates one on Chat; Janus conversations stay stored), and runs a plain type-and-print loop, all through `ApplicationComposition` from `Katasec.Forge.Client`. It adds no ForgeAPI client of its own.
 - [`ForgeExec`](ForgeExec.cs) is the shared CLI execution helper; [`ProviderClientBuilder`](ProviderClientBuilder.cs) wires optional live search.
 - [`ChatClients`](../ForgeMission.ChatClients/ChatClients.cs), [`ForgeServe`](../ForgeMission.Serve/ForgeServe.cs), and [`DockerCli`](../ForgeMission.Docker/DockerCli.cs) are composed owners.
 - [`MissionFileResolutionTests`](../../tests/ForgeMission.Mcl.Tests/Cli/MissionFileResolutionTests.cs) covers CLI mission-file defaulting.
