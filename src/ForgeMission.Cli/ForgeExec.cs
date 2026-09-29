@@ -21,7 +21,7 @@ public static class ForgeExec
     // Same override convention as PlatformLogin's endpoints (FORGE_PLATFORM_ENDPOINT etc.) — the
     // platform-key issuer (ForgeUI) and the mission-invocation gateway (ForgeAPI) are different
     // hosts, so this needs its own var rather than reusing PlatformCredential.Endpoint.
-    private static string ApiEndpoint =>
+    internal static string ApiEndpoint =>
         Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT")?.TrimEnd('/')
         ?? "https://api.forge.katasec.com";
 
