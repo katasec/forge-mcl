@@ -12,8 +12,11 @@ public sealed record YouBlock(string Text) : TranscriptBlock;
 /// <paramref name="Mission"/> titles a final result that differs from the last step's text.</summary>
 public sealed record ParticipantCard(string Title, string? Text, string Mission) : TranscriptBlock;
 
-/// <summary>A muted one-line notice: an error or a run that did not complete.</summary>
+/// <summary>A muted one-line notice: a run that did not complete.</summary>
 public sealed record NoticeLine(string Text) : TranscriptBlock;
+
+/// <summary>An error from the run or the connection.</summary>
+public sealed record ErrorLine(string Text) : TranscriptBlock;
 
 // forge chat TUI (53.5): the one mapping from conversation events to transcript blocks, used for
 // both the replay of a reopened conversation and a live turn. Pure: no terminal, no Client.
@@ -71,7 +74,7 @@ public static class Transcript
     /// shown once.</summary>
     private static IReadOnlyList<TranscriptBlock> AddError(IReadOnlyList<TranscriptBlock> blocks, ConversationEvent item)
     {
-        var notice = new NoticeLine($"error: {item.Reason ?? item.Text}");
+        var notice = new ErrorLine($"error: {item.Reason ?? item.Text}");
         if (item.Attempt is null && blocks.Count > 0 && blocks[^1] == notice) return blocks;
         return Append(blocks, notice);
     }
