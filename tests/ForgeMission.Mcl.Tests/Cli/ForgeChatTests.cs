@@ -2,11 +2,27 @@ using System.Reflection;
 
 namespace ForgeMission.Tests.Cli;
 
-// forge chat (53.2): the rule that decides a turn has ended, read through reflection like the other
-// CLI tests (the test project does not reference the forge executable's assembly).
+// forge chat (53.2, 53.4): the rules that decide a turn has ended and which conversation to open,
+// read through reflection like the other CLI tests (the test project does not reference the forge
+// executable's assembly).
 public sealed class ForgeChatTests
 {
-    private static readonly MethodInfo EndsTurn = LoadEndsTurn();
+    private static readonly MethodInfo EndsTurn = LoadForgeChatMethod("EndsTurn");
+    private static readonly MethodInfo ReusesLatest = LoadForgeChatMethod("ReusesLatest");
+
+    [Fact]
+    public void The_latest_conversation_on_Chat_is_reopened()
+    {
+        Assert.True((bool)ReusesLatest.Invoke(null, ["Chat"])!);
+    }
+
+    [Theory]
+    [InlineData("Janus")]
+    [InlineData(null)]
+    public void A_latest_conversation_on_another_mission_or_none_creates_a_new_one(string? latestMissionName)
+    {
+        Assert.False((bool)ReusesLatest.Invoke(null, [latestMissionName])!);
+    }
 
     [Theory]
     [InlineData("Completed")]
@@ -54,7 +70,7 @@ public sealed class ForgeChatTests
         return (bool)EndsTurn.Invoke(null, [kindValue, runId, statusValue, attemptId])!;
     }
 
-    private static MethodInfo LoadEndsTurn()
+    private static MethodInfo LoadForgeChatMethod(string name)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
@@ -62,7 +78,7 @@ public sealed class ForgeChatTests
             var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
             if (File.Exists(candidate))
                 return Assembly.LoadFrom(candidate).GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
-                    .GetMethod("EndsTurn", BindingFlags.Static | BindingFlags.NonPublic)!;
+                    .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
             dir = dir.Parent;
         }
 

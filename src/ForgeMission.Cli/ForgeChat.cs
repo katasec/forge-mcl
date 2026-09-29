@@ -11,15 +11,18 @@ using ListMissionConversationsRequest = ForgeMission.Application.Transport.ListM
 
 namespace ForgeMission.Cli;
 
-// forge chat (53.2): a plain type-and-print chat with Janus in the default Project. Everything below
-// the loop is an existing Katasec.Forge.Client call through ApplicationComposition: Project
-// create/open, Janus authoring, and the mission-conversation messages on ForgeAPI. This file owns
-// only the order of those calls and what is printed.
+// forge chat (53.2, 53.4): a plain type-and-print chat with the naked Chat mission (one expert on
+// Claude) in the default Project. Everything below the loop is an existing Katasec.Forge.Client call
+// through ApplicationComposition: Project create/open, mission authoring, and the mission-conversation
+// messages on ForgeAPI. This file owns only the order of those calls and what is printed.
 public static class ForgeChat
 {
     private const string ProjectTitle = "Chat";
+    // Unchanged since 53.2: an existing default Project must keep resolving and opening as before.
     private const string ProjectGoal = "Chat with Janus from the forge CLI.";
-    private const string MissionName = "Janus";
+    // The definition pins the model (`using anthropic`), so a conversation stays on the mission it
+    // was created on.
+    private const string MissionName = StarterMissions.Chat;
     private static readonly TimeSpan EvaluationPollDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromMilliseconds(250);
 
@@ -45,8 +48,8 @@ public static class ForgeChat
         try
         {
             var sessionId = await OpenDefaultProjectAsync(app.Projects);
-            var janus = await EnsureJanusAsync(app, sessionId);
-            var conversationId = await OpenConversationAsync(app.MissionConversations, sessionId, janus);
+            var mission = await EnsureMissionAsync(app, sessionId);
+            var conversationId = await OpenConversationAsync(app.MissionConversations, sessionId, mission);
             return await ChatAsync(app.MissionConversations, conversationId);
         }
         catch (ChatStoppedException stopped)
@@ -81,39 +84,39 @@ public static class ForgeChat
         return session.SessionId;
     }
 
-    // ── Janus ───────────────────────────────────────────────────────────────────────────────
+    // ── Mission ─────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Returns the approved Janus version. On first use, runs the Desktop's authoring
+    /// <summary>Returns the approved Chat version. On first use, runs the Desktop's authoring
     /// sequence (draft → promote → add a case → evaluate → publish), each step chosen from the
     /// Project's current authoring state, so an interrupted first use resumes where it stopped.
     /// A case that failed on an earlier launch is re-run once; a failure in this launch stops.</summary>
-    private static async Task<ApprovedMissionVersionOption> EnsureJanusAsync(ApplicationComposition app, string sessionId)
+    private static async Task<ApprovedMissionVersionOption> EnsureMissionAsync(ApplicationComposition app, string sessionId)
     {
         var ranThisLaunch = false;
         while (true)
         {
-            if (await FindApprovedJanusAsync(app.MissionConversations, sessionId) is { } approved)
+            if (await FindApprovedAsync(app.MissionConversations, sessionId) is { } approved)
                 return approved;
 
             var missions = await ReadAuthoringAsync(app.MissionAuthoring, sessionId, null);
             var summary = missions.Missions.FirstOrDefault(item => item.Name == MissionName);
             if (summary is null)
             {
-                Console.WriteLine("First use: publishing Janus in this project (one evaluation run).");
+                Console.WriteLine($"First use: publishing {MissionName} in this project (one evaluation run).");
                 Check(await app.MissionAuthoring.CreateDraftAsync(
-                    new CreateMissionDraftRequest(sessionId, MissionName, string.Empty, MissionHandsProfile.NoHands), CancellationToken.None));
+                    new CreateMissionDraftRequest(sessionId, MissionName, StarterMissions.ChatDefinition, MissionHandsProfile.NoHands), CancellationToken.None));
                 continue;
             }
 
             var document = (await ReadAuthoringAsync(app.MissionAuthoring, sessionId, summary.MissionId)).Open
-                ?? throw new ChatStoppedException("Janus could not be opened for authoring.");
-            ranThisLaunch = await AdvanceJanusAsync(app.MissionAuthoring, sessionId, document, ranThisLaunch);
+                ?? throw new ChatStoppedException($"{MissionName} could not be opened for authoring.");
+            ranThisLaunch = await AdvanceAsync(app.MissionAuthoring, sessionId, document, ranThisLaunch);
         }
     }
 
     /// <summary>Takes the one next authoring step for <paramref name="document"/>. Returns whether
     /// an evaluation has been started in this launch.</summary>
-    private static async Task<bool> AdvanceJanusAsync(
+    private static async Task<bool> AdvanceAsync(
         IMissionAuthoringService authoring, string sessionId, MissionAuthoringDocument document, bool ranThisLaunch)
     {
         if (document.Editable == MissionEditableKind.Draft)
@@ -124,7 +127,7 @@ public static class ForgeChat
         }
 
         if (document.MissionVersionId is not { } versionId)
-            throw new ChatStoppedException("Janus has no candidate version to publish.");
+            throw new ChatStoppedException($"{MissionName} has no candidate version to publish.");
 
         if (document.Cases.Count == 0)
         {
@@ -137,7 +140,7 @@ public static class ForgeChat
         if (open is null)
         {
             Check(await authoring.PublishAsync(new PublishMissionVersionRequest(sessionId, document.MissionId, versionId), CancellationToken.None));
-            Console.WriteLine("Janus published.");
+            Console.WriteLine($"{MissionName} published.");
             return ranThisLaunch;
         }
 
@@ -147,13 +150,13 @@ public static class ForgeChat
                 await Task.Delay(EvaluationPollDelay);
                 return ranThisLaunch;
             case EvaluationResultStateView.Failed when ranThisLaunch:
-                throw new ChatStoppedException($"Janus evaluation failed: {open.ObservedSummary}");
+                throw new ChatStoppedException($"{MissionName} evaluation failed: {open.ObservedSummary}");
             case EvaluationResultStateView.Failed:
-                Console.WriteLine($"The previous Janus evaluation failed: {open.ObservedSummary}");
+                Console.WriteLine($"The previous {MissionName} evaluation failed: {open.ObservedSummary}");
                 Console.WriteLine("Running it again.");
                 break;
             default:
-                Console.WriteLine("Evaluating Janus…");
+                Console.WriteLine($"Evaluating {MissionName}…");
                 break;
         }
 
@@ -162,7 +165,7 @@ public static class ForgeChat
         return true;
     }
 
-    private static async Task<ApprovedMissionVersionOption?> FindApprovedJanusAsync(IMissionConversationService conversations, string sessionId)
+    private static async Task<ApprovedMissionVersionOption?> FindApprovedAsync(IMissionConversationService conversations, string sessionId)
     {
         var approved = await conversations.ListApprovedVersionsAsync(new ListApprovedMissionVersionsRequest(sessionId), CancellationToken.None);
         return (approved.Options ?? throw Stopped(approved.Error)).FirstOrDefault(item => item.MissionName == MissionName);
@@ -176,16 +179,18 @@ public static class ForgeChat
 
     // ── Conversation ────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Reopens this Project's most recent mission conversation, or creates one on Janus.</summary>
+    /// <summary>Reopens this Project's most recent mission conversation when it is on Chat;
+    /// otherwise (none yet, or the latest is on another mission such as Janus) creates one on Chat.</summary>
     private static async Task<Guid> OpenConversationAsync(
-        IMissionConversationService conversations, string sessionId, ApprovedMissionVersionOption janus)
+        IMissionConversationService conversations, string sessionId, ApprovedMissionVersionOption mission)
     {
         var listed = await conversations.ListAsync(new ListMissionConversationsRequest(sessionId), CancellationToken.None);
-        if ((listed.Conversations ?? throw Stopped(listed.Error)).FirstOrDefault() is { } latest)
-            return latest.ConversationId;
+        var latest = (listed.Conversations ?? throw Stopped(listed.Error)).FirstOrDefault();
+        if (ReusesLatest(latest?.MissionName))
+            return latest!.ConversationId;
 
         var created = await conversations.CreateAsync(
-            new CreateMissionConversationRequest(sessionId, janus.MissionId, Guid.NewGuid(), janus.MissionVersionId), CancellationToken.None);
+            new CreateMissionConversationRequest(sessionId, mission.MissionId, Guid.NewGuid(), mission.MissionVersionId), CancellationToken.None);
         return (created.Created ?? throw Stopped(created.Error)).ConversationId;
     }
 
@@ -281,6 +286,11 @@ public static class ForgeChat
                 break;
         }
     }
+
+    /// <summary>The latest conversation is reopened only when it is on the default mission; a model
+    /// is pinned at create, so a conversation on another mission is never continued on Chat.</summary>
+    internal static bool ReusesLatest(string? latestMissionName) =>
+        string.Equals(latestMissionName, MissionName, StringComparison.Ordinal);
 
     /// <summary>A turn ends at a terminal run status for its own attempt; the Host stamps each
     /// turn's events with the attempt ID as <c>RunId</c>.</summary>
