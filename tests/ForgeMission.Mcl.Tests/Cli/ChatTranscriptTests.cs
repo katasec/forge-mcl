@@ -71,10 +71,31 @@ public sealed class ChatTranscriptTests
             Status(ConversationRunStatus.Failed));
 
         Assert.Equal([
-            "ParticipantCard { Title = Answerer, Text = , Mission = Chat }",
             "NoticeLine { Text = error: rate limited }",
             "NoticeLine { Text = (run failed) }",
         ], blocks);
+    }
+
+    [Fact]
+    public void A_card_without_text_is_kept_only_while_its_turn_runs()
+    {
+        Assert.Equal([
+            "YouBlock { Text = hi }",
+            "ParticipantCard { Title = Answerer, Text = , Mission = Chat }",
+        ], Map(User("hi"), Started("Chat:Answerer")));
+
+        Assert.Equal([
+            "YouBlock { Text = hi }",
+            "NoticeLine { Text = (run interrupted) }",
+        ], Map(User("hi"), Started("Chat:Answerer"), Status(ConversationRunStatus.Interrupted)));
+    }
+
+    [Fact]
+    public void A_completed_turn_keeps_its_answered_cards()
+    {
+        var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Status(ConversationRunStatus.Completed));
+
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat }"], blocks);
     }
 
     [Theory]

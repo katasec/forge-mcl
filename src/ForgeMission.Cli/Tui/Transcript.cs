@@ -28,8 +28,7 @@ public static class Transcript
         ConversationEventKind.ParticipantMessage when item.Attempt is not null => FillLatestCard(blocks, item.Text ?? ""),
         ConversationEventKind.ParticipantMessage => AddFinalResult(blocks, item.Text ?? ""),
         ConversationEventKind.Error => AddError(blocks, item),
-        ConversationEventKind.RunStatus when item.RunStatus is { } status && EndsUnfinished(status) =>
-            Append(blocks, new NoticeLine($"(run {status.ToString().ToLowerInvariant()})")),
+        ConversationEventKind.RunStatus when item.RunStatus is { } status && IsTerminal(status) => EndTurn(blocks, status),
         _ => blocks,
     };
 
@@ -77,6 +76,16 @@ public static class Transcript
         return Append(blocks, notice);
     }
 
+    /// <summary>A turn has ended: a card that never received text is dropped (its pending body is
+    /// shown only while the turn runs), and a run that did not complete adds a notice.</summary>
+    private static IReadOnlyList<TranscriptBlock> EndTurn(IReadOnlyList<TranscriptBlock> blocks, ConversationRunStatus status)
+    {
+        IReadOnlyList<TranscriptBlock> ended = blocks.Where(block => block is not ParticipantCard { Text: null }).ToList();
+        return status == ConversationRunStatus.Completed
+            ? ended
+            : Append(ended, new NoticeLine($"(run {status.ToString().ToLowerInvariant()})"));
+    }
+
     private static int LatestCardIndex(IReadOnlyList<TranscriptBlock> blocks)
     {
         for (var i = blocks.Count - 1; i >= 0; i--)
@@ -84,7 +93,7 @@ public static class Transcript
         return -1;
     }
 
-    private static bool EndsUnfinished(ConversationRunStatus status) => status is
+    private static bool IsTerminal(ConversationRunStatus status) => status is ConversationRunStatus.Completed or
         ConversationRunStatus.Rejected or ConversationRunStatus.Interrupted or ConversationRunStatus.Failed;
 
     private static IReadOnlyList<TranscriptBlock> Append(IReadOnlyList<TranscriptBlock> blocks, TranscriptBlock block) =>

@@ -19,7 +19,8 @@ internal sealed class ChatScreen
 
     private readonly DocumentFlow _flow = new DocumentFlow().ItemSpacing(0);
     private readonly State<string> _progress = new("");
-    // One entry per rendered block: the body of a card, null for other blocks.
+    // The blocks on screen, and per block the body of a card (null for other blocks).
+    private readonly List<TranscriptBlock> _shown = [];
     private readonly List<Paragraph?> _cardBodies = [];
 
     public ChatScreen(ChatHeader header)
@@ -32,7 +33,7 @@ internal sealed class ChatScreen
                 new TextBlock(() => _progress.Value).Style(ForgeTheme.Progress).Margin(new Thickness(1, 0, 1, 0)),
                 Divider(),
                 Composer,
-                new TextBlock($" {Keys}").Style(ForgeTheme.KeyBar)));
+                new TextBlock($" {Keys}").Style(ForgeTheme.KeyBar).HorizontalAlignment(Align.Stretch)));
         Root.Style(ForgeTheme.Screen);
     }
 
@@ -40,12 +41,24 @@ internal sealed class ChatScreen
 
     public PromptEditor Composer { get; }
 
-    /// <summary>Brings the screen in line with <paramref name="blocks"/>. Blocks only append, and
-    /// only a card's text changes in place, so rendered items are kept and updated.</summary>
+    /// <summary>Brings the screen in line with <paramref name="blocks"/>. Blocks mostly append and
+    /// a card's text changes in place; when a turn ends a pending card can drop out, so items are
+    /// kept up to the first block that differs and rebuilt from there.</summary>
     public void Show(IReadOnlyList<TranscriptBlock> blocks)
     {
-        for (var i = _cardBodies.Count; i < blocks.Count; i++)
+        var kept = KeptCount(blocks);
+        for (var i = _shown.Count - 1; i >= kept; i--)
+        {
+            _flow.Items.RemoveAt(i);
+            _cardBodies.RemoveAt(i);
+            _shown.RemoveAt(i);
+        }
+
+        for (var i = kept; i < blocks.Count; i++)
+        {
             _cardBodies.Add(AppendBlock(blocks[i]));
+            _shown.Add(blocks[i]);
+        }
 
         for (var i = 0; i < blocks.Count; i++)
         {
@@ -55,6 +68,22 @@ internal sealed class ChatScreen
 
         _progress.Value = Transcript.Replying(blocks) is { } expert ? $"{expert} is replying …" : "";
     }
+
+    /// <summary>How many shown blocks still hold the same place: a card keeps its place while
+    /// its title does (its text is updated in place); any other block while it is equal.</summary>
+    private int KeptCount(IReadOnlyList<TranscriptBlock> blocks)
+    {
+        var count = 0;
+        while (count < _shown.Count && count < blocks.Count && SamePlace(_shown[count], blocks[count]))
+            count++;
+        return count;
+    }
+
+    private static bool SamePlace(TranscriptBlock shown, TranscriptBlock next) => (shown, next) switch
+    {
+        (ParticipantCard a, ParticipantCard b) => a.Title == b.Title && a.Mission == b.Mission,
+        _ => shown == next,
+    };
 
     public void PageUp()
     {
