@@ -146,4 +146,33 @@ public class DirectExpertRunnerTests
         var messages = Assert.Single(client.Requests);
         Assert.Equal([ChatRole.System, ChatRole.Assistant, ChatRole.User], messages.Select(m => m.Role));
     }
+
+    // Phase 53.8: a streamed non-judge step answers in plain text, so its system prompt carries no
+    // JSON envelope instruction; a streamed judge keeps its pass/fail envelope instruction.
+    [Fact]
+    public async Task StreamingNonJudge_SendsNoEnvelopeInstruction()
+    {
+        var client = new StubChatClient("pass");
+
+        await foreach (var _ in new DirectExpertRunner(client).StreamAsync(CriticExpert(), EmptyContext()))
+        {
+        }
+
+        var system = Assert.Single(client.Requests)[0];
+        Assert.Equal("You are a critic.", system.Text);
+    }
+
+    [Fact]
+    public async Task StreamingJudge_KeepsEnvelopeInstruction()
+    {
+        var client = new StubChatClient("pass");
+
+        await foreach (var _ in new DirectExpertRunner(client).StreamAsync(JudgeExpert(), EmptyContext()))
+        {
+        }
+
+        var system = Assert.Single(client.Requests)[0];
+        Assert.StartsWith("You are a judge.", system.Text);
+        Assert.Contains("\"status\": \"fail\"", system.Text);
+    }
 }

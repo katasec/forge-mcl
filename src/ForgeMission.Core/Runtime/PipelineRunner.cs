@@ -410,31 +410,7 @@ public class PipelineRunner
         StepEnvelope envelope;
         try
         {
-            // Never force the streaming path merely because OnTrace is configured (Task 3): several
-            // non-LLM runners expose a text-only streaming adapter that cannot preserve a failing
-            // StepEnvelope. This condition is unchanged from before OnTrace existed.
-            if (options.StepWriter is not null || options.ContentWriter is not null)
-            {
-                var sb = new StringBuilder();
-                await foreach (var chunk in runner.StreamAsync(expert, context, ct))
-                {
-                    if (options.StepWriter is { } sw2)
-                        await sw2.WriteAsync(chunk);
-                    if (options.ContentWriter is { } cw)
-                        await cw.WriteAsync(chunk);
-                    sb.Append(chunk);
-
-                    if (options.OnTrace is { } onDelta && !string.IsNullOrEmpty(chunk))
-                        await onDelta(new PipelineStepDelta(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, chunk), ct);
-                }
-                if (options.StepWriter is { } sw3)
-                    await sw3.WriteLineAsync("\n");
-                envelope = ParseStreamedEnvelope(sb.ToString());
-            }
-            else
-            {
-                envelope = await runner.RunAsync(expert, context, ct);
-            }
+            envelope = await InvokeExpertAsync(runner, expert, context, options, missionPath, step.ExpertName, attempt, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -489,7 +465,10 @@ public class PipelineRunner
             parent.ContentWriter,
             OnSearchProgress: parent.OnSearchProgress,
             OnTrace: parent.OnTrace,
-            MissionPath: [.. parentPath, childMissionName]);
+            MissionPath: [.. parentPath, childMissionName])
+        {
+            StreamLlmDeltas = parent.StreamLlmDeltas,
+        };
 
     private static bool IsNegotiationEligible(
         MissionDeclaration mission,
@@ -697,6 +676,52 @@ public class PipelineRunner
         _          => false
     };
 
+    // The one place a step's expert is invoked (Phase 53.8), shared by the recursive path and the
+    // root-scoped interpreter. It streams only when a caller asked for text as it is written: a
+    // step or content writer (CLI, serve), or the durable executor's StreamLlmDeltas for a tool-free,
+    // non-judge llm step. OnTrace alone never forces streaming: several non-LLM runners expose a
+    // text-only streaming adapter that cannot preserve a failing StepEnvelope.
+    private static async Task<StepEnvelope> InvokeExpertAsync(
+        IExpertRunner runner,
+        ExpertDefinition expert,
+        Dictionary<string, object> context,
+        PipelineRunOptions options,
+        IReadOnlyList<string> missionPath,
+        string expertName,
+        int attempt,
+        CancellationToken ct)
+    {
+        if (!StreamsStep(expert, context, options))
+            return await runner.RunAsync(expert, context, ct);
+
+        var text = new StringBuilder();
+        await foreach (var chunk in runner.StreamAsync(expert, context, ct))
+        {
+            if (options.StepWriter is { } stepWriter)
+                await stepWriter.WriteAsync(chunk);
+            if (options.ContentWriter is { } contentWriter)
+                await contentWriter.WriteAsync(chunk);
+            text.Append(chunk);
+
+            if (options.OnTrace is { } onDelta && !string.IsNullOrEmpty(chunk))
+                await onDelta(new PipelineStepDelta(options.MissionName, missionPath, expertName, expert.Kind, attempt, chunk), ct);
+        }
+        if (options.StepWriter is { } endWriter)
+            await endWriter.WriteLineAsync("\n");
+
+        // A non-judge llm step streams plain text (no envelope instruction) and always passes; a
+        // judge and every non-llm kind still stream the envelope they always have.
+        return IsPlainTextLlm(expert) ? new StepEnvelope(text.ToString()) : ParseStreamedEnvelope(text.ToString());
+    }
+
+    private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
+        options.StepWriter is not null
+        || options.ContentWriter is not null
+        || (options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey("tools"));
+
+    private static bool IsPlainTextLlm(ExpertDefinition expert) =>
+        expert.Kind.Equals("llm", StringComparison.OrdinalIgnoreCase) && !expert.IsJudge;
+
     private static StepEnvelope ParseStreamedEnvelope(string raw)
     {
         try
@@ -859,7 +884,7 @@ public class PipelineRunner
 
             await Trace(new PipelineStepStarted(_options.MissionName, Path(), step.ExpertName, expert.Kind, frame.Attempt));
             StepEnvelope envelope;
-            try { envelope = await RunnerFor(expert, step).RunAsync(expert, context, _ct); }
+            try { envelope = await InvokeExpertAsync(RunnerFor(expert, step), expert, context, _options, Path(), step.ExpertName, frame.Attempt, _ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { return Failure(PipelineFailure.ProviderFailed); }
             await Trace(new PipelineStepCompleted(_options.MissionName, Path(), step.ExpertName, expert.Kind, frame.Attempt, envelope));
             frame.Context["output"] = envelope.Text;

@@ -95,7 +95,7 @@ internal sealed class AnthropicResponseFormatChatClient(IChatClient inner, strin
         return inner.GetResponseAsync(messages, options, cancellationToken);
     }
 
-    // Streaming uses DirectExpertRunner's prompt-level JSON instruction rather than ResponseFormat.
+    // Streaming never uses ResponseFormat (a judge's envelope is a prompt-level instruction).
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
@@ -107,10 +107,13 @@ internal sealed class AnthropicResponseFormatChatClient(IChatClient inner, strin
 
     public void Dispose() => inner.Dispose();
 
+    // The SDK otherwise sends a 250-token limit on calls without structured output (streamed and
+    // tool-mode calls), cutting a reply short; every call gets the same default (Phase 53.8).
     private ChatOptions EnsureModelId(ChatOptions? options)
     {
         options ??= new ChatOptions();
         options.ModelId ??= modelId;
+        options.MaxOutputTokens ??= DefaultMaxTokens;
         return options;
     }
 

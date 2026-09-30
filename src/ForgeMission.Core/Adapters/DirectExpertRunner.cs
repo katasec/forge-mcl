@@ -35,7 +35,8 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         schemaName: "step_envelope",
         schemaDescription: "A step result: the answer text plus a pass/fail status and optional reason.");
 
-    // Appended to system prompts in streaming mode (structured output not available for streaming).
+    // Appended to a judge's system prompt in streaming mode (structured output is not available for
+    // streaming). Every other streamed step answers in plain text and always passes (Phase 53.8).
     private const string JudgeStreamingInstruction = """
 
 
@@ -43,13 +44,6 @@ Respond with this exact JSON format and nothing else:
 {"text": "<your complete response>", "status": "pass"}
 Or on failure:
 {"text": "<brief summary>", "status": "fail", "reason": "<which criterion failed>"}
-""";
-
-    private const string CriticStreamingInstruction = """
-
-
-Respond with this exact JSON format and nothing else — status must always be "pass":
-{"text": "<your complete response>", "status": "pass"}
 """;
 
     public async Task<StepEnvelope> RunAsync(
@@ -176,10 +170,9 @@ Respond with this exact JSON format and nothing else — status must always be "
                 messages.AddRange(conversation.Messages.Where(m => m.Role != ChatRole.System));
             }
         }
-        else
+        else if (expert.IsJudge)
         {
-            var instruction = expert.IsJudge ? JudgeStreamingInstruction : CriticStreamingInstruction;
-            messages[0] = new ChatMessage(ChatRole.System, systemPrompt + instruction);
+            messages[0] = new ChatMessage(ChatRole.System, systemPrompt + JudgeStreamingInstruction);
         }
 
         var updates = new List<ChatResponseUpdate>();

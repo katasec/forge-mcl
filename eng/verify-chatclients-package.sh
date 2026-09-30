@@ -5,7 +5,7 @@ set -euo pipefail
 package_directory=${1:?usage: verify-chatclients-package.sh <package-directory> <repository-commit>}
 repository_commit=${2:?usage: verify-chatclients-package.sh <package-directory> <repository-commit>}
 package_id=Katasec.Forge.Mcl.ChatClients
-package_version=0.1.0
+package_version=0.1.1
 package_path="$package_directory/$package_id.$package_version.nupkg"
 
 if [[ ! -f "$package_path" ]]; then
@@ -33,7 +33,7 @@ for expected_value in \
   "commit=\"$repository_commit\"" \
   "<license type=\"file\">LICENSE.md</license>" \
   "<readme>README.md</readme>" \
-  "id=\"Katasec.Forge.Mcl.Core\" version=\"0.1.0\""; do
+  "id=\"Katasec.Forge.Mcl.Core\" version=\"0.1.2\""; do
   if ! grep -Fq "$expected_value" <<<"$nuspec"; then
     echo "Missing package metadata: $expected_value" >&2
     exit 1
