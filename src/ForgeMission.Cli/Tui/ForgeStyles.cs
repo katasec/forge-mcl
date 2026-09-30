@@ -1,4 +1,5 @@
 using XenoAtom.Terminal.UI;
+using XenoAtom.Terminal.UI.Extensions.Markdown.Styling;
 using XenoAtom.Terminal.UI.Styling;
 
 namespace ForgeMission.Cli.Tui;
@@ -67,7 +68,36 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public TextBlockStyle CardTitle { get; } = Foreground(theme.CardTitle);
 
-    public Style CardText { get; } = Style.None.WithForeground(theme.TextStrong);
+    /// <summary>Participant replies (53.7). Every slot carries an explicit token: a slot left at
+    /// the package default would fall back to the package's theme-derived colours.</summary>
+    public MarkdownStyle Markdown { get; } = MarkdownStyle.Default with
+    {
+        ParagraphStyle = Style.None.WithForeground(theme.TextStrong),
+        Heading1Style = Style.None.WithForeground(theme.TextStrong) | TextStyle.Bold,
+        Heading2Style = Style.None.WithForeground(theme.TextStrong) | TextStyle.Bold,
+        Heading3Style = Style.None.WithForeground(theme.TextStrong) | TextStyle.Bold,
+        Heading4Style = Style.None.WithForeground(theme.TextStrong) | TextStyle.Bold,
+        Heading5Style = Style.None.WithForeground(theme.TextStrong) | TextStyle.Bold,
+        Heading6Style = Style.None.WithForeground(theme.TextStrong) | TextStyle.Bold,
+        StrongStyle = Style.None.WithForeground(theme.TextStrong) | TextStyle.Bold,
+        EmphasisStyle = Style.None | TextStyle.Italic,
+        InlineCodeStyle = Style.None.WithForeground(theme.InlineCode),
+        LinkStyle = Style.None.WithForeground(theme.Link) | TextStyle.Underline,
+        QuotePrefixStyle = Style.None.WithForeground(theme.TextMuted),
+        HtmlStyle = Style.None.WithForeground(theme.TextMuted),
+        NoteAlert = Alert(theme.Accent, theme.CardSurface),
+        TipAlert = Alert(theme.Success, theme.CardSurface),
+        ImportantAlert = Alert(theme.Accent, theme.CardSurface),
+        WarningAlert = Alert(theme.Warning, theme.CardSurface),
+        CautionAlert = Alert(theme.Error, theme.CardSurface),
+    };
+
+    /// <summary>Fenced and indented code in replies: a rounded box, no language label. The
+    /// border cells sit on the card surface so the fill stays inside the line.</summary>
+    public CodeBlockStyle CodeBlock { get; } = new(
+        Style.None.WithForeground(theme.CodeBlockBorder).WithBackground(theme.CardSurface),
+        Style.None.WithBackground(theme.CodeBlockFill),
+        Style.None.WithForeground(theme.CodeBlockText).WithBackground(theme.CodeBlockFill));
 
     public Style Notice { get; } = Style.None.WithForeground(theme.TextMuted) | TextStyle.Italic;
 
@@ -101,7 +131,17 @@ internal sealed class ForgeStyles(ForgeTheme theme)
     };
 
     private static TextBlockStyle Foreground(Color color) => TextBlockStyle.Default with { Foreground = color };
+
+    private static MarkdownAlertStyle Alert(Color token, Color surface) => MarkdownAlertStyle.Default with
+    {
+        BorderStyle = Style.None.WithForeground(token),
+        TitleStyle = Style.None.WithForeground(token) | TextStyle.Bold,
+        BackgroundStyle = Style.None.WithBackground(surface),
+    };
 }
+
+/// <summary>A reply code block: border, fill, and text.</summary>
+internal sealed record CodeBlockStyle(Style Border, Style Fill, Style Text);
 
 /// <summary>A one-line pill: the text on its fill, between rounded caps drawn in the fill colour.</summary>
 internal sealed record Pill(TextBlockStyle Text, TextBlockStyle Cap, string CapLeft, string CapRight);

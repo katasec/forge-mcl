@@ -141,6 +141,92 @@ public sealed class ChatTranscriptTests
         Assert.Equal(expected, (bool)UsesTuiMethod.Invoke(null, [inputRedirected, outputRedirected])!);
     }
 
+    // ── Sent messages (53.7): shown at once, replaced by Forge's own events ─────────────────
+
+    private static readonly Guid Sent = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    [Fact]
+    public void A_sent_message_shows_a_pending_pill_and_reply_at_once()
+    {
+        Assert.Equal([
+            $"PendingYouBlock {{ CommandId = {Sent}, Text = hi }}",
+            $"PendingReplyBlock {{ CommandId = {Sent} }}",
+        ], Strings(Submitted("hi")));
+        Assert.Equal("", (string?)ReplyingMethod.Invoke(null, [Submitted("hi")]));
+    }
+
+    [Fact]
+    public void Forges_echo_replaces_the_pending_pill_and_the_first_participant_the_pending_reply()
+    {
+        var echoed = ApplyAll(Submitted("hi"), User("hi") with { EventId = Sent });
+        Assert.Equal(["YouBlock { Text = hi }", $"PendingReplyBlock {{ CommandId = {Sent} }}"], Strings(echoed));
+
+        var started = ApplyAll(echoed, Started("Chat:Answerer"));
+        Assert.Equal(["YouBlock { Text = hi }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat }"], Strings(started));
+        Assert.Equal("Answerer", (string?)ReplyingMethod.Invoke(null, [started]));
+    }
+
+    [Fact]
+    public void Another_commands_echo_is_appended_not_merged()
+    {
+        var blocks = ApplyAll(Submitted("hi"), User("from elsewhere"));
+
+        Assert.Equal([
+            $"PendingYouBlock {{ CommandId = {Sent}, Text = hi }}",
+            $"PendingReplyBlock {{ CommandId = {Sent} }}",
+            "YouBlock { Text = from elsewhere }",
+        ], Strings(blocks));
+    }
+
+    [Fact]
+    public void A_failed_submit_leaves_only_an_error_line()
+    {
+        var failed = TranscriptMethod("SubmitFailed").Invoke(null, [Submitted("hi"), Sent, "connection refused"])!;
+
+        Assert.Equal(["ErrorLine { Text = error: connection refused }"], Strings(failed));
+    }
+
+    [Fact]
+    public void A_turn_that_fails_after_acceptance_keeps_the_message()
+    {
+        var failed = TranscriptMethod("TurnFailed").Invoke(null, [Submitted("hi"), Sent, "stream closed"])!;
+
+        Assert.Equal(["YouBlock { Text = hi }", "ErrorLine { Text = error: stream closed }"], Strings(failed));
+    }
+
+    [Fact]
+    public void A_turn_end_clears_pending_blocks()
+    {
+        var ended = ApplyAll(Submitted("hi"), User("hi") with { EventId = Sent }, Status(ConversationRunStatus.Failed));
+
+        Assert.Equal(["YouBlock { Text = hi }", "NoticeLine { Text = (run failed) }"], Strings(ended));
+    }
+
+    [Fact]
+    public void Replay_never_shows_a_pending_block()
+    {
+        var replay = Map(User("hi"), Started("Chat:Answerer"), Step("Hello"), Final("Hello"),
+            Status(ConversationRunStatus.Completed), User("again"), Status(ConversationRunStatus.Interrupted));
+
+        Assert.DoesNotContain(replay, block => block.StartsWith("Pending", StringComparison.Ordinal));
+    }
+
+    private static object Submitted(string text) =>
+        TranscriptMethod("Submit").Invoke(null, [Blocks([]), Sent, text])!;
+
+    private static object ApplyAll(object blocks, params ConversationEvent[] events)
+    {
+        foreach (var item in events)
+            blocks = ApplyMethod.Invoke(null, [blocks, item])!;
+        return blocks;
+    }
+
+    private static List<string> Strings(object blocks) =>
+        ((System.Collections.IEnumerable)blocks).Cast<object>().Select(block => block.ToString()!).ToList();
+
+    private static MethodInfo TranscriptMethod(string name) =>
+        Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!.GetMethod(name, BindingFlags.Static | BindingFlags.Public)!;
+
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
     private static List<string> Map(params ConversationEvent[] events) =>

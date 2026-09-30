@@ -1,5 +1,6 @@
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
+using XenoAtom.Terminal.UI.Extensions.Markdown;
 using XenoAtom.Terminal.UI.Geometry;
 using XenoAtom.Terminal.UI.Text;
 
@@ -21,12 +22,14 @@ internal sealed class ChatScreen
     private readonly State<string> _progress = new("");
     // The blocks on screen, and per block the body of a card (null for other blocks).
     private readonly List<TranscriptBlock> _shown = [];
-    private readonly List<Paragraph?> _cardBodies = [];
+    private readonly List<MarkdownControl?> _cardBodies = [];
     private readonly ForgeStyles _styles;
+    private readonly ForgeCodeBlockRenderer _codeBlocks;
 
     public ChatScreen(ChatHeader header, ForgeStyles styles)
     {
         _styles = styles;
+        _codeBlocks = new ForgeCodeBlockRenderer(styles.CodeBlock);
         Composer = BuildComposer(header);
         Root = new DockLayout()
             .Top(new VStack(BuildHeader(header), Divider()))
@@ -37,6 +40,7 @@ internal sealed class ChatScreen
                 Composer,
                 new TextBlock($" {Keys}").Style(styles.KeyBar).HorizontalAlignment(Align.Stretch)));
         Root.Style(styles.Screen);
+        Root.Style(styles.Markdown);
     }
 
     public Visual Root { get; }
@@ -65,10 +69,15 @@ internal sealed class ChatScreen
         for (var i = 0; i < blocks.Count; i++)
         {
             if (_cardBodies[i] is { } body && blocks[i] is ParticipantCard card)
-                SetText(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""), _styles.CardText);
+                SetMarkdown(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""));
         }
 
-        _progress.Value = Transcript.Replying(blocks) is { } expert ? $"{expert} is replying …" : "";
+        _progress.Value = Transcript.Replying(blocks) switch
+        {
+            null => "",
+            "" => "replying …",
+            var expert => $"{expert} is replying …",
+        };
     }
 
     /// <summary>How many shown blocks still hold the same place: a card keeps its place while
@@ -84,6 +93,8 @@ internal sealed class ChatScreen
     private static bool SamePlace(TranscriptBlock shown, TranscriptBlock next) => (shown, next) switch
     {
         (ParticipantCard a, ParticipantCard b) => a.Title == b.Title && a.Mission == b.Mission,
+        // Forge's echo of a sent message draws the same pill; keep it rather than redraw.
+        (PendingYouBlock a, YouBlock b) => a.Text == b.Text,
         _ => shown == next,
     };
 
@@ -104,15 +115,23 @@ internal sealed class ChatScreen
 
     // ── Blocks ──────────────────────────────────────────────────────────────────────────────
 
-    private Paragraph? AppendBlock(TranscriptBlock block)
+    private MarkdownControl? AppendBlock(TranscriptBlock block)
     {
         switch (block)
         {
             case YouBlock you:
                 _flow.Items.Add(YouItem(you.Text));
                 return null;
+            case PendingYouBlock pending:
+                _flow.Items.Add(YouItem(pending.Text));
+                return null;
+            case PendingReplyBlock:
+                var pendingBody = CardBody();
+                _flow.Items.Add(CardItem(null, pendingBody));
+                SetMarkdown(pendingBody, PendingBody);
+                return null;
             case ParticipantCard card:
-                var body = Text("", _styles.CardText);
+                var body = CardBody();
                 _flow.Items.Add(CardItem(card.Title, body));
                 return body;
             case NoticeLine notice:
@@ -138,11 +157,28 @@ internal sealed class ChatScreen
         Padding = new Thickness(1, 0, 1, 0),
     };
 
-    private DocumentFlowItem CardItem(string title, Paragraph body) => new()
+    /// <summary>A reply body: Markdown in the theme's styles (set on the root), code blocks
+    /// through the forge renderer, no scrolling of its own (the transcript scrolls).</summary>
+    private MarkdownControl CardBody() => new("")
     {
-        Content = new FlowDocument()
-            .Add(new TextBlock(title).Style(_styles.CardTitle))
-            .Add(body),
+        HorizontalAlignment = Align.Stretch,
+        VerticalAlignment = Align.Start,
+        HorizontalScrollEnabled = false,
+        VerticalScrollEnabled = false,
+        Options = MarkdownRenderOptions.Default with { WrapCodeBlocks = true, CodeBlockRenderer = _codeBlocks },
+    };
+
+    private static void SetMarkdown(MarkdownControl body, string markdown)
+    {
+        if (body.Markdown != markdown) body.Markdown = markdown;
+    }
+
+    /// <summary>A reply card; <paramref name="title"/> is null while no participant has started.</summary>
+    private DocumentFlowItem CardItem(string? title, MarkdownControl body) => new()
+    {
+        Content = title is null
+            ? new FlowDocument().Add(body)
+            : new FlowDocument().Add(new TextBlock(title).Style(_styles.CardTitle)).Add(body),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         // The border is drawn in the padding's outer cells; the inner column keeps text off it.
