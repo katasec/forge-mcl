@@ -80,10 +80,12 @@ public static class ChatClients
 }
 
 // tryAGI.Anthropic implements IChatClient directly, but receives native structured-output
-// configuration only through RawRepresentationFactory rather than ChatOptions.ResponseFormat.
-internal sealed class AnthropicResponseFormatChatClient(IChatClient inner, string modelId) : IChatClient
+// configuration only through RawRepresentationFactory rather than ChatOptions.ResponseFormat,
+// and its streaming adapter keeps only text deltas (no usage, no stop reason).
+internal sealed class AnthropicResponseFormatChatClient(AnthropicClient client, string modelId) : IChatClient
 {
     private const int DefaultMaxTokens = 4096;
+    private readonly IChatClient inner = client;
 
     public Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -95,12 +97,19 @@ internal sealed class AnthropicResponseFormatChatClient(IChatClient inner, strin
         return inner.GetResponseAsync(messages, options, cancellationToken);
     }
 
-    // Streaming never uses ResponseFormat (a judge's envelope is a prompt-level instruction).
+    // Streaming never uses ResponseFormat (a judge's envelope is a prompt-level instruction). A plain
+    // text turn streams from the native event stream so its usage reaches billing (Phase 53.8);
+    // tool-mode streaming still goes through the SDK adapter.
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        inner.GetStreamingResponseAsync(messages, EnsureModelId(options), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        options = EnsureModelId(options);
+        return AnthropicTextStream.Accepts(messages, options)
+            ? AnthropicTextStream.StreamAsync(client, messages, options, cancellationToken)
+            : inner.GetStreamingResponseAsync(messages, options, cancellationToken);
+    }
 
     public object? GetService(Type serviceType, object? serviceKey = null) =>
         inner.GetService(serviceType, serviceKey);

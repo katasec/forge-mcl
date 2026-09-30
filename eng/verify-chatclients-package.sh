@@ -5,7 +5,7 @@ set -euo pipefail
 package_directory=${1:?usage: verify-chatclients-package.sh <package-directory> <repository-commit>}
 repository_commit=${2:?usage: verify-chatclients-package.sh <package-directory> <repository-commit>}
 package_id=Katasec.Forge.Mcl.ChatClients
-package_version=0.1.1
+package_version=0.1.2
 package_path="$package_directory/$package_id.$package_version.nupkg"
 
 if [[ ! -f "$package_path" ]]; then

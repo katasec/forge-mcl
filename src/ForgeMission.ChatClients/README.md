@@ -21,6 +21,7 @@ Provider SDKs and their protocol differences must stay below MCL execution. This
 - [`ChatClients.Build`](ChatClients.cs) and [`ChatClients.BuildChatClient`](ChatClients.cs) for supported profile values.
 - OpenAI-compatible OpenAI/Azure, Ollama, and xAI client construction.
 - Anthropic response-format adaptation in [`AnthropicResponseFormatChatClient`](ChatClients.cs).
+- Anthropic plain-text streaming with token usage in [`AnthropicTextStream`](AnthropicTextStream.cs).
 
 ## Does not own
 
@@ -53,6 +54,7 @@ flowchart LR
 - Ollama and xAI use the OpenAI-compatible client with their own default endpoints.
 - Anthropic structured output is translated at this boundary; do not leak native provider types into Core.
 - Every Anthropic call sends `MaxOutputTokens` 4096 unless the caller sets one; the SDK otherwise sends 250, which cut streamed and tool-mode replies short.
+- A plain-text Anthropic stream (no tools, text-only messages) is read from the native event stream: the SDK's streaming adapter drops usage, so it would bill 0 tokens. Tool-mode streaming still uses the SDK adapter and reports no usage or tool calls.
 
 ## Related documentation
 
