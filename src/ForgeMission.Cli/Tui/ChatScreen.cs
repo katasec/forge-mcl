@@ -66,6 +66,9 @@ internal sealed class ChatScreen
             _shown.Add(blocks[i]);
         }
 
+        // Live reply deltas (53.8) call this several times a second: SetMarkdown assigns only a card
+        // whose text changed, and an unchanged card carries the same string instance, so every other
+        // card costs one reference comparison and is never re-parsed.
         for (var i = 0; i < blocks.Count; i++)
         {
             if (_cardBodies[i] is { } body && blocks[i] is ParticipantCard card)

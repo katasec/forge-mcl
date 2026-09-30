@@ -211,6 +211,86 @@ public sealed class ChatTranscriptTests
         Assert.DoesNotContain(replay, block => block.StartsWith("Pending", StringComparison.Ordinal));
     }
 
+    // ── Live reply deltas (53.8) ────────────────────────────────────────────────
+
+    [Fact]
+    public void Deltas_grow_the_started_card_and_the_step_message_replaces_it()
+    {
+        var growing = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"));
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat }"], growing);
+
+        var final = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"), Step("Hello!"));
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello!, Mission = Chat }"], final);
+    }
+
+    [Fact]
+    public void A_delta_with_no_card_changes_nothing()
+    {
+        Assert.Equal(["YouBlock { Text = hi }"], Map(User("hi"), Delta("orphan")));
+    }
+
+    [Fact]
+    public async Task Following_shows_a_delta_only_after_a_step_starts_on_the_same_connection_and_never_moves_the_cursor()
+    {
+        var attempt = Guid.NewGuid();
+        var connections = new Queue<ConversationEvent[]>([
+            // Joined mid-reply: the fragment before this connection saw a step start is hidden.
+            [Delta("fragment", 5), Seq(Started("Chat:Answerer"), 6), Delta("Hel", 6), Delta("lo", 6)],
+            // Reconnected mid-step: hidden until the final message.
+            [Delta("mid", 6), Seq(Step("Hello!"), 7), Seq(Status(ConversationRunStatus.Completed), 8) with { RunId = attempt }],
+        ]);
+        var (service, requests) = FakeConversations(connections);
+        var shown = new List<ConversationEvent>();
+
+        var cursor = await (Task<long>)FollowTurnAsyncMethod.Invoke(null,
+            [service, Guid.NewGuid(), 5L, attempt, true, (Action<ConversationEvent>)shown.Add, CancellationToken.None])!;
+
+        Assert.Equal(8, cursor);
+        Assert.Equal([(5L, true), (6L, true)], requests);
+        Assert.Equal(["participantStarted:Chat:Answerer", "participantDelta:Hel", "participantDelta:lo", "participantMessage:Hello!", "runStatus:"],
+            shown.Select(e => $"{char.ToLowerInvariant(e.Kind.ToString()[0])}{e.Kind.ToString()[1..]}:{e.Text}"));
+    }
+
+    private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+        .GetMethod("FollowTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+    private static (object Service, List<(long After, bool IncludeDeltas)> Requests) FakeConversations(Queue<ConversationEvent[]> connections)
+    {
+        var serviceType = FollowTurnAsyncMethod.GetParameters()[0].ParameterType;
+        var proxy = (StreamingConversations)DispatchProxy.Create(serviceType, typeof(StreamingConversations));
+        proxy.Connections = connections;
+        return (proxy, proxy.Requests);
+    }
+
+    /// <summary>Answers only <c>StreamEventsAsync</c>: each call is one connection, serving the next
+    /// queued events and then closing.</summary>
+    public class StreamingConversations : DispatchProxy
+    {
+        public Queue<ConversationEvent[]> Connections { get; set; } = new();
+        public List<(long After, bool IncludeDeltas)> Requests { get; } = [];
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name != "StreamEventsAsync") throw new NotSupportedException(targetMethod?.Name);
+            Requests.Add(((long)args![1]!, (bool)args[2]!));
+            return Serve(Connections.Dequeue());
+        }
+
+        private static async IAsyncEnumerable<ConversationEvent> Serve(ConversationEvent[] events)
+        {
+            foreach (var item in events)
+            {
+                await Task.Yield();
+                yield return item;
+            }
+        }
+    }
+
+    private static ConversationEvent Delta(string text, long sequence = 1) =>
+        Event(ConversationEventKind.ParticipantDelta, 1, text) with { Sequence = sequence };
+
+    private static ConversationEvent Seq(ConversationEvent item, long sequence) => item with { Sequence = sequence };
+
     private static object Submitted(string text) =>
         TranscriptMethod("Submit").Invoke(null, [Blocks([]), Sent, text])!;
 

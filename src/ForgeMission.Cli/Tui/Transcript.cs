@@ -26,8 +26,8 @@ public sealed record NoticeLine(string Text) : TranscriptBlock;
 /// <summary>An error from the run or the connection.</summary>
 public sealed record ErrorLine(string Text) : TranscriptBlock;
 
-// forge chat TUI (53.5, 53.7): the one mapping from conversation events to transcript blocks, used
-// for both the replay of a reopened conversation and a live turn. A sent message is shown at once
+// forge chat TUI (53.5, 53.7, 53.8): the one mapping from conversation events to transcript blocks,
+// used for both the replay of a reopened conversation and a live turn (including live reply deltas). A sent message is shown at once
 // as pending blocks keyed by its command id; Forge's own events then take their place. Replay only
 // applies Forge's events, so it never shows a pending block. Pure: no terminal, no Client.
 public static class Transcript
@@ -38,6 +38,7 @@ public static class Transcript
     {
         ConversationEventKind.UserMessage => AddUserMessage(blocks, item.EventId, item.Text ?? ""),
         ConversationEventKind.ParticipantStarted => AddStartedCard(blocks, StartedCard(item.Text ?? "")),
+        ConversationEventKind.ParticipantDelta => AppendToLatestCard(blocks, item.Text ?? ""),
         ConversationEventKind.ParticipantMessage when item.Attempt is not null => FillLatestCard(blocks, item.Text ?? ""),
         ConversationEventKind.ParticipantMessage => AddFinalResult(blocks, item.Text ?? ""),
         ConversationEventKind.Error => AddError(blocks, item),
@@ -96,6 +97,17 @@ public static class Transcript
         return colon < 0
             ? new ParticipantCard(step, null, step)
             : new ParticipantCard(step[(colon + 1)..], null, step[..colon]);
+    }
+
+    /// <summary>A live reply delta (53.8) grows the latest card; the step's own message then replaces
+    /// the card's text with the final reply.</summary>
+    private static IReadOnlyList<TranscriptBlock> AppendToLatestCard(IReadOnlyList<TranscriptBlock> blocks, string text)
+    {
+        var index = LatestCardIndex(blocks);
+        if (index < 0) return blocks;
+
+        var card = (ParticipantCard)blocks[index];
+        return ReplaceAt(blocks, index, card with { Text = (card.Text ?? "") + text });
     }
 
     private static IReadOnlyList<TranscriptBlock> FillLatestCard(IReadOnlyList<TranscriptBlock> blocks, string text)
