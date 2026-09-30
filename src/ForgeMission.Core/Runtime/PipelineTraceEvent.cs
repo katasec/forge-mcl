@@ -28,8 +28,10 @@ public sealed record PipelineStepStarted(
     int Attempt)
     : PipelineTraceEvent(MissionName, MissionPath, ExpertName, ExpertKind, Attempt);
 
-/// <summary>A non-empty raw streaming chunk from the writer-driven streaming path, in write order.
-/// Transient: not resumable, and never becomes a <c>ConversationEvent</c> in this task.</summary>
+/// <summary>A non-empty raw streaming chunk from a streamed step, in write order: the writer-driven
+/// path, or a tool-free, non-judge llm step under <see cref="PipelineRunOptions.StreamLlmDeltas"/>.
+/// Transient: not resumable and never stored; the step's <see cref="PipelineStepCompleted"/> fact
+/// stays the durable record.</summary>
 public sealed record PipelineStepDelta(
     string MissionName,
     IReadOnlyList<string> MissionPath,

@@ -52,6 +52,7 @@ flowchart LR
 - Provider names are normalized by the factory; unknown values fail explicitly.
 - Ollama and xAI use the OpenAI-compatible client with their own default endpoints.
 - Anthropic structured output is translated at this boundary; do not leak native provider types into Core.
+- Every Anthropic call sends `MaxOutputTokens` 4096 unless the caller sets one; the SDK otherwise sends 250, which cut streamed and tool-mode replies short.
 
 ## Related documentation
 

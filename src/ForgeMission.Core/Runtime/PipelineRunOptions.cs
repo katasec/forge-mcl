@@ -49,4 +49,11 @@ public record PipelineRunOptions(
     // is retained by Core while declared child missions run; a child receives neither a dispatcher
     // nor a capability handle. A call pauses the root run and must be resumed through
     // PipelineRunner.ResumeAsync.
-    IList<AITool>? RootTools = null);
+    IList<AITool>? RootTools = null)
+{
+    /// <summary>Streams each tool-free, non-judge llm step and emits its text as
+    /// <see cref="PipelineStepDelta"/> facts through <see cref="OnTrace"/> (Phase 53.8). Set only by
+    /// the durable executor; a streamed step's result is its plain text with status pass. Judges and
+    /// steps with tools attached keep the non-streaming path. Inherited by child missions.</summary>
+    public bool StreamLlmDeltas { get; init; }
+}
