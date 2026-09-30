@@ -73,7 +73,8 @@ public sealed class ForgeMarkdownStyleTests
         var codeBlock = StylesType.GetProperty("CodeBlock")!.GetValue(Styles(tokens))!;
         Style Slot(string name) => (Style)codeBlock.GetType().GetProperty(name)!.GetValue(codeBlock)!;
 
-        Assert.Equal(Fg(tokens, "CodeBlockBorder"), Slot("Border"));
+        // The border cells sit on the card surface, so the fill stays inside the rounded line.
+        Assert.Equal(Fg(tokens, "CodeBlockBorder").WithBackground(Token(tokens, "CardSurface")), Slot("Border"));
         Assert.Equal(Style.None.WithBackground(Token(tokens, "CodeBlockFill")), Slot("Fill"));
         Assert.Equal(Fg(tokens, "CodeBlockText").WithBackground(Token(tokens, "CodeBlockFill")), Slot("Text"));
     }

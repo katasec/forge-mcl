@@ -92,9 +92,10 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         CautionAlert = Alert(theme.Error, theme.CardSurface),
     };
 
-    /// <summary>Fenced and indented code in replies: a rounded box, no language label.</summary>
+    /// <summary>Fenced and indented code in replies: a rounded box, no language label. The
+    /// border cells sit on the card surface so the fill stays inside the line.</summary>
     public CodeBlockStyle CodeBlock { get; } = new(
-        Style.None.WithForeground(theme.CodeBlockBorder),
+        Style.None.WithForeground(theme.CodeBlockBorder).WithBackground(theme.CardSurface),
         Style.None.WithBackground(theme.CodeBlockFill),
         Style.None.WithForeground(theme.CodeBlockText).WithBackground(theme.CodeBlockFill));
 

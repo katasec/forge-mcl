@@ -24,7 +24,7 @@ internal sealed class ChatTui
     private long _cursor;
     private bool _opened;
     private bool _busy;
-    private string? _pendingMessage;
+    private SentMessage? _pendingMessage;
     private CancellationTokenSource? _turn;
 
     private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
@@ -69,10 +69,10 @@ internal sealed class ChatTui
             context.App.Focus(_screen.Composer);
             await WhileBusyAsync(OpenAsync);
         }
-        else if (_pendingMessage is { } message)
+        else if (_pendingMessage is { } sent)
         {
             _pendingMessage = null;
-            await WhileBusyAsync(() => RunTurnAsync(message));
+            await WhileBusyAsync(() => RunTurnAsync(sent));
         }
         return TerminalLoopResult.Continue;
     }
@@ -89,25 +89,42 @@ internal sealed class ChatTui
             await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, running, Show, _session);
     }
 
-    /// <summary>Submits one message and follows its turn. Ctrl-C cancels the turn on Forge, and the
-    /// turn is still followed to its end so the transcript shows how it ended. A transport failure
-    /// becomes an error line; the chat stays open.</summary>
-    private async Task RunTurnAsync(string message)
+    /// <summary>Submits one message (already shown as pending) with its command id and follows its
+    /// turn. Ctrl-C cancels the turn on Forge, and the turn is still followed to its end so the
+    /// transcript shows how it ended. A transport failure becomes an error line; a message Forge
+    /// did not accept goes back into the composer. The chat stays open.</summary>
+    private async Task RunTurnAsync(SentMessage sent)
     {
         using var turn = CancellationTokenSource.CreateLinkedTokenSource(_session);
         _turn = turn;
         try
         {
-            var submitted = await _conversations.SubmitAsync(_conversationId, Guid.NewGuid(), message, _session);
-            await FollowOrCancelAsync(submitted, turn.Token);
+            if (await SubmitAsync(sent) is { } submitted)
+                await FollowOrCancelAsync(submitted, turn.Token);
         }
         catch (HttpRequestException failure)
         {
-            ShowError($"error: {failure.Message}");
+            ShowBlocks(Transcript.TurnFailed(_blocks, sent.CommandId, failure.Message));
         }
         finally
         {
             _turn = null;
+        }
+    }
+
+    /// <summary>Submits the message; on a transport failure shows the error, restores the text to
+    /// the composer, and returns null.</summary>
+    private async Task<SubmitMissionTurnResponse?> SubmitAsync(SentMessage sent)
+    {
+        try
+        {
+            return await _conversations.SubmitAsync(_conversationId, sent.CommandId, sent.Text, _session);
+        }
+        catch (HttpRequestException failure)
+        {
+            ShowBlocks(Transcript.SubmitFailed(_blocks, sent.CommandId, failure.Message));
+            _screen.Composer.Text = sent.Text;
+            return null;
         }
     }
 
@@ -133,13 +150,16 @@ internal sealed class ChatTui
 
     // ── Input ───────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Enter: queue the message for the next UI step. While the conversation is opening
-    /// or a turn runs, Enter does nothing and the text stays in the composer.</summary>
+    /// <summary>Enter: show the message and a pending reply at once, and queue the submit for the
+    /// next UI step. While the conversation is opening or a turn runs, Enter does nothing and the
+    /// text stays in the composer.</summary>
     private void Send(string text)
     {
-        if (_busy || string.IsNullOrWhiteSpace(text)) return;
-        _pendingMessage = text;
+        if (_busy || _pendingMessage is not null || string.IsNullOrWhiteSpace(text)) return;
+        var sent = new SentMessage(Guid.NewGuid(), text);
+        _pendingMessage = sent;
         _screen.Composer.Text = "";
+        ShowBlocks(Transcript.Submit(_blocks, sent.CommandId, sent.Text));
     }
 
     /// <summary>Ctrl-C: stop the turn this session started; nothing when idle.</summary>
@@ -153,13 +173,16 @@ internal sealed class ChatTui
     private void Show(ConversationEvent item)
     {
         _cursor = item.Sequence;
-        _blocks = Transcript.Apply(_blocks, item);
+        ShowBlocks(Transcript.Apply(_blocks, item));
+    }
+
+    private void ShowBlocks(IReadOnlyList<TranscriptBlock> blocks)
+    {
+        _blocks = blocks;
         _screen.Show(_blocks);
     }
 
-    private void ShowError(string text)
-    {
-        _blocks = [.. _blocks, new ErrorLine(text)];
-        _screen.Show(_blocks);
-    }
+    /// <summary>A message sent from the composer; <see cref="CommandId"/> is the id Forge echoes as
+    /// the <c>UserMessage</c> event id.</summary>
+    private sealed record SentMessage(Guid CommandId, string Text);
 }

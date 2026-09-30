@@ -72,7 +72,12 @@ internal sealed class ChatScreen
                 SetMarkdown(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""));
         }
 
-        _progress.Value = Transcript.Replying(blocks) is { } expert ? $"{expert} is replying …" : "";
+        _progress.Value = Transcript.Replying(blocks) switch
+        {
+            null => "",
+            "" => "replying …",
+            var expert => $"{expert} is replying …",
+        };
     }
 
     /// <summary>How many shown blocks still hold the same place: a card keeps its place while
@@ -88,6 +93,8 @@ internal sealed class ChatScreen
     private static bool SamePlace(TranscriptBlock shown, TranscriptBlock next) => (shown, next) switch
     {
         (ParticipantCard a, ParticipantCard b) => a.Title == b.Title && a.Mission == b.Mission,
+        // Forge's echo of a sent message draws the same pill; keep it rather than redraw.
+        (PendingYouBlock a, YouBlock b) => a.Text == b.Text,
         _ => shown == next,
     };
 
@@ -114,6 +121,14 @@ internal sealed class ChatScreen
         {
             case YouBlock you:
                 _flow.Items.Add(YouItem(you.Text));
+                return null;
+            case PendingYouBlock pending:
+                _flow.Items.Add(YouItem(pending.Text));
+                return null;
+            case PendingReplyBlock:
+                var pendingBody = CardBody();
+                _flow.Items.Add(CardItem(null, pendingBody));
+                SetMarkdown(pendingBody, PendingBody);
                 return null;
             case ParticipantCard card:
                 var body = CardBody();
@@ -158,11 +173,12 @@ internal sealed class ChatScreen
         if (body.Markdown != markdown) body.Markdown = markdown;
     }
 
-    private DocumentFlowItem CardItem(string title, MarkdownControl body) => new()
+    /// <summary>A reply card; <paramref name="title"/> is null while no participant has started.</summary>
+    private DocumentFlowItem CardItem(string? title, MarkdownControl body) => new()
     {
-        Content = new FlowDocument()
-            .Add(new TextBlock(title).Style(_styles.CardTitle))
-            .Add(body),
+        Content = title is null
+            ? new FlowDocument().Add(body)
+            : new FlowDocument().Add(new TextBlock(title).Style(_styles.CardTitle)).Add(body),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         // The border is drawn in the padding's outer cells; the inner column keeps text off it.
