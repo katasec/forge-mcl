@@ -86,7 +86,7 @@ internal sealed class ChatTui
         var snapshot = (await _conversations.GetConversationAsync(_conversationId, _session)).Snapshot;
         await ForgeChat.ReplayAsync(_conversations, _conversationId, snapshot.LastSequence, Show, _session);
         if (snapshot.ActiveRunId is { } running && !ForgeChat.IsTerminal(snapshot.Status))
-            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, running, Show, _session);
+            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, running, includeDeltas: true, Show, _session);
     }
 
     /// <summary>Submits one message (already shown as pending) with its command id and follows its
@@ -132,12 +132,12 @@ internal sealed class ChatTui
     {
         try
         {
-            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, Show, turn);
+            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, includeDeltas: true, Show, turn);
         }
         catch (OperationCanceledException) when (turn.IsCancellationRequested && !_session.IsCancellationRequested)
         {
             await _conversations.CancelAsync(_conversationId, submitted.TurnId, submitted.TurnAttemptId, Guid.NewGuid(), _session);
-            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, Show, _session);
+            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, includeDeltas: true, Show, _session);
         }
     }
 
@@ -170,9 +170,12 @@ internal sealed class ChatTui
 
     // ── Output ──────────────────────────────────────────────────────────────────────────────
 
+    /// <summary>A live reply delta (Phase 53.8) carries the last durable sequence and never moves the
+    /// cursor.</summary>
     private void Show(ConversationEvent item)
     {
-        _cursor = item.Sequence;
+        if (item.Kind != ConversationEventKind.ParticipantDelta)
+            _cursor = item.Sequence;
         ShowBlocks(Transcript.Apply(_blocks, item));
     }
 

@@ -228,7 +228,7 @@ public static class ForgeChat
         var snapshot = (await conversations.GetConversationAsync(conversationId, CancellationToken.None)).Snapshot;
         var cursor = await ReplayAsync(conversations, conversationId, snapshot.LastSequence, item => Print(item, replay: true), CancellationToken.None);
         if (snapshot.ActiveRunId is { } running && !IsTerminal(snapshot.Status))
-            cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, LivePrint, CancellationToken.None);
+            cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, includeDeltas: false, LivePrint, CancellationToken.None);
 
         while (true)
         {
@@ -242,7 +242,7 @@ public static class ForgeChat
             Console.CancelKeyPress += stop;
             try
             {
-                cursor = await FollowTurnAsync(conversations, conversationId, cursor, turn.TurnAttemptId, LivePrint, cancel.Token);
+                cursor = await FollowTurnAsync(conversations, conversationId, cursor, turn.TurnAttemptId, includeDeltas: false, LivePrint, cancel.Token);
             }
             catch (OperationCanceledException) when (cancel.IsCancellationRequested)
             {
@@ -263,7 +263,7 @@ public static class ForgeChat
     {
         var cursor = 0L;
         if (lastSequence == 0) return cursor;
-        await foreach (var item in conversations.StreamEventsAsync(conversationId, 0, ct))
+        await foreach (var item in conversations.StreamEventsAsync(conversationId, 0, includeDeltas: false, ct))
         {
             show(item);
             cursor = item.Sequence;
@@ -273,15 +273,27 @@ public static class ForgeChat
     }
 
     /// <summary>Shows events after <paramref name="cursor"/> until the run for
-    /// <paramref name="attemptId"/> ends. A stream that closes first is reopened from the cursor.</summary>
+    /// <paramref name="attemptId"/> ends. A stream that closes first is reopened from the cursor.
+    /// With <paramref name="includeDeltas"/> (the TUI, Phase 53.8), live reply deltas are shown too;
+    /// a delta never moves the cursor, and it is shown only once a step has started on the same
+    /// connection — a step joined mid-reply (reopened or reconnected) shows no partial text until
+    /// its final message.</summary>
     internal static async Task<long> FollowTurnAsync(IMissionConversationService conversations, Guid conversationId, long cursor,
-        Guid attemptId, Action<ConversationEvent> show, CancellationToken ct)
+        Guid attemptId, bool includeDeltas, Action<ConversationEvent> show, CancellationToken ct)
     {
         while (true)
         {
-            await foreach (var item in conversations.StreamEventsAsync(conversationId, cursor, ct))
+            var stepStartedHere = false;
+            await foreach (var item in conversations.StreamEventsAsync(conversationId, cursor, includeDeltas, ct))
             {
+                if (item.Kind == ConversationEventKind.ParticipantDelta)
+                {
+                    if (stepStartedHere) show(item);
+                    continue;
+                }
+
                 if (item.Sequence <= cursor) continue;
+                stepStartedHere |= item.Kind == ConversationEventKind.ParticipantStarted;
                 cursor = item.Sequence;
                 show(item);
                 if (EndsTurn(item.Kind, item.RunId, item.RunStatus, attemptId)) return cursor;
