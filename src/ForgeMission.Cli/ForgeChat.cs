@@ -96,6 +96,20 @@ public static class ForgeChat
             Console.Error.WriteLine($"chat failed: {failure.Message}");
             return 1;
         }
+        // S2b: the line mode does not reconnect, so a lost stream stops it. Every call outside a turn
+        // passes CancellationToken.None and a turn's own Ctrl-C ends in ChatAsync, so a cancellation
+        // that reaches here is never the user's.
+        catch (Exception failure) when (failure is OperationCanceledException or IOException)
+        {
+            return ReportConnectionLost(failure, Console.Error);
+        }
+    }
+
+    /// <summary>The line mode's lost connection (S2b): one error line, exit 1.</summary>
+    internal static int ReportConnectionLost(Exception failure, TextWriter error)
+    {
+        error.WriteLine($"chat failed: connection lost ({failure.Message})");
+        return 1;
     }
 
     /// <summary>Opens the default Project, gates hands on the one-time approval, makes sure the
@@ -373,7 +387,9 @@ public static class ForgeChat
     /// shows events after <paramref name="cursor"/> until <paramref name="ends"/> accepts one, and
     /// returns the cursor. A stream that closes is reopened from the cursor after
     /// <see cref="ReconnectDelay"/>; so is one that fails in transport when <paramref name="lost"/>
-    /// is given (it is told first), otherwise the failure is thrown. With
+    /// is given (it is told first), otherwise the failure is thrown. A cancellation that is not
+    /// <paramref name="ct"/>'s (HttpClient's timeout waiting for headers, Phase 57 S2) is a transport
+    /// failure; the session's own cancellation always ends the loop. With
     /// <paramref name="includeDeltas"/> (the TUI, Phase 53.8), live reply deltas are shown too; a
     /// delta never moves the cursor, and it is shown only once a step has started on the same
     /// connection — a step joined mid-reply (reopened or reconnected) shows no partial text until
@@ -402,7 +418,8 @@ public static class ForgeChat
                     if (ends(item)) return cursor;
                 }
             }
-            catch (Exception failure) when (lost is not null && (failure is HttpRequestException or IOException) && !ct.IsCancellationRequested)
+            catch (Exception failure) when (lost is not null && !ct.IsCancellationRequested &&
+                failure is HttpRequestException or IOException or OperationCanceledException)
             {
                 lost(failure);
             }
