@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using XenoAtom.Terminal.UI;
+using XenoAtom.Terminal.UI.Rendering;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -69,6 +70,24 @@ public sealed class CardEdgeTests
     {
         foreach (var tile in Ring(theme, width, height).Tiles)
             Assert.Equal((tile.Cols * width, tile.Rows * height), (tile.Image.Width, tile.Image.Height));
+    }
+
+    [Fact]
+    public void A_short_reply_card_spans_the_transcript_and_has_a_padding_row_above_its_bottom_ring()
+    {
+        const int Width = 80;
+        var rows = ScreenWithOneCard("ok", Width).Select(line => (Line: line, Tiles: line.Count(c => c == Placeholder))).ToList();
+        var ring = rows.Where(row => row.Tiles > 0).ToList();
+        // Gutter: 4 columns minus the ring column holding the border (1) on each side.
+        const int cardWidth = Width - 2 * 3;
+
+        Assert.Equal(cardWidth, ring[0].Tiles);                       // top ring row: every cell is a tile
+        Assert.Equal(cardWidth, ring[^1].Tiles);                      // bottom ring row
+        var inside = ring.Where(row => row.Tiles == 8).ToList();      // 4 ring columns at each side
+        Assert.Equal(4, ring.Count - inside.Count);                   // 2 top + 2 bottom ring rows
+        Assert.Equal(3, inside.Count);                                // title, "ok", one padding row
+        Assert.Contains("ok", inside[1].Line);
+        Assert.DoesNotContain("ok", inside[2].Line);
     }
 
     [Fact]
@@ -168,6 +187,30 @@ public sealed class CardEdgeTests
         for (var i = 0; i < tile.Width * 3; i++)
             max = Math.Max(max, Math.Abs(tile.Pixels[tileRow * tile.Width * 3 + i] - template.Pixels[(templateRow * template.Width + x0) * 3 + i]));
         return max;
+    }
+
+    /// <summary>The high surrogate of U+10EEEE, the kitty placeholder: one per tile cell.</summary>
+    private const char Placeholder = '\uDBFB';
+
+    /// <summary>The real ChatScreen (theme Light, card ring at 19×42) showing one participant card,
+    /// rendered off screen; one string per row.</summary>
+    private static string[] ScreenWithOneCard(string reply, int width)
+    {
+        var styles = Activator.CreateInstance(StylesType, Theme("Light"))!;
+        var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic")!;
+        var screenType = Type("ForgeMission.Cli.Tui.ChatScreen");
+        var screen = Activator.CreateInstance(screenType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null, [header, styles], null)!;
+        var ring = Type("ForgeMission.Cli.Tui.Graphics.CardRing").GetMethod("Create")!
+            .Invoke(null, [StylesType.GetProperty("CardEdges")!.GetValue(styles), 0, Activator.CreateInstance(CellType, 19, 42)]);
+        screenType.GetMethod("UseCards")!.Invoke(screen, [ring]);
+        var card = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Chat:Answerer", reply, "Chat")!;
+        var blockType = Type("ForgeMission.Cli.Tui.TranscriptBlock");
+        var blocks = Array.CreateInstance(blockType, 1);
+        blocks.SetValue(card, 0);
+        screenType.GetMethod("Show")!.Invoke(screen, [blocks]);
+        var root = (Visual)screenType.GetProperty("Root")!.GetValue(screen)!;
+        return VisualSnapshotRenderer.Render(root, width, 30).ToMarkupLines().ToArray();
     }
 
     // ── Reflection ──────────────────────────────────────────────────────────────────────────

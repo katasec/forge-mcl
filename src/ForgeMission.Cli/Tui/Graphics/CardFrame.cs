@@ -7,7 +7,10 @@ namespace ForgeMission.Cli.Tui.Graphics;
 
 // Phase 56: a card — its content inside the ring of edge-tile placeholder cells. The ring is the
 // padding of a Padder, so the content keeps ordinary layout; this visual paints the padding cells:
-// tiles in the ring band, plain card fill elsewhere. A card is one DocumentFlow block, so it is
+// tiles in the ring band, plain card fill elsewhere. A card spans the full width it is given,
+// whatever its content, and has one more plain row (CardPaddingRows) below its content than the
+// ring gives: the downward shadow puts the bottom border high in its tile, and the mockup's card
+// padding is equal top and bottom. A card is one DocumentFlow block, so it is
 // always arranged at its full size (also when scrolled partly off screen) and its tile rows count
 // from its real top.
 internal sealed class CardFrame : Padder
@@ -22,8 +25,10 @@ internal sealed class CardFrame : Padder
         _ring = ring;
         _fill = fill;
         Content = content;
+        HorizontalAlignment = Align.Stretch;
         var l = ring.Layout;
-        Padding = new Thickness(l.SideCols + l.PadCols, l.TopRows + l.PadTop, l.SideCols + l.PadCols, l.BottomRows + l.PadBottom);
+        Padding = new Thickness(l.SideCols + l.PadCols, l.TopRows + l.PadTop, l.SideCols + l.PadCols,
+            l.BottomRows + l.PadBottom + ForgeTheme.CardPaddingRows);
     }
 
     protected override void RenderOverride(CellBuffer buffer)
