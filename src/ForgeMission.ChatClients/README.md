@@ -36,7 +36,7 @@ A change belongs here only if it advances construction or protocol adaptation fo
 - [`ChatClients`](ChatClients.cs) is the public factory used by CLI and mission-serving hosts.
 - [`ProviderProfile`](../ForgeMission.Core/Manifest/ForgeManifest.cs) is the incoming profile shape.
 - [`DirectExpertRunner`](../ForgeMission.Core/Adapters/DirectExpertRunner.cs) is the Core adapter returned by `Build`.
-- [`DirectExpertRunnerTests`](../ForgeMission.Tests/Adapters/DirectExpertRunnerTests.cs) cover the provider-neutral runner boundary.
+- [`DirectExpertRunnerTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Adapters/DirectExpertRunnerTests.cs) cover the provider-neutral runner boundary.
 
 ## Communicates with
 
@@ -45,7 +45,7 @@ flowchart LR
   Profile[Core ProviderProfile] --> Factory[ChatClients]
   Factory -->|IChatClient| Runner[Core DirectExpertRunner]
   Factory -->|provider SDK calls| Providers[OpenAI / Anthropic-compatible endpoints]
-  Runner -->|IExpertRunner| Host[CLI / Runner / Worker]
+  Runner -->|IExpertRunner| Host[CLI / forge-runner]
 ```
 
 ## Important flows and constraints
@@ -58,5 +58,5 @@ flowchart LR
 
 ## Related documentation
 
-- [Provider boundary and supported clients](../../docs/design/architecture.md)
-- [AOT rules](../../AGENTS.md#aot-first--standing-rules-for-all-new-code)
+- [Provider boundary and supported clients](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)
+- [Code style (zero warnings)](https://github.com/katasec/mission-control-language/blob/main/docs/design/code-style.md#rules)

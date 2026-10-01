@@ -65,6 +65,6 @@ flowchart LR
 
 ## Related documentation
 
-- [CLI architecture](../../docs/design/architecture.md)
-- [MCL language](../../docs/design/language.md)
-- [Release workflow](../../AGENTS.md#release-workflow)
+- [CLI architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)
+- [MCL language](https://github.com/katasec/mission-control-language/blob/main/docs/design/language.md)
+- [Build](https://github.com/katasec/forge-mcl/blob/main/README.md#build)

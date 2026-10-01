@@ -37,8 +37,8 @@ A change belongs here only if it advances provider-neutral MCL execution, resolu
 - [`PipelineRunOptions.StreamLlmDeltas`](Runtime/PipelineRunOptions.cs) (set only by a durable executor) streams each tool-free, non-judge llm step and emits its chunks as `PipelineStepDelta` trace facts; the step completes with its plain text as a pass. Judges, steps with tools attached, and parallel steps keep `RunAsync`. One helper in `PipelineRunner` decides streaming for the recursive and root-scoped paths.
 - [`IExpertRunner`](Runtime/IExpertRunner.cs) is the only runner abstraction used by the pipeline.
 - [`ExpertResolver`](Resolution/ExpertResolver.cs), [`ExpertLoader`](Experts/ExpertLoader.cs), and [`ForgeTomlReader`](Manifest/ForgeTomlReader.cs) provide the resolution inputs.
-- [`DurableMissionPackageValidator`](Runtime/DurableMissionPackageValidator.cs) is the single in-memory parser/validator for bounded durable package content; it never reads a Worker image directory or TOML provider profile. A durable step may select only a name in its fixed `ProviderProfiles` set (the deployment binds each name), and a package runs every llm step on one profile, reported as `ProviderProfile`.
-- [`PipelineRunnerTests`](../ForgeMission.Tests/Runtime/PipelineRunnerTests.cs) and [`CapabilityDispatcherTests`](../ForgeMission.Tests/Tools/CapabilityDispatcherTests.cs) cover execution and capability contracts.
+- [`DurableMissionPackageValidator`](Runtime/DurableMissionPackageValidator.cs) is the single in-memory parser/validator for bounded durable package content; it never reads a runner image directory or TOML provider profile. A durable step may select only a name in its fixed `ProviderProfiles` set (the deployment binds each name), and a package runs every llm step on one profile, reported as `ProviderProfile`.
+- [`PipelineRunnerTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Runtime/PipelineRunnerTests.cs) and [`CapabilityDispatcherTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Tools/CapabilityDispatcherTests.cs) cover execution and capability contracts.
 
 ## Communicates with
 
@@ -48,7 +48,7 @@ flowchart LR
   Parser -->|AST| Core[Mission Core]
   Clients[ForgeMission.ChatClients] -->|builds IExpertRunner| Core
   Core -->|IWebSearch| Scout[ForgeMission.Scout]
-  Core -->|MissionResult and trace| Host[CLI / Runner / Worker]
+  Core -->|MissionResult and trace| Host[CLI / forge-runner]
 ```
 
 ## Important flows and constraints
@@ -59,6 +59,6 @@ flowchart LR
 
 ## Related documentation
 
-- [Architecture](../../docs/design/architecture.md)
-- [Language design](../../docs/design/language.md)
-- [Phase 43.23 ownership end state](../../docs/retrospectives/phase-43-domain-ownership/end-state.md)
+- [Architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)
+- [Language design](https://github.com/katasec/mission-control-language/blob/main/docs/design/language.md)
+- [Phase 43.23 ownership end state](https://github.com/katasec/mission-control-language/blob/main/docs/retrospectives/phase-43-domain-ownership/end-state.md)
