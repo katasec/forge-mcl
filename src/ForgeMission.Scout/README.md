@@ -55,4 +55,4 @@ flowchart LR
 ## Related documentation
 
 - [MCL execution architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md#execution-phases)
-- [AOT rules](https://github.com/katasec/mission-control-language/blob/main/docs/design/code-style.md#rules)
+- [Code style (zero warnings)](https://github.com/katasec/mission-control-language/blob/main/docs/design/code-style.md#rules)

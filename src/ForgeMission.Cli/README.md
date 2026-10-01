@@ -67,4 +67,4 @@ flowchart LR
 
 - [CLI architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)
 - [MCL language](https://github.com/katasec/mission-control-language/blob/main/docs/design/language.md)
-- [Release workflow](https://github.com/katasec/forge-mcl/blob/main/README.md#build)
+- [Build](https://github.com/katasec/forge-mcl/blob/main/README.md#build)

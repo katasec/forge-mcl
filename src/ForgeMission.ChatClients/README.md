@@ -59,4 +59,4 @@ flowchart LR
 ## Related documentation
 
 - [Provider boundary and supported clients](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)
-- [AOT rules](https://github.com/katasec/mission-control-language/blob/main/docs/design/code-style.md#rules)
+- [Code style (zero warnings)](https://github.com/katasec/mission-control-language/blob/main/docs/design/code-style.md#rules)
