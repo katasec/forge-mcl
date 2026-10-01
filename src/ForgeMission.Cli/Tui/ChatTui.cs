@@ -126,7 +126,8 @@ internal sealed class ChatTui
     }
 
     /// <summary>Posts one message (already shown as pending) with its command id; the live stream
-    /// shows its turn. A message Forge did not accept goes back into the composer with an error.</summary>
+    /// shows its turn. A message Forge did not accept goes back into the composer with an error, and
+    /// a Ctrl-C pressed while it was in flight is dropped, so it cannot stop the next turn.</summary>
     private async Task SubmitAsync(SentMessage sent)
     {
         _submitting = true;
@@ -142,6 +143,7 @@ internal sealed class ChatTui
         finally
         {
             _submitting = false;
+            _stopOwnTurn = KeepsStop(_stopOwnTurn, _ownTurn is not null);
         }
     }
 
@@ -268,6 +270,10 @@ internal sealed class ChatTui
         ConversationEventKind.RunStatus when item.RunStatus is { } status && ForgeChat.IsTerminal(status) => false,
         _ => running,
     };
+
+    /// <summary>After a submit ends: a Ctrl-C pressed while it was in flight stops the turn only
+    /// when the submit started one; a failed or refused submit drops it.</summary>
+    internal static bool KeepsStop(bool stopRequested, bool hasOwnTurn) => stopRequested && hasOwnTurn;
 
     /// <summary>A message sent from the composer; <see cref="CommandId"/> is the id Forge echoes as
     /// the <c>UserMessage</c> event id.</summary>

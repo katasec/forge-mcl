@@ -371,6 +371,15 @@ public sealed class ChatTranscriptTests
     }
 
     [Fact]
+    public void A_stop_pressed_during_a_submit_survives_only_when_the_submit_started_a_turn()
+    {
+        Assert.True(KeepsStop(true, true));
+        Assert.False(KeepsStop(true, false));
+        Assert.False(KeepsStop(false, true));
+        Assert.False(KeepsStop(false, false));
+    }
+
+    [Fact]
     public async Task A_stream_that_fails_in_transport_is_reported_once_and_reopened_from_the_cursor()
     {
         var attempt = Guid.NewGuid();
@@ -413,6 +422,9 @@ public sealed class ChatTranscriptTests
 
     private static bool TurnRunning(bool running, ConversationEvent item) =>
         (bool)ChatTuiType.GetMethod("TurnRunning", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [running, item])!;
+
+    private static bool KeepsStop(bool stopRequested, bool hasOwnTurn) =>
+        (bool)ChatTuiType.GetMethod("KeepsStop", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [stopRequested, hasOwnTurn])!;
 
     private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
         .GetMethod("FollowTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
