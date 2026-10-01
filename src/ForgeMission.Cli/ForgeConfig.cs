@@ -5,8 +5,8 @@ using ForgeMission.Cli.Tui;
 namespace ForgeMission.Cli;
 
 // forge chat (53.6): the user's local settings in ~/.forge/config.json. Today it holds one key,
-// the TUI theme: { "theme": "light" | "dark" }. A missing file or key means light; anything else
-// stops forge chat with an error naming the valid themes. Read once at startup.
+// the TUI theme: { "theme": "light" | "dark" }. A missing file or key means dark (Phase 56 G10);
+// anything else stops forge chat with an error naming the valid themes. Read once at startup.
 internal static class ForgeConfig
 {
     private static readonly string[] ValidThemes = ["light", "dark"];
@@ -22,8 +22,8 @@ internal static class ForgeConfig
         var name = ReadFile(path)?.Theme;
         return name switch
         {
-            null or "light" => ForgeTheme.Light,
-            "dark" => ForgeTheme.Dark,
+            "light" => ForgeTheme.Light,
+            null or "dark" => ForgeTheme.Dark,
             _ => throw new ForgeConfigException(
                 $"Unknown theme \"{name}\" in {path}. Valid themes: {string.Join(", ", ValidThemes)}."),
         };
