@@ -13,12 +13,15 @@ namespace ForgeMission.Cli.Tui;
 // XenoAtom's single-threaded UI loop: awaited calls resume on the UI thread, so input and rendering
 // keep running while a turn streams. This file owns the turn lifecycle and the keys. With hands
 // (Phase 55), live events also feed the attachment, whose file operations run off the follow loop
-// and are cancelled by Ctrl-C or exit.
+// and are cancelled by Ctrl-C or exit. Ctrl-D (53.9 L2) replaces the app's quit command: it cancels
+// the session, and the loop stops only after the busy work and the hands cancel have ended on the
+// live UI thread, so no await resumes after the app has stopped.
 internal sealed class ChatTui
 {
     private readonly IMissionConversationService _conversations;
     private readonly Guid _conversationId;
     private readonly ChatScreen _screen;
+    private readonly CancellationTokenSource _sessionSource;
     private readonly CancellationToken _session;
     private readonly ChatHandsAttachment? _hands;
     private IReadOnlyList<TranscriptBlock> _blocks = [];
@@ -31,12 +34,13 @@ internal sealed class ChatTui
     private CancellationTokenSource? _turn;
 
     private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
-        ChatHandsAttachment? hands, CancellationToken session)
+        ChatHandsAttachment? hands, CancellationTokenSource session)
     {
         _conversations = conversations;
         _conversationId = conversationId;
         _hands = hands;
-        _session = session;
+        _sessionSource = session;
+        _session = session.Token;
         _screen = new ChatScreen(header, new ForgeStyles(theme));
         _screen.Composer.Accepted((_, e) => Send(e.Text));
         AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", StopRun);
@@ -44,33 +48,30 @@ internal sealed class ChatTui
         AddKey(new KeyGesture(TerminalKey.PageDown), "Forge.PageDown", _screen.PageDown);
     }
 
+    private static readonly KeyGesture QuitGesture = new(TerminalChar.CtrlD, TerminalModifiers.Ctrl);
+
     /// <summary>Runs the TUI until Ctrl-D. A turn still running on quit keeps running on Forge;
     /// only this process stops following it. A file operation still running is cancelled.</summary>
     public static async Task<int> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
         ForgeTheme theme, ChatHandsAttachment? hands)
     {
         using var session = new CancellationTokenSource();
-        var tui = new ChatTui(conversations, conversationId, header, theme, hands, session.Token);
-        try
-        {
-            await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync,
-                new TerminalRunOptions { ExitGesture = new KeyGesture(TerminalChar.CtrlD, TerminalModifiers.Ctrl) });
-        }
-        finally
-        {
-            if (hands is not null) await hands.CancelInFlightAsync();
-            await session.CancelAsync();
-        }
+        var tui = new ChatTui(conversations, conversationId, header, theme, hands, session);
+        await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture });
         return 0;
     }
 
     /// <summary>The UI loop's one async step: open the conversation on the first tick, then run a
-    /// turn whenever a message is waiting.</summary>
+    /// turn whenever a message is waiting. After Ctrl-D it stops the app; the loop calls this only
+    /// once the previous step, with its busy work, has ended.</summary>
     private async ValueTask<TerminalLoopResult> UpdateAsync(TerminalRunningContext context)
     {
+        if (_session.IsCancellationRequested)
+            return await StopAsync();
         if (!_opened)
         {
             _opened = true;
+            context.App.AddGlobalCommand(QuitCommand());
             context.App.Focus(_screen.Composer);
             await WhileBusyAsync(OpenAsync);
         }
@@ -148,11 +149,21 @@ internal sealed class ChatTui
         }
     }
 
+    /// <summary>Runs one busy step. Work stopped by Ctrl-D ends here: the app is quitting.</summary>
     private async Task WhileBusyAsync(Func<Task> work)
     {
         _busy = true;
         try { await work(); }
+        catch (OperationCanceledException) when (_session.IsCancellationRequested) { }
         finally { _busy = false; }
+    }
+
+    /// <summary>Cancels a running file operation while the UI thread still runs (its report can
+    /// still be shown), then stops the app.</summary>
+    private async Task<TerminalLoopResult> StopAsync()
+    {
+        if (_hands is not null) await _hands.CancelInFlightAsync();
+        return TerminalLoopResult.Stop;
     }
 
     // ── Input ───────────────────────────────────────────────────────────────────────────────
@@ -162,7 +173,7 @@ internal sealed class ChatTui
     /// text stays in the composer.</summary>
     private void Send(string text)
     {
-        if (_busy || _pendingMessage is not null || string.IsNullOrWhiteSpace(text)) return;
+        if (_busy || _pendingMessage is not null || _session.IsCancellationRequested || string.IsNullOrWhiteSpace(text)) return;
         var sent = new SentMessage(Guid.NewGuid(), text);
         _pendingMessage = sent;
         _screen.Composer.Text = "";
@@ -171,6 +182,19 @@ internal sealed class ChatTui
 
     /// <summary>Ctrl-C: stop the turn this session started; nothing when idle.</summary>
     private void StopRun() => _turn?.Cancel();
+
+    /// <summary>Ctrl-D: replaces the app's own quit command, which would stop the app at once.
+    /// Cancelling the session ends the busy work; the next UI step then stops the app.</summary>
+    private Command QuitCommand() => new()
+    {
+        Id = TerminalApp.DefaultQuitCommandId,
+        LabelMarkup = "Quit",
+        DescriptionMarkup = "Quit the application.",
+        Gesture = QuitGesture,
+        Importance = CommandImportance.Primary,
+        Presentation = CommandPresentation.CommandBar,
+        Execute = _ => _sessionSource.Cancel(),
+    };
 
     private void AddKey(KeyGesture gesture, string id, Action action) =>
         _screen.Root.AddCommand(new Command { Id = id, LabelMarkup = string.Empty, Gesture = gesture, Execute = _ => action() });
