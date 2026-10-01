@@ -393,7 +393,11 @@ public sealed class ChatTranscriptTests
 
         var cursor = await (Task<long>)StreamAsyncMethod.Invoke(null, [service, Guid.NewGuid(), 5L, true,
             (Action<ConversationEvent>)shown.Add, (Func<ConversationEvent, bool>)(e => e.RunId == attempt),
-            (Action<Exception>)lost.Add, CancellationToken.None])!;
+            (Func<Exception?, bool>)(failure =>
+            {
+                if (failure is not null) lost.Add(failure);
+                return true;
+            }), CancellationToken.None])!;
 
         Assert.Equal(8, cursor);
         Assert.Equal([(5L, true), (6L, true), (6L, true)], requests);
@@ -485,10 +489,243 @@ public sealed class ChatTranscriptTests
         Assert.Equal("chat failed: connection lost (connection reset)", error);
     }
 
+    // ── Idle sleep (Phase 57 S5) ───────────────────────────────────────────────
+
+    private const string ReconnectingText = "connection lost; reconnecting";
+    private const string IdleText = "idle — reconnects when you type";
+
+    [Fact]
+    public async Task A_stream_whose_handler_declines_returns_its_cursor_without_reopening()
+    {
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([[Seq(Step("Hello!"), 6)]]));
+        var ends = new List<Exception?>();
+
+        var cursor = await (Task<long>)StreamAsyncMethod.Invoke(null, [service, Guid.NewGuid(), 5L, true,
+            (Action<ConversationEvent>)(_ => { }), (Func<ConversationEvent, bool>)(_ => false),
+            (Func<Exception?, bool>)(failure =>
+            {
+                ends.Add(failure);
+                return false;
+            }), CancellationToken.None])!;
+
+        Assert.Equal(6, cursor);
+        Assert.Single(requests);
+        Assert.Null(Assert.Single(ends));
+    }
+
+    [Fact]
+    public void The_reconnect_notice_is_removed_by_the_first_live_event()
+    {
+        var lost = ApplyAll(Submitted("hi"), Seq(User("hi") with { EventId = Sent }, 6));
+        var noticeType = Forge.GetType("ForgeMission.Cli.Tui.NoticeLine", throwOnError: true)!;
+        lost = Append(lost, Activator.CreateInstance(noticeType, ReconnectingText)!);
+
+        Assert.DoesNotContain($"NoticeLine {{ Text = {ReconnectingText} }}", Strings(ApplyLive(lost, Seq(Started("Chat:Answerer"), 7))));
+        Assert.DoesNotContain($"NoticeLine {{ Text = {ReconnectingText} }}", Strings(ApplyLive(lost, Delta("x", 6))));
+    }
+
+    [Fact]
+    public void The_idle_notice_shows_until_wake_and_blocks_after_it_stay()
+    {
+        var idle = TranscriptMethod("Idle").Invoke(null, [Blocks([User("hi")])])!;
+        Assert.Equal(["YouBlock { Text = hi }", $"NoticeLine {{ Text = {IdleText} }}"], Strings(idle));
+
+        var typed = TranscriptMethod("Submit").Invoke(null, [idle, Sent, "next"])!;
+        Assert.Equal(["YouBlock { Text = hi }", "PendingYouBlock { CommandId = 11111111-1111-1111-1111-111111111111, Text = next }",
+            "PendingReplyBlock { CommandId = 11111111-1111-1111-1111-111111111111 }"],
+            Strings(TranscriptMethod("Awake").Invoke(null, [typed])!));
+    }
+
+    [Fact]
+    public async Task A_stream_that_ends_with_no_turn_in_flight_sleeps_and_shows_the_idle_notice()
+    {
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([[Seq(Step("Hello!"), 6)]]));
+        var link = Link(service, inFlight: () => false, out var notices, out _);
+
+        Start(link, 5);
+
+        Assert.Equal(6, await Live(link));
+        Assert.Equal([(5L, true)], requests);
+        Assert.Equal(["Idle"], notices);
+        Assert.True(Asleep(link));
+    }
+
+    [Fact]
+    public async Task A_wake_while_asleep_catches_up_from_the_saved_cursor_then_reopens_the_live_stream()
+    {
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([
+            [Seq(Step("Hello!"), 6)],
+            [Seq(Step("missed"), 7)],
+            StreamingConversations.Held,
+        ]));
+        var fake = (StreamingConversations)service;
+        fake.LastSequence = 7;
+        var link = Link(service, inFlight: () => false, out var notices, out var shown);
+        Start(link, 5);
+        await Live(link);
+
+        await Wake(link);
+
+        Assert.False(Asleep(link));
+        fake.Release.SetResult();
+        Assert.Equal(7, await Live(link));
+        Assert.Equal([(5L, true), (6L, false), (7L, true)], requests);
+        Assert.Equal(["Hello!", "missed"], shown.Select(e => e.Text));
+        Assert.Equal(["Idle", "Awake", "Idle"], notices);
+    }
+
+    [Fact]
+    public async Task A_stream_that_ends_during_a_turn_reconnects_at_once_and_reports_only_a_transport_failure()
+    {
+        var running = true;
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([
+            [Seq(Started("Chat:Answerer"), 6)],
+            [],
+            StreamingConversations.Broken,
+            StreamingConversations.Broken,
+            [Seq(Status(ConversationRunStatus.Completed), 7)],
+        ]));
+        var link = Link(service, inFlight: () => running, out var notices, out var shown, show: e => running = TurnRunning(running, e));
+
+        Start(link, 5);
+
+        Assert.Equal(7, await Live(link));
+        Assert.Equal([(5L, true), (6L, true), (6L, true), (6L, true), (6L, true)], requests);
+        Assert.Equal(["Reconnecting", "Idle"], notices);
+    }
+
+    [Fact]
+    public async Task A_wake_while_awake_does_nothing()
+    {
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([]));
+        var link = Link(service, inFlight: () => false, out var notices, out _);
+
+        await Wake(link);
+
+        Assert.Empty(requests);
+        Assert.Empty(notices);
+    }
+
+    [Fact]
+    public async Task Cancelling_the_session_while_asleep_ends_quietly_and_a_later_wake_does_nothing()
+    {
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([[]]));
+        using var session = new CancellationTokenSource();
+        var link = Link(service, inFlight: () => false, out var notices, out _, session: session.Token);
+        Start(link, 5);
+        await Live(link);
+
+        session.Cancel();
+        await Wake(link);
+
+        Assert.True(Asleep(link));
+        Assert.Equal(5, await Live(link));
+        Assert.Single(requests);
+        Assert.Equal(["Idle"], notices);
+    }
+
+    [Fact]
+    public async Task A_catch_up_that_fails_in_transport_goes_back_to_sleep()
+    {
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([[], StreamingConversations.Broken]));
+        var link = Link(service, inFlight: () => false, out var notices, out _);
+        Start(link, 5);
+        await Live(link);
+
+        await Wake(link);
+
+        Assert.True(Asleep(link));
+        Assert.Equal(5, await Live(link));
+        Assert.Single(requests);
+        Assert.Equal(["Idle", "Awake", "Idle"], notices);
+    }
+
+    [Fact]
+    public async Task An_Enter_that_wakes_the_window_sees_another_windows_turn_before_it_can_send()
+    {
+        var running = false;
+        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([
+            [],
+            // While asleep another window sent a message; its turn is running on the server.
+            [Seq(User("from elsewhere"), 6)],
+            StreamingConversations.Held,
+            [Seq(Status(ConversationRunStatus.Completed), 7)],
+        ]));
+        var fake = (StreamingConversations)service;
+        fake.LastSequence = 6;
+        object? link = null;
+        bool? readyDuringCatchUp = null;
+        link = Link(service, inFlight: () => running, out _, out _, show: e =>
+        {
+            running = TurnRunning(running, e);
+            if (e.Sequence == 6) readyDuringCatchUp = Ready(link!);
+        });
+        Start(link, 5);
+        await Live(link);
+        Assert.False(Ready(link));
+
+        // Send waits for the wake (the catch-up) before it applies the send rule.
+        await Wake(link);
+
+        Assert.False(readyDuringCatchUp);
+        Assert.True(Ready(link));
+        Assert.True(running);
+        fake.Release.SetResult();
+        Assert.Equal(7, await Live(link));
+        Assert.False(running);
+    }
+
+    private static Type ChatLinkType => Forge.GetType("ForgeMission.Cli.Tui.ChatLink", throwOnError: true)!;
+
+    private static object Link(object service, Func<bool> inFlight, out List<string> notices, out List<ConversationEvent> shown,
+        Action<ConversationEvent>? show = null, CancellationToken session = default)
+    {
+        var seen = new List<ConversationEvent>();
+        var said = new List<string>();
+        var noticeType = Forge.GetType("ForgeMission.Cli.Tui.LinkNotice", throwOnError: true)!;
+        var notice = typeof(ChatTranscriptTests).GetMethod(nameof(Collect), BindingFlags.Static | BindingFlags.NonPublic)!
+            .MakeGenericMethod(noticeType).Invoke(null, [said])!;
+        var link = Activator.CreateInstance(ChatLinkType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null,
+            [service, Guid.NewGuid(), inFlight, (Action<ConversationEvent>)(e =>
+            {
+                seen.Add(e);
+                show?.Invoke(e);
+            }), notice, session], null)!;
+        notices = said;
+        shown = seen;
+        return link;
+    }
+
+    private static Action<T> Collect<T>(List<string> sink) => item => sink.Add(item!.ToString()!);
+
+    private static void Start(object link, long cursor) => ChatLinkType.GetMethod("Start")!.Invoke(link, [cursor]);
+
+    private static Task Wake(object link) => (Task)ChatLinkType.GetMethod("WakeAsync")!.Invoke(link, [])!;
+
+    private static Task<long> Live(object link) => (Task<long>)ChatLinkType.GetProperty("Live")!.GetValue(link)!;
+
+    private static bool Asleep(object link) => (bool)ChatLinkType.GetProperty("Asleep")!.GetValue(link)!;
+
+    private static bool Ready(object link) => (bool)ChatLinkType.GetProperty("Ready")!.GetValue(link)!;
+
+    private static object Append(object blocks, object block)
+    {
+        var blockType = Forge.GetType("ForgeMission.Cli.Tui.TranscriptBlock", throwOnError: true)!;
+        var items = ((System.Collections.IEnumerable)blocks).Cast<object>().Append(block).ToArray();
+        var array = Array.CreateInstance(blockType, items.Length);
+        Array.Copy(items, array, items.Length);
+        return array;
+    }
+
+    // The TUI's handler: report a transport failure, always reopen (a turn in flight).
     private static Task<long> Stream(object service, long cursor, Func<ConversationEvent, bool> ends, Action<Exception> lost,
         CancellationToken ct) =>
         (Task<long>)StreamAsyncMethod.Invoke(null, [service, Guid.NewGuid(), cursor, true,
-            (Action<ConversationEvent>)(_ => { }), ends, lost, ct])!;
+            (Action<ConversationEvent>)(_ => { }), ends, (Func<Exception?, bool>)(failure =>
+            {
+                if (failure is not null) lost(failure);
+                return true;
+            }), ct])!;
 
     private static Task<long> FollowTurn(object service) => (Task<long>)FollowTurnAsyncMethod.Invoke(null,
         [service, Guid.NewGuid(), 5L, Guid.NewGuid(), false, (Action<ConversationEvent>)(_ => { }), CancellationToken.None])!;
@@ -537,9 +774,25 @@ public sealed class ChatTranscriptTests
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
+            if (targetMethod?.Name == "GetConversationAsync") return Snapshot();
             if (targetMethod?.Name != "StreamEventsAsync") throw new NotSupportedException(targetMethod?.Name);
             Requests.Add(((long)args![1]!, (bool)args[2]!));
             return Serve(Connections.Dequeue());
+        }
+
+        /// <summary>The conversation's last stored sequence, as <c>GetConversationAsync</c> reports it;
+        /// <see cref="Broken"/> as the first queued connection makes that read fail in transport.</summary>
+        public long LastSequence { get; set; }
+
+        private Task<GetConversationResponse> Snapshot()
+        {
+            if (Connections.Count > 0 && ReferenceEquals(Connections.Peek(), Broken))
+            {
+                Connections.Dequeue();
+                return Task.FromException<GetConversationResponse>(new HttpRequestException("connection refused"));
+            }
+            return Task.FromResult(new GetConversationResponse(new ConversationSnapshot(Guid.Empty, null, null, LastSequence,
+                ConversationRunStatus.Completed, null, DateTimeOffset.UtcNow)));
         }
 
         // Each marker is its own instance (an empty collection expression is one shared array).
@@ -552,9 +805,15 @@ public sealed class ChatTranscriptTests
         /// <summary>A connection ended by the session's own cancellation (Ctrl-D).</summary>
         public static readonly ConversationEvent[] Cancelled = new ConversationEvent[0];
 
-        private static async IAsyncEnumerable<ConversationEvent> Serve(ConversationEvent[] events)
+        /// <summary>A connection that stays open, with no events, until <see cref="Release"/> completes.</summary>
+        public static readonly ConversationEvent[] Held = new ConversationEvent[0];
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private async IAsyncEnumerable<ConversationEvent> Serve(ConversationEvent[] events)
         {
             await Task.Yield();
+            if (ReferenceEquals(events, Held)) await Release.Task;
             if (ReferenceEquals(events, Broken)) throw new IOException("connection reset");
             if (ReferenceEquals(events, TimedOut)) throw new TaskCanceledException("The request timed out.", new TimeoutException());
             if (ReferenceEquals(events, Cancelled)) throw new OperationCanceledException("session cancelled");
