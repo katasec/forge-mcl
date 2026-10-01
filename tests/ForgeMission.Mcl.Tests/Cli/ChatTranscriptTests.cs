@@ -268,14 +268,6 @@ public sealed class ChatTranscriptTests
     }
 
     [Fact]
-    public void A_turn_that_fails_after_acceptance_keeps_the_message()
-    {
-        var failed = TranscriptMethod("TurnFailed").Invoke(null, [Submitted("hi"), Sent, "stream closed"])!;
-
-        Assert.Equal(["YouBlock { Text = hi }", "ErrorLine { Text = error: stream closed }"], Strings(failed));
-    }
-
-    [Fact]
     public void A_turn_end_clears_pending_blocks()
     {
         var ended = ApplyAll(Submitted("hi"), User("hi") with { EventId = Sent }, Status(ConversationRunStatus.Failed));
@@ -332,6 +324,96 @@ public sealed class ChatTranscriptTests
             shown.Select(e => $"{char.ToLowerInvariant(e.Kind.ToString()[0])}{e.Kind.ToString()[1..]}:{e.Text}"));
     }
 
+    // ── One live stream (53.9 L1) ───────────────────────────────────────────────
+
+    [Fact]
+    public void Another_windows_message_shows_as_replying_until_its_first_participant_starts()
+    {
+        var other = User("from elsewhere");
+        var waiting = ApplyLive(Blocks([]), other);
+        Assert.Equal(["YouBlock { Text = from elsewhere }", $"PendingReplyBlock {{ CommandId = {other.EventId} }}"], Strings(waiting));
+        Assert.Equal("", (string?)ReplyingMethod.Invoke(null, [waiting]));
+
+        var started = ApplyLive(waiting, Started("Chat:Answerer"));
+        Assert.Equal(["YouBlock { Text = from elsewhere }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat }"], Strings(started));
+
+        var ended = ApplyLive(waiting, Status(ConversationRunStatus.Failed));
+        Assert.Equal(["YouBlock { Text = from elsewhere }", "NoticeLine { Text = (run failed) }"], Strings(ended));
+    }
+
+    [Fact]
+    public void This_windows_echo_keeps_its_one_pending_reply()
+    {
+        var echoed = ApplyLive(Submitted("hi"), User("hi") with { EventId = Sent });
+        Assert.Equal(["YouBlock { Text = hi }", $"PendingReplyBlock {{ CommandId = {Sent} }}"], Strings(echoed));
+    }
+
+    [Fact]
+    public void Hands_act_only_on_this_windows_own_turn_attempt()
+    {
+        var own = Guid.NewGuid();
+        var request = HandsRequested("Read", "notes.txt");
+
+        Assert.True(BelongsToOwnTurn(request with { RunId = own }, own));
+        Assert.False(BelongsToOwnTurn(request with { RunId = Guid.NewGuid() }, own));
+        Assert.False(BelongsToOwnTurn(request with { RunId = own }, null));
+        Assert.False(BelongsToOwnTurn(request with { RunId = null }, own));
+    }
+
+    [Fact]
+    public void A_message_from_any_window_starts_a_turn_and_a_terminal_status_ends_it()
+    {
+        Assert.True(TurnRunning(false, User("hi")));
+        Assert.True(TurnRunning(true, Started("Chat:Answerer")));
+        Assert.True(TurnRunning(true, Status(ConversationRunStatus.Running)));
+        Assert.False(TurnRunning(true, Status(ConversationRunStatus.Completed)));
+        Assert.False(TurnRunning(false, Delta("x")));
+    }
+
+    [Fact]
+    public async Task A_stream_that_fails_in_transport_is_reported_once_and_reopened_from_the_cursor()
+    {
+        var attempt = Guid.NewGuid();
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([
+            [Seq(Started("Chat:Answerer"), 6)],
+            StreamingConversations.Broken,
+            [Seq(Step("Hello!"), 7), Seq(Status(ConversationRunStatus.Completed), 8) with { RunId = attempt }],
+        ]));
+        var lost = new List<Exception>();
+        var shown = new List<ConversationEvent>();
+
+        var cursor = await (Task<long>)StreamAsyncMethod.Invoke(null, [service, Guid.NewGuid(), 5L, true,
+            (Action<ConversationEvent>)shown.Add, (Func<ConversationEvent, bool>)(e => e.RunId == attempt),
+            (Action<Exception>)lost.Add, CancellationToken.None])!;
+
+        Assert.Equal(8, cursor);
+        Assert.Equal([(5L, true), (6L, true), (6L, true)], requests);
+        Assert.IsType<IOException>(Assert.Single(lost));
+        Assert.Equal(3, shown.Count);
+    }
+
+    [Fact]
+    public async Task Without_a_lost_handler_a_transport_failure_is_thrown()
+    {
+        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.Broken]));
+
+        await Assert.ThrowsAsync<IOException>(() => (Task<long>)FollowTurnAsyncMethod.Invoke(null,
+            [service, Guid.NewGuid(), 5L, Guid.NewGuid(), true, (Action<ConversationEvent>)(_ => { }), CancellationToken.None])!);
+    }
+
+    private static readonly MethodInfo StreamAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+        .GetMethod("StreamAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
+    private static readonly Type ChatTuiType = Forge.GetType("ForgeMission.Cli.Tui.ChatTui", throwOnError: true)!;
+
+    private static object ApplyLive(object blocks, ConversationEvent item) =>
+        TranscriptMethod("ApplyLive").Invoke(null, [blocks, item])!;
+
+    private static bool BelongsToOwnTurn(ConversationEvent item, Guid? own) =>
+        (bool)ChatTuiType.GetMethod("BelongsToOwnTurn", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [item, own])!;
+
+    private static bool TurnRunning(bool running, ConversationEvent item) =>
+        (bool)ChatTuiType.GetMethod("TurnRunning", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [running, item])!;
+
     private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
         .GetMethod("FollowTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
 
@@ -357,8 +439,13 @@ public sealed class ChatTranscriptTests
             return Serve(Connections.Dequeue());
         }
 
+        /// <summary>A connection that fails in transport (an SSE body cut mid-read).</summary>
+        public static readonly ConversationEvent[] Broken = [];
+
         private static async IAsyncEnumerable<ConversationEvent> Serve(ConversationEvent[] events)
         {
+            await Task.Yield();
+            if (ReferenceEquals(events, Broken)) throw new IOException("connection reset");
             foreach (var item in events)
             {
                 await Task.Yield();

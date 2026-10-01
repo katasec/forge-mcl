@@ -54,6 +54,17 @@ public static class Transcript
         _ => blocks,
     };
 
+    /// <summary>Applies a live event (53.9 L1): as <see cref="Apply"/>, and a message sent from
+    /// another window (an echo with no pending pill of this window) also gets a pending reply, so it
+    /// shows as replying until its first participant starts.</summary>
+    public static IReadOnlyList<TranscriptBlock> ApplyLive(IReadOnlyList<TranscriptBlock> blocks, ConversationEvent item)
+    {
+        var applied = Apply(blocks, item);
+        if (item.Kind != ConversationEventKind.UserMessage) return applied;
+        var sentHere = IndexOf(blocks, block => block is PendingYouBlock you && you.CommandId == item.EventId) >= 0;
+        return sentHere ? applied : Append(applied, new PendingReplyBlock(item.EventId));
+    }
+
     /// <summary>The tool and the file it names: <c>Read notes.txt</c>, or the tool alone.</summary>
     public static string HandsLabel(ConversationEvent item)
     {
@@ -91,17 +102,6 @@ public static class Transcript
     /// <summary>Forge did not accept the message: its pending blocks become an error line.</summary>
     public static IReadOnlyList<TranscriptBlock> SubmitFailed(IReadOnlyList<TranscriptBlock> blocks, Guid commandId, string message) =>
         Append(WithoutPending(blocks, commandId), new ErrorLine($"error: {message}"));
-
-    /// <summary>The turn failed after Forge accepted the message: the message stays (as sent), the
-    /// pending reply goes, and an error line follows.</summary>
-    public static IReadOnlyList<TranscriptBlock> TurnFailed(IReadOnlyList<TranscriptBlock> blocks, Guid commandId, string message)
-    {
-        var kept = blocks
-            .Where(block => block is not PendingReplyBlock reply || reply.CommandId != commandId)
-            .Select(block => block is PendingYouBlock you && you.CommandId == commandId ? new YouBlock(you.Text) : block)
-            .ToList();
-        return Append(kept, new ErrorLine($"error: {message}"));
-    }
 
     /// <summary>Who is replying at the end of the transcript: the expert, <c>""</c> while no
     /// participant has started yet, or null when nothing is pending.</summary>

@@ -5,7 +5,7 @@ using ForgeMission.Conversations.Contracts;
 namespace ForgeMission.Cli;
 
 // forge chat --hands (Phase 55, H5/H7): the one live hands attachment of a chat. The followed turn's
-// events drive it: each MissionHandsRequested starts one Execute (claim → read → run in the project
+// events drive it (in the TUI only the window's own turn, 53.9 L1): each MissionHandsRequested starts one Execute (claim → read → run in the project
 // folder → submit) on the thread pool, off the stream loop, serialized behind the previous one; Begin
 // checks once for a request already waiting. Exit or Ctrl-C while a tool runs cancels the hands
 // attempt before the Client is disposed. Failures are reported, never thrown into the stream loop.

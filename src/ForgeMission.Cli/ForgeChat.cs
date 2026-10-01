@@ -345,30 +345,48 @@ public static class ForgeChat
     }
 
     /// <summary>Shows events after <paramref name="cursor"/> until the run for
-    /// <paramref name="attemptId"/> ends. A stream that closes first is reopened from the cursor.
-    /// With <paramref name="includeDeltas"/> (the TUI, Phase 53.8), live reply deltas are shown too;
-    /// a delta never moves the cursor, and it is shown only once a step has started on the same
+    /// <paramref name="attemptId"/> ends (see <see cref="StreamAsync"/>); a transport failure is thrown.</summary>
+    internal static Task<long> FollowTurnAsync(IMissionConversationService conversations, Guid conversationId, long cursor,
+        Guid attemptId, bool includeDeltas, Action<ConversationEvent> show, CancellationToken ct) =>
+        StreamAsync(conversations, conversationId, cursor, includeDeltas, show,
+            item => EndsTurn(item.Kind, item.RunId, item.RunStatus, attemptId), lost: null, ct);
+
+    /// <summary>The one stream loop (the line mode's turn follow and the TUI's live stream, 53.9 L1):
+    /// shows events after <paramref name="cursor"/> until <paramref name="ends"/> accepts one, and
+    /// returns the cursor. A stream that closes is reopened from the cursor after
+    /// <see cref="ReconnectDelay"/>; so is one that fails in transport when <paramref name="lost"/>
+    /// is given (it is told first), otherwise the failure is thrown. With
+    /// <paramref name="includeDeltas"/> (the TUI, Phase 53.8), live reply deltas are shown too; a
+    /// delta never moves the cursor, and it is shown only once a step has started on the same
     /// connection — a step joined mid-reply (reopened or reconnected) shows no partial text until
     /// its final message.</summary>
-    internal static async Task<long> FollowTurnAsync(IMissionConversationService conversations, Guid conversationId, long cursor,
-        Guid attemptId, bool includeDeltas, Action<ConversationEvent> show, CancellationToken ct)
+    internal static async Task<long> StreamAsync(IMissionConversationService conversations, Guid conversationId, long cursor,
+        bool includeDeltas, Action<ConversationEvent> show, Func<ConversationEvent, bool> ends, Action<Exception>? lost,
+        CancellationToken ct)
     {
         while (true)
         {
             var stepStartedHere = false;
-            await foreach (var item in conversations.StreamEventsAsync(conversationId, cursor, includeDeltas, ct))
+            try
             {
-                if (item.Kind == ConversationEventKind.ParticipantDelta)
+                await foreach (var item in conversations.StreamEventsAsync(conversationId, cursor, includeDeltas, ct))
                 {
-                    if (stepStartedHere) show(item);
-                    continue;
-                }
+                    if (item.Kind == ConversationEventKind.ParticipantDelta)
+                    {
+                        if (stepStartedHere) show(item);
+                        continue;
+                    }
 
-                if (item.Sequence <= cursor) continue;
-                stepStartedHere |= item.Kind == ConversationEventKind.ParticipantStarted;
-                cursor = item.Sequence;
-                show(item);
-                if (EndsTurn(item.Kind, item.RunId, item.RunStatus, attemptId)) return cursor;
+                    if (item.Sequence <= cursor) continue;
+                    stepStartedHere |= item.Kind == ConversationEventKind.ParticipantStarted;
+                    cursor = item.Sequence;
+                    show(item);
+                    if (ends(item)) return cursor;
+                }
+            }
+            catch (Exception failure) when (lost is not null && (failure is HttpRequestException or IOException) && !ct.IsCancellationRequested)
+            {
+                lost(failure);
             }
             await Task.Delay(ReconnectDelay, ct);
         }
