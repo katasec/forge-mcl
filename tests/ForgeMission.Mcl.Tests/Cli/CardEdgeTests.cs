@@ -5,7 +5,7 @@ namespace ForgeMission.Tests.Cli;
 
 // forge chat TUI (Phase 56 Task 2): participant cards are framed by eight edge tiles cut from one
 // rendered template card. The spike's checks run here over the whole realistic cell-size range in
-// both themes: each edge tile matches the cells next to the corners (no seam), the shadow has faded
+// both themes (every height 12–60 px at widths 0.40–0.60 × the height, how terminal cells are shaped): each edge tile matches the cells next to the corners (no seam), the shadow has faded
 // into the surface at the ring's outer edge, and the interior cells are plain card surface (they
 // hold text). Image ids derive from (theme, cell size) and never repeat across inputs. Read from
 // forge.dll through reflection like the other CLI tests.
@@ -27,8 +27,8 @@ public sealed class CardEdgeTests
     {
         var failures = new ConcurrentBag<string>();
         var sizes = from theme in new[] { "Light", "Dark" }
-                    from width in Enumerable.Range(6, 25)
                     from height in Enumerable.Range(12, 49)
+                    from width in Widths(height)
                     select (theme, width, height);
 
         Parallel.ForEach(sizes, size =>
@@ -39,6 +39,14 @@ public sealed class CardEdgeTests
         });
 
         Assert.Empty(failures.OrderBy(item => item));
+    }
+
+    /// <summary>Cell widths from round(0.40·h) to round(0.60·h).</summary>
+    private static IEnumerable<int> Widths(int height)
+    {
+        var first = (int)Math.Round(0.40 * height, MidpointRounding.AwayFromZero);
+        var last = (int)Math.Round(0.60 * height, MidpointRounding.AwayFromZero);
+        return Enumerable.Range(first, last - first + 1);
     }
 
     [Theory]

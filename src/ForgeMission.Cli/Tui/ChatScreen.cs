@@ -14,8 +14,9 @@ internal sealed record ChatHeader(string Project, string Mission, int Version, s
 // forge chat TUI (53.5, 53.6): every visual on the screen — header, transcript, progress line,
 // composer, key bar — laid out as the accepted mockups. It renders transcript blocks; it decides
 // nothing about events (Transcript) or turns (ChatTui), and takes every style from ForgeStyles.
-// Participant cards (Phase 56) are framed by the start-up card ring's edge tiles (CardFrame); this
-// file only places them, with the mockup's gutter and gap, and never builds pixels.
+// Participant cards (Phase 56) are framed by the card ring's edge tiles (CardFrame); this file only
+// places them, with the mockup's gutter and gap, and never builds pixels. The ring arrives on the
+// TUI's first tick (UseCards), before any block is shown.
 internal sealed class ChatScreen
 {
     private const string PendingBody = "▌";
@@ -28,12 +29,11 @@ internal sealed class ChatScreen
     private readonly List<MarkdownControl?> _cardBodies = [];
     private readonly ForgeStyles _styles;
     private readonly ForgeCodeBlockRenderer _codeBlocks;
-    private readonly CardRing _cards;
+    private CardRing? _cards;
 
-    public ChatScreen(ChatHeader header, ForgeStyles styles, CardRing cards)
+    public ChatScreen(ChatHeader header, ForgeStyles styles)
     {
         _styles = styles;
-        _cards = cards;
         _codeBlocks = new ForgeCodeBlockRenderer(styles.CodeBlock);
         Composer = BuildComposer(header);
         Root = new DockLayout()
@@ -51,6 +51,9 @@ internal sealed class ChatScreen
     public Visual Root { get; }
 
     public PromptEditor Composer { get; }
+
+    /// <summary>The card ring every card is framed with, sent to the terminal before the first block.</summary>
+    public void UseCards(CardRing cards) => _cards = cards;
 
     /// <summary>Brings the screen in line with <paramref name="blocks"/>. Blocks mostly append and
     /// a card's text changes in place; when a turn ends a pending card can drop out, so items are
@@ -189,7 +192,7 @@ internal sealed class ChatScreen
     /// frame's border falls in the transcript's gutter column.</summary>
     private DocumentFlowItem CardItem(string? title, MarkdownControl body) => new()
     {
-        Content = new FlowDocument().Add(new CardFrame(CardContent(title, body), _cards, _styles.CardFill)),
+        Content = new FlowDocument().Add(new CardFrame(CardContent(title, body), Cards, _styles.CardFill)),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         Padding = new Thickness(CardGutter, _styles.CardGapRows, CardGutter, 0),
@@ -200,7 +203,9 @@ internal sealed class ChatScreen
         : new VStack(new TextBlock(title).Style(_styles.CardTitle), body).HorizontalAlignment(Align.Stretch);
 
     /// <summary>Columns between the transcript edge and the frame's outer edge.</summary>
-    private int CardGutter => Math.Max(0, _styles.TranscriptGutterCols - _cards.BorderCol);
+    private int CardGutter => Math.Max(0, _styles.TranscriptGutterCols - Cards.BorderCol);
+
+    private CardRing Cards => _cards ?? throw new InvalidOperationException("A card was shown before the card ring was sent.");
 
     private static DocumentFlowItem LineItem(string text, Style style) => new()
     {

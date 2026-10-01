@@ -22,8 +22,9 @@ namespace ForgeMission.Cli;
 // messages on ForgeAPI. This file owns only the order of those calls and what is printed.
 // `forge chat --hands` (Phase 55) runs the separate ChatHands mission instead: the model may read,
 // write and edit files in the project folder through Bob, after a one-time approval per project.
-// The TUI needs a terminal that shows kitty images (Phase 56 G8): it is checked before sign-in or
-// any network call, and an unsupported terminal stops with one named message (no plain fallback).
+// The TUI needs a terminal that shows kitty images (Phase 56 G8), checked in two stages with one
+// message and no plain fallback: the environment before sign-in or any network call, and the cell
+// size on the TUI's first tick (ChatTui), where XenoAtom already owns terminal input.
 public static class ForgeChat
 {
     private const string ProjectTitle = "Chat";
@@ -58,15 +59,11 @@ public static class ForgeChat
             return 1;
         }
 
-        ChatLook? look = null;
-        if (UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected))
+        var interactive = UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected);
+        if (interactive && !ShowsImages(CellMetrics.Environment()))
         {
-            if (await ImageCellAsync() is not { } cell)
-            {
-                Console.Error.WriteLine(NeedsImagesMessage);
-                return 1;
-            }
-            look = LookFor(theme, cell);
+            Console.Error.WriteLine(NeedsImagesMessage);
+            return 1;
         }
 
         var platform = CredentialStore.GetPlatform();
@@ -88,7 +85,7 @@ public static class ForgeChat
 
         try
         {
-            return await ChatInDefaultProjectAsync(app, ModeFor(hands), look);
+            return await ChatInDefaultProjectAsync(app, ModeFor(hands), interactive, theme);
         }
         catch (ChatStoppedException stopped)
         {
@@ -104,10 +101,10 @@ public static class ForgeChat
 
     /// <summary>Opens the default Project, gates hands on the one-time approval, makes sure the
     /// mode's mission is published, opens its conversation, attaches hands, and runs the chat:
-    /// the TUI when <paramref name="look"/> is given (a terminal), otherwise the line mode.</summary>
-    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, ChatLook? look)
+    /// the TUI on a terminal, otherwise the line mode.</summary>
+    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, bool interactive,
+        ForgeTheme theme)
     {
-        var interactive = look is not null;
         var session = await OpenDefaultProjectAsync(app.Projects);
         if (mode.HasHands && !await HandsAllowedAsync(app.MissionConversations, session, interactive))
             return 1;
@@ -117,41 +114,29 @@ public static class ForgeChat
         await using var hands = mode.HasHands
             ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversationId, mission)
             : null;
-        if (look is null)
+        if (!interactive)
             return await ChatAsync(app.MissionConversations, conversationId, hands);
 
         var header = new ChatHeader(Path.GetFileName(session.Project.Home), mode.MissionName, version, ChatProfile(mode));
-        return await ChatTui.RunAsync(app.MissionConversations, conversationId, header, look, hands);
+        if (await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, hands) == TuiExit.Quit)
+            return 0;
+        Console.Error.WriteLine(NeedsImagesMessage);
+        return 1;
     }
 
     // ── Terminal (Phase 56 G8) ──────────────────────────────────────────────────────────────
 
-    /// <summary>The cell size when this terminal can show the TUI's images, else null. Kitty and
-    /// truecolor come from the environment; only when both hold is the cell size probed.</summary>
-    private static async Task<CellSize?> ImageCellAsync()
-    {
-        var (protocols, colors) = CellMetrics.Environment();
-        var metrics = ShowsImages(protocols, colors) ? await CellMetrics.QueryAsync() : null;
-        return ImageCell(protocols, colors, metrics);
-    }
+    /// <summary>G8, before sign-in: kitty graphics, not inside a multiplexer (tmux answers the
+    /// cell-size query but drops kitty images), and truecolor (the image id is a placeholder's
+    /// 24-bit colour). Environment facts only; nothing is sent to the terminal.</summary>
+    internal static bool ShowsImages(TerminalEnvironment environment) =>
+        environment.Protocols.Contains(TerminalGraphicsProtocol.Kitty) && !environment.IsMultiplexer &&
+        environment.Colors == TerminalColorLevel.TrueColor;
 
-    /// <summary>The theme's styles and its card ring for this cell size (drawn once, here).</summary>
-    private static ChatLook LookFor(ForgeTheme theme, CellSize cell)
-    {
-        var styles = new ForgeStyles(theme);
-        return new ChatLook(styles, CardRing.Create(styles.CardEdges, styles.ImageIdTheme, cell));
-    }
-
-    /// <summary>G8: the TUI needs kitty graphics, truecolor (the image id is a placeholder's 24-bit
-    /// colour) and a cell size in pixels; any one missing means this terminal cannot run it.</summary>
-    internal static CellSize? ImageCell(IReadOnlyList<TerminalGraphicsProtocol> protocols, TerminalColorLevel colors,
-        TerminalPixelMetrics? metrics) =>
-        ShowsImages(protocols, colors) && metrics is { CellPixelWidth: > 0, CellPixelHeight: > 0 } m
-            ? new CellSize(m.CellPixelWidth, m.CellPixelHeight)
-            : null;
-
-    private static bool ShowsImages(IReadOnlyList<TerminalGraphicsProtocol> protocols, TerminalColorLevel colors) =>
-        protocols.Contains(TerminalGraphicsProtocol.Kitty) && colors == TerminalColorLevel.TrueColor;
+    /// <summary>G8, on the TUI's first tick: the cell size the terminal answered, or null when it
+    /// did not answer (or answered 0×0) and the TUI cannot draw its images.</summary>
+    internal static CellSize? ImageCell(TerminalPixelMetrics? metrics) =>
+        metrics is { CellPixelWidth: > 0, CellPixelHeight: > 0 } m ? new CellSize(m.CellPixelWidth, m.CellPixelHeight) : null;
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
 

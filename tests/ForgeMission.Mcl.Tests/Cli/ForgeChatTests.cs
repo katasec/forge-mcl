@@ -49,20 +49,29 @@ public sealed class ForgeChatTests
 
     // ── Terminal check (Phase 56 G8) ────────────────────────────────────────────────────────
 
+    private static readonly MethodInfo ShowsImages = LoadForgeChatMethod("ShowsImages");
     private static readonly TerminalPixelMetrics Retina = new(1520, 1680, 19, 42, 80, 40);
 
     [Fact]
-    public void Kitty_with_truecolor_and_a_cell_size_runs_the_TUI_at_that_cell_size()
+    public void Kitty_with_truecolor_outside_a_multiplexer_passes_the_start_up_check()
     {
-        Assert.Equal((19, 42), Cell([TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, Retina));
-        Assert.Equal((19, 42), Cell([TerminalGraphicsProtocol.ITerm2, TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, Retina));
+        Assert.True(Shows([TerminalGraphicsProtocol.Kitty], false, TerminalColorLevel.TrueColor));
+        Assert.True(Shows([TerminalGraphicsProtocol.ITerm2, TerminalGraphicsProtocol.Kitty], false, TerminalColorLevel.TrueColor));
     }
 
     [Fact]
     public void No_kitty_graphics_stops_forge_chat()
     {
-        Assert.Null(Cell([], TerminalColorLevel.TrueColor, Retina));
-        Assert.Null(Cell([TerminalGraphicsProtocol.ITerm2], TerminalColorLevel.TrueColor, Retina));
+        Assert.False(Shows([], false, TerminalColorLevel.TrueColor));
+        Assert.False(Shows([TerminalGraphicsProtocol.ITerm2], false, TerminalColorLevel.TrueColor));
+    }
+
+    [Fact]
+    public void A_multiplexer_stops_forge_chat_even_when_kitty_is_detected()
+    {
+        // tmux inside kitty: KITTY_WINDOW_ID reaches the pane, tmux answers the cell-size query
+        // itself, then drops the images.
+        Assert.False(Shows([TerminalGraphicsProtocol.Kitty], true, TerminalColorLevel.TrueColor));
     }
 
     [Theory]
@@ -71,19 +80,33 @@ public sealed class ForgeChatTests
     [InlineData(TerminalColorLevel.None)]
     public void Less_than_truecolor_stops_forge_chat(TerminalColorLevel colors)
     {
-        Assert.Null(Cell([TerminalGraphicsProtocol.Kitty], colors, Retina));
+        Assert.False(Shows([TerminalGraphicsProtocol.Kitty], false, colors));
     }
 
     [Fact]
-    public void No_cell_size_reply_stops_forge_chat()
+    public void A_cell_size_reply_gives_the_cell_the_ring_is_drawn_for()
     {
-        Assert.Null(Cell([TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, null));
-        Assert.Null(Cell([TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, new TerminalPixelMetrics(0, 0, 0, 0, 80, 40)));
+        Assert.Equal((19, 42), Cell(Retina));
     }
 
-    private static (int Width, int Height)? Cell(TerminalGraphicsProtocol[] protocols, TerminalColorLevel colors, TerminalPixelMetrics? metrics)
+    [Fact]
+    public void No_cell_size_reply_stops_the_TUI()
     {
-        var cell = ImageCell.Invoke(null, [protocols, colors, metrics]);
+        Assert.Null(Cell(null));
+        Assert.Null(Cell(new TerminalPixelMetrics(0, 0, 0, 0, 80, 40)));
+        Assert.Null(Cell(new TerminalPixelMetrics(1520, 0, 19, 0, 80, 40)));
+    }
+
+    private static bool Shows(TerminalGraphicsProtocol[] protocols, bool multiplexer, TerminalColorLevel colors)
+    {
+        var environmentType = ShowsImages.GetParameters()[0].ParameterType;
+        var environment = Activator.CreateInstance(environmentType, protocols, multiplexer, colors);
+        return (bool)ShowsImages.Invoke(null, [environment])!;
+    }
+
+    private static (int Width, int Height)? Cell(TerminalPixelMetrics? metrics)
+    {
+        var cell = ImageCell.Invoke(null, [metrics]);
         if (cell is null) return null;
         int Value(string name) => (int)cell.GetType().GetProperty(name)!.GetValue(cell)!;
         return (Value("Width"), Value("Height"));
