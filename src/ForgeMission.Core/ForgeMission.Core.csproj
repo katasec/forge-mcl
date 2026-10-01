@@ -8,7 +8,7 @@
     <NoWarn>$(NoWarn);3021</NoWarn>
     <IsPackable>true</IsPackable>
     <PackageId>Katasec.Forge.Mcl.Core</PackageId>
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
     <Authors>Katasec</Authors>
     <Description>Provider-neutral Mission Control Language execution, resolution, and reusable capability contracts.</Description>
     <PackageTags>mcl;mission-control-language;execution;runtime;contracts;aot</PackageTags>
