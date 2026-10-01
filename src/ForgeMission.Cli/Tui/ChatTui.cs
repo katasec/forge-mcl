@@ -1,5 +1,6 @@
 using ForgeMission.Application;
 using ForgeMission.Conversations.Contracts;
+using ForgeMission.Cli.Tui.Graphics;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Commands;
@@ -19,6 +20,8 @@ namespace ForgeMission.Cli.Tui;
 // Ctrl-D (53.9 L2) replaces the app's quit command: it cancels the session, and the loop stops only
 // after the stream, the busy work and the hands cancel have ended on the live UI thread, so no await
 // resumes after the app has stopped.
+// Card edges (Phase 56): the start-up card ring is sent to the terminal once, on the first tick
+// (the app is on the alternate screen by then); every card names those images.
 internal sealed class ChatTui
 {
     private static readonly KeyGesture QuitGesture = new(TerminalChar.CtrlD, TerminalModifiers.Ctrl);
@@ -29,6 +32,7 @@ internal sealed class ChatTui
     private readonly CancellationTokenSource _sessionSource;
     private readonly CancellationToken _session;
     private readonly ChatHandsAttachment? _hands;
+    private readonly CardRing _cards;
     private IReadOnlyList<TranscriptBlock> _blocks = [];
     private bool _opened;
     // Opening, submitting, or cancelling: one UI step is awaiting a call.
@@ -43,7 +47,7 @@ internal sealed class ChatTui
     private bool _connectionLost;
     private Task? _live;
 
-    private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
+    private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ChatLook look,
         ChatHandsAttachment? hands, CancellationTokenSource session)
     {
         _conversations = conversations;
@@ -51,7 +55,8 @@ internal sealed class ChatTui
         _hands = hands;
         _sessionSource = session;
         _session = session.Token;
-        _screen = new ChatScreen(header, new ForgeStyles(theme));
+        _cards = look.Cards;
+        _screen = new ChatScreen(header, look.Styles, look.Cards);
         _screen.Composer.Accepted((_, e) => Send(e.Text));
         AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", StopRun);
         AddKey(new KeyGesture(TerminalKey.PageUp), "Forge.PageUp", _screen.PageUp);
@@ -61,15 +66,15 @@ internal sealed class ChatTui
     /// <summary>Runs the TUI until Ctrl-D. A turn still running on quit keeps running on Forge;
     /// only this process stops following it. A file operation still running is cancelled.</summary>
     public static async Task<int> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
-        ForgeTheme theme, ChatHandsAttachment? hands)
+        ChatLook look, ChatHandsAttachment? hands)
     {
         using var session = new CancellationTokenSource();
-        var tui = new ChatTui(conversations, conversationId, header, theme, hands, session);
+        var tui = new ChatTui(conversations, conversationId, header, look, hands, session);
         await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture });
         return 0;
     }
 
-    /// <summary>The UI loop's one async step: open the conversation on the first tick, then submit
+    /// <summary>The UI loop's one async step: send the card images and open the conversation on the first tick, then submit
     /// a waiting message or cancel this window's turn. After Ctrl-D it stops the app; the loop calls
     /// this only once the previous step, with its busy work, has ended. A live stream that failed
     /// unexpectedly ends the chat with its error.</summary>
@@ -81,6 +86,7 @@ internal sealed class ChatTui
         if (!_opened)
         {
             _opened = true;
+            _cards.Transmit();
             context.App.AddGlobalCommand(QuitCommand());
             context.App.Focus(_screen.Composer);
             await WhileBusyAsync(OpenAsync);
@@ -279,3 +285,7 @@ internal sealed class ChatTui
     /// the <c>UserMessage</c> event id.</summary>
     private sealed record SentMessage(Guid CommandId, string Text);
 }
+
+/// <summary>How the TUI looks for this run: the theme's styles and the card ring solved for the
+/// terminal's cell size at start-up.</summary>
+internal sealed record ChatLook(ForgeStyles Styles, CardRing Cards);

@@ -1,4 +1,5 @@
 using System.Reflection;
+using XenoAtom.Terminal;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -13,6 +14,7 @@ public sealed class ForgeChatTests
     private static readonly MethodInfo PolicyFor = LoadForgeChatMethod("PolicyFor");
     private static readonly MethodInfo ModeFor = LoadForgeChatMethod("ModeFor");
     private static readonly MethodInfo AskApproval = LoadForgeChatMethod("AskApproval");
+    private static readonly MethodInfo ImageCell = LoadForgeChatMethod("ImageCell");
 
     private sealed record Listed(string Id, string? MissionName);
 
@@ -43,6 +45,48 @@ public sealed class ForgeChatTests
     {
         Assert.Null(Select([new("janus", "Janus"), new("orphan", null)], mission));
         Assert.Null(Select([], mission));
+    }
+
+    // ── Terminal check (Phase 56 G8) ────────────────────────────────────────────────────────
+
+    private static readonly TerminalPixelMetrics Retina = new(1520, 1680, 19, 42, 80, 40);
+
+    [Fact]
+    public void Kitty_with_truecolor_and_a_cell_size_runs_the_TUI_at_that_cell_size()
+    {
+        Assert.Equal((19, 42), Cell([TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, Retina));
+        Assert.Equal((19, 42), Cell([TerminalGraphicsProtocol.ITerm2, TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, Retina));
+    }
+
+    [Fact]
+    public void No_kitty_graphics_stops_forge_chat()
+    {
+        Assert.Null(Cell([], TerminalColorLevel.TrueColor, Retina));
+        Assert.Null(Cell([TerminalGraphicsProtocol.ITerm2], TerminalColorLevel.TrueColor, Retina));
+    }
+
+    [Theory]
+    [InlineData(TerminalColorLevel.Color256)]
+    [InlineData(TerminalColorLevel.Color16)]
+    [InlineData(TerminalColorLevel.None)]
+    public void Less_than_truecolor_stops_forge_chat(TerminalColorLevel colors)
+    {
+        Assert.Null(Cell([TerminalGraphicsProtocol.Kitty], colors, Retina));
+    }
+
+    [Fact]
+    public void No_cell_size_reply_stops_forge_chat()
+    {
+        Assert.Null(Cell([TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, null));
+        Assert.Null(Cell([TerminalGraphicsProtocol.Kitty], TerminalColorLevel.TrueColor, new TerminalPixelMetrics(0, 0, 0, 0, 80, 40)));
+    }
+
+    private static (int Width, int Height)? Cell(TerminalGraphicsProtocol[] protocols, TerminalColorLevel colors, TerminalPixelMetrics? metrics)
+    {
+        var cell = ImageCell.Invoke(null, [protocols, colors, metrics]);
+        if (cell is null) return null;
+        int Value(string name) => (int)cell.GetType().GetProperty(name)!.GetValue(cell)!;
+        return (Value("Width"), Value("Height"));
     }
 
     // ── --hands (Phase 55) ──────────────────────────────────────────────────────────────────

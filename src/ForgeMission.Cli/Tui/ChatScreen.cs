@@ -1,3 +1,4 @@
+using ForgeMission.Cli.Tui.Graphics;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Extensions.Markdown;
@@ -13,6 +14,8 @@ internal sealed record ChatHeader(string Project, string Mission, int Version, s
 // forge chat TUI (53.5, 53.6): every visual on the screen — header, transcript, progress line,
 // composer, key bar — laid out as the accepted mockups. It renders transcript blocks; it decides
 // nothing about events (Transcript) or turns (ChatTui), and takes every style from ForgeStyles.
+// Participant cards (Phase 56) are framed by the start-up card ring's edge tiles (CardFrame); this
+// file only places them, with the mockup's gutter and gap, and never builds pixels.
 internal sealed class ChatScreen
 {
     private const string PendingBody = "▌";
@@ -25,10 +28,12 @@ internal sealed class ChatScreen
     private readonly List<MarkdownControl?> _cardBodies = [];
     private readonly ForgeStyles _styles;
     private readonly ForgeCodeBlockRenderer _codeBlocks;
+    private readonly CardRing _cards;
 
-    public ChatScreen(ChatHeader header, ForgeStyles styles)
+    public ChatScreen(ChatHeader header, ForgeStyles styles, CardRing cards)
     {
         _styles = styles;
+        _cards = cards;
         _codeBlocks = new ForgeCodeBlockRenderer(styles.CodeBlock);
         Composer = BuildComposer(header);
         Root = new DockLayout()
@@ -179,19 +184,23 @@ internal sealed class ChatScreen
         if (body.Markdown != markdown) body.Markdown = markdown;
     }
 
-    /// <summary>A reply card; <paramref name="title"/> is null while no participant has started.</summary>
+    /// <summary>A reply card; <paramref name="title"/> is null while no participant has started.
+    /// The whole card is one block (its frame), after a blank gap row, inset by the gutter so the
+    /// frame's border falls in the transcript's gutter column.</summary>
     private DocumentFlowItem CardItem(string? title, MarkdownControl body) => new()
     {
-        Content = title is null
-            ? new FlowDocument().Add(body)
-            : new FlowDocument().Add(new TextBlock(title).Style(_styles.CardTitle)).Add(body),
+        Content = new FlowDocument().Add(new CardFrame(CardContent(title, body), _cards, _styles.CardFill)),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
-        // The border is drawn in the padding's outer cells; the inner column keeps text off it.
-        Padding = new Thickness(2, 1, 2, 1),
-        BorderStyle = _styles.CardFrame,
-        BackgroundStyle = _styles.CardFill,
+        Padding = new Thickness(CardGutter, _styles.CardGapRows, CardGutter, 0),
     };
+
+    private Visual CardContent(string? title, MarkdownControl body) => title is null
+        ? body
+        : new VStack(new TextBlock(title).Style(_styles.CardTitle), body).HorizontalAlignment(Align.Stretch);
+
+    /// <summary>Columns between the transcript edge and the frame's outer edge.</summary>
+    private int CardGutter => Math.Max(0, _styles.TranscriptGutterCols - _cards.BorderCol);
 
     private static DocumentFlowItem LineItem(string text, Style style) => new()
     {

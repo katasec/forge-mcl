@@ -6,7 +6,9 @@ using ForgeMission.Conversations.Contracts;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 using ForgeMission.Cli.Tui;
+using ForgeMission.Cli.Tui.Graphics;
 using Microsoft.Extensions.DependencyInjection;
+using XenoAtom.Terminal;
 // Transport and Contracts both name these; forge chat uses the surface (Transport) side.
 using CreateMissionConversationRequest = ForgeMission.Application.Transport.CreateMissionConversationRequest;
 using ListMissionConversationsRequest = ForgeMission.Application.Transport.ListMissionConversationsRequest;
@@ -20,6 +22,8 @@ namespace ForgeMission.Cli;
 // messages on ForgeAPI. This file owns only the order of those calls and what is printed.
 // `forge chat --hands` (Phase 55) runs the separate ChatHands mission instead: the model may read,
 // write and edit files in the project folder through Bob, after a one-time approval per project.
+// The TUI needs a terminal that shows kitty images (Phase 56 G8): it is checked before sign-in or
+// any network call, and an unsupported terminal stops with one named message (no plain fallback).
 public static class ForgeChat
 {
     private const string ProjectTitle = "Chat";
@@ -28,6 +32,8 @@ public static class ForgeChat
     private const string HandsFlag = "--hands";
     private static readonly TimeSpan EvaluationPollDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromMilliseconds(250);
+    private const string NeedsImagesMessage = "forge chat needs a terminal that can show images, such as Ghostty or Kitty " +
+        "(not inside tmux). Open forge chat again from one of those.";
 
     /// <summary>The <c>forge chat</c> command and its one flag.</summary>
     internal static Command BuildCommand()
@@ -52,6 +58,17 @@ public static class ForgeChat
             return 1;
         }
 
+        ChatLook? look = null;
+        if (UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected))
+        {
+            if (await ImageCellAsync() is not { } cell)
+            {
+                Console.Error.WriteLine(NeedsImagesMessage);
+                return 1;
+            }
+            look = LookFor(theme, cell);
+        }
+
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
         {
@@ -71,7 +88,7 @@ public static class ForgeChat
 
         try
         {
-            return await ChatInDefaultProjectAsync(app, ModeFor(hands), theme);
+            return await ChatInDefaultProjectAsync(app, ModeFor(hands), look);
         }
         catch (ChatStoppedException stopped)
         {
@@ -86,10 +103,11 @@ public static class ForgeChat
     }
 
     /// <summary>Opens the default Project, gates hands on the one-time approval, makes sure the
-    /// mode's mission is published, opens its conversation, attaches hands, and runs the chat.</summary>
-    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, ForgeTheme theme)
+    /// mode's mission is published, opens its conversation, attaches hands, and runs the chat:
+    /// the TUI when <paramref name="look"/> is given (a terminal), otherwise the line mode.</summary>
+    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, ChatLook? look)
     {
-        var interactive = UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected);
+        var interactive = look is not null;
         var session = await OpenDefaultProjectAsync(app.Projects);
         if (mode.HasHands && !await HandsAllowedAsync(app.MissionConversations, session, interactive))
             return 1;
@@ -99,12 +117,41 @@ public static class ForgeChat
         await using var hands = mode.HasHands
             ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversationId, mission)
             : null;
-        if (!interactive)
+        if (look is null)
             return await ChatAsync(app.MissionConversations, conversationId, hands);
 
         var header = new ChatHeader(Path.GetFileName(session.Project.Home), mode.MissionName, version, ChatProfile(mode));
-        return await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, hands);
+        return await ChatTui.RunAsync(app.MissionConversations, conversationId, header, look, hands);
     }
+
+    // ── Terminal (Phase 56 G8) ──────────────────────────────────────────────────────────────
+
+    /// <summary>The cell size when this terminal can show the TUI's images, else null. Kitty and
+    /// truecolor come from the environment; only when both hold is the cell size probed.</summary>
+    private static async Task<CellSize?> ImageCellAsync()
+    {
+        var (protocols, colors) = CellMetrics.Environment();
+        var metrics = ShowsImages(protocols, colors) ? await CellMetrics.QueryAsync() : null;
+        return ImageCell(protocols, colors, metrics);
+    }
+
+    /// <summary>The theme's styles and its card ring for this cell size (drawn once, here).</summary>
+    private static ChatLook LookFor(ForgeTheme theme, CellSize cell)
+    {
+        var styles = new ForgeStyles(theme);
+        return new ChatLook(styles, CardRing.Create(styles.CardEdges, styles.ImageIdTheme, cell));
+    }
+
+    /// <summary>G8: the TUI needs kitty graphics, truecolor (the image id is a placeholder's 24-bit
+    /// colour) and a cell size in pixels; any one missing means this terminal cannot run it.</summary>
+    internal static CellSize? ImageCell(IReadOnlyList<TerminalGraphicsProtocol> protocols, TerminalColorLevel colors,
+        TerminalPixelMetrics? metrics) =>
+        ShowsImages(protocols, colors) && metrics is { CellPixelWidth: > 0, CellPixelHeight: > 0 } m
+            ? new CellSize(m.CellPixelWidth, m.CellPixelHeight)
+            : null;
+
+    private static bool ShowsImages(IReadOnlyList<TerminalGraphicsProtocol> protocols, TerminalColorLevel colors) =>
+        protocols.Contains(TerminalGraphicsProtocol.Kitty) && colors == TerminalColorLevel.TrueColor;
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
 
