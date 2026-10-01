@@ -60,7 +60,9 @@ public sealed class ForgeChatTests
     {
         Assert.Equal(("Chat", "NoHands"), Mode(false));
         Assert.Equal(("ChatHands", "ProjectWorkspace"), Mode(true));
-        Assert.StartsWith("mission ChatHands(message)", (string)Property(ModeFor.Invoke(null, [true])!, "Definition"));
+        // The starter definitions from Katasec.Forge.Client (one owner): ChatHands runs the agent-role Assistant.
+        Assert.Equal("mission Chat(message) = {\n    Answerer using anthropic\n}\n", (string)Property(ModeFor.Invoke(null, [false])!, "Definition"));
+        Assert.Equal("mission ChatHands(message) = {\n    Assistant using anthropic\n}\n", (string)Property(ModeFor.Invoke(null, [true])!, "Definition"));
     }
 
     [Theory]

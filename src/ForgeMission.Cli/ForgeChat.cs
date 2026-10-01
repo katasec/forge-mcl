@@ -471,8 +471,8 @@ internal sealed record ChatMode(string MissionName, string Definition, MissionHa
 {
     public static ChatMode Plain { get; } = new(StarterMissions.Chat, StarterMissions.ChatDefinition, MissionHandsProfile.NoHands);
 
-    public static ChatMode Hands { get; } = new("ChatHands",
-        "mission ChatHands(message) = {\n    Answerer using anthropic\n}\n", MissionHandsProfile.ProjectWorkspace);
+    public static ChatMode Hands { get; } =
+        new(StarterMissions.ChatHands, StarterMissions.ChatHandsDefinition, MissionHandsProfile.ProjectWorkspace);
 
     public bool HasHands => Profile != MissionHandsProfile.NoHands;
 }
