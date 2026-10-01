@@ -8,28 +8,41 @@ namespace ForgeMission.Tests.Cli;
 public sealed class ForgeChatTests
 {
     private static readonly MethodInfo EndsTurn = LoadForgeChatMethod("EndsTurn");
-    private static readonly MethodInfo ReusesLatest = LoadForgeChatMethod("ReusesLatest");
+    private static readonly MethodInfo LatestFor = LoadForgeChatMethod("LatestFor").MakeGenericMethod(typeof(Listed));
     private static readonly MethodInfo ParseHands = LoadForgeChatMethod("ParseHands");
     private static readonly MethodInfo PolicyFor = LoadForgeChatMethod("PolicyFor");
     private static readonly MethodInfo ModeFor = LoadForgeChatMethod("ModeFor");
     private static readonly MethodInfo AskApproval = LoadForgeChatMethod("AskApproval");
 
+    private sealed record Listed(string Id, string? MissionName);
+
+    // Listed newest-first, as Application returns them: the other chat mode is the most recent.
+    private static readonly Listed[] Mixed = [new("hands", "ChatHands"), new("chat", "Chat"), new("janus", "Janus"), new("orphan", null)];
+
+    private static Listed? Select(Listed[] listed, string mission) =>
+        (Listed?)LatestFor.Invoke(null, [listed, (Func<Listed, string?>)(item => item.MissionName), mission]);
+
     [Theory]
-    [InlineData("Chat", "Chat")]
-    [InlineData("ChatHands", "ChatHands")]
-    public void The_latest_conversation_on_the_modes_mission_is_reopened(string latest, string mission)
+    [InlineData("Chat", "chat")]
+    [InlineData("ChatHands", "hands")]
+    public void Each_mode_reopens_its_own_latest_conversation_even_when_the_other_mode_is_newer(string mission, string expected)
     {
-        Assert.True((bool)ReusesLatest.Invoke(null, [latest, mission])!);
+        Assert.Equal(expected, Select(Mixed, mission)?.Id);
+    }
+
+    [Fact]
+    public void The_newest_conversation_on_the_mode_wins_over_older_ones()
+    {
+        Assert.Equal("new", Select([new("new", "Chat"), new("old", "Chat")], "Chat")?.Id);
     }
 
     [Theory]
-    [InlineData("Janus", "Chat")]
-    [InlineData(null, "Chat")]
-    [InlineData("ChatHands", "Chat")]
-    [InlineData("Chat", "ChatHands")]
-    public void A_latest_conversation_on_another_mission_or_none_creates_a_new_one(string? latestMissionName, string mission)
+    [InlineData("Chat")]
+    [InlineData("ChatHands")]
+    public void No_conversation_on_the_mode_creates_a_new_one(string mission)
     {
-        Assert.False((bool)ReusesLatest.Invoke(null, [latestMissionName, mission])!);
+        Assert.Null(Select([new("janus", "Janus"), new("orphan", null)], mission));
+        Assert.Null(Select([], mission));
     }
 
     // ── --hands (Phase 55) ──────────────────────────────────────────────────────────────────

@@ -258,16 +258,17 @@ public static class ForgeChat
 
     // ── Conversation ────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Reopens this Project's most recent mission conversation when it is on the mode's
-    /// mission; otherwise (none yet, or the latest is on another mission such as Janus or the other
-    /// chat mode) creates one on it. Returns the conversation and the version it runs on.</summary>
+    /// <summary>Reopens this Project's most recent conversation on the mode's mission, so Chat and
+    /// ChatHands each keep their own history; creates one on it only when the mode has none yet
+    /// (conversations on other missions such as Janus are left stored). Returns the conversation and
+    /// the version it runs on.</summary>
     private static async Task<(Guid ConversationId, int Version)> OpenConversationAsync(
         IMissionConversationService conversations, string sessionId, ApprovedMissionVersionOption mission, ChatMode mode)
     {
         var listed = await conversations.ListAsync(new ListMissionConversationsRequest(sessionId), CancellationToken.None);
-        var latest = (listed.Conversations ?? throw Stopped(listed.Error)).FirstOrDefault();
-        if (ReusesLatest(latest?.MissionName, mode.MissionName))
-            return (latest!.ConversationId, latest.VersionNumber);
+        var latest = LatestFor(listed.Conversations ?? throw Stopped(listed.Error), item => item.MissionName, mode.MissionName);
+        if (latest is not null)
+            return (latest.ConversationId, latest.VersionNumber);
 
         var created = await conversations.CreateAsync(
             new CreateMissionConversationRequest(sessionId, mission.MissionId, Guid.NewGuid(), mission.MissionVersionId), CancellationToken.None);
@@ -433,8 +434,10 @@ public static class ForgeChat
     /// <summary>The latest conversation is reopened only when it is on the mode's mission; a model
     /// and a hands profile are pinned at create, so a conversation on another mission (Janus, or
     /// the other chat mode) is never continued.</summary>
-    internal static bool ReusesLatest(string? latestMissionName, string missionName) =>
-        string.Equals(latestMissionName, missionName, StringComparison.Ordinal);
+    /// <summary>The first conversation in <paramref name="listed"/> (listed newest-first) on
+    /// <paramref name="mission"/>, or null when there is none.</summary>
+    internal static T? LatestFor<T>(IEnumerable<T> listed, Func<T, string?> missionName, string mission) where T : class =>
+        listed.FirstOrDefault(item => string.Equals(missionName(item), mission, StringComparison.Ordinal));
 
     private static bool Hands(ParseResult result) => result.GetValue<bool>(HandsFlag);
 
