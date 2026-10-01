@@ -2,7 +2,7 @@ using System.Reflection;
 
 namespace ForgeMission.Tests.Cli;
 
-// forge chat (53.6): the theme named in ~/.forge/config.json. Missing file or key → light; "light"
+// forge chat (53.6): the theme named in ~/.forge/config.json. Missing file or key → dark (56 G10); "light"
 // and "dark" pick those themes; anything else stops forge chat with the valid names. Read through
 // reflection like the other CLI tests (the test project does not reference the forge assembly).
 public sealed class ForgeConfigTests : IDisposable
@@ -17,15 +17,15 @@ public sealed class ForgeConfigTests : IDisposable
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
     [Fact]
-    public void A_missing_file_is_the_light_theme()
+    public void A_missing_file_is_the_dark_theme()
     {
-        Assert.Same(Theme("Light"), Read(Path.Combine(_dir, "config.json")));
+        Assert.Same(Theme("Dark"), Read(Path.Combine(_dir, "config.json")));
     }
 
     [Fact]
-    public void A_file_without_a_theme_is_the_light_theme()
+    public void A_file_without_a_theme_is_the_dark_theme()
     {
-        Assert.Same(Theme("Light"), Read(Write("""{ "other": 1 }""")));
+        Assert.Same(Theme("Dark"), Read(Write("""{ "other": 1 }""")));
     }
 
     [Theory]
