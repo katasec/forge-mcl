@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using ForgeMission.Conversations.Contracts;
 
 namespace ForgeMission.Tests.Cli;
@@ -140,6 +141,86 @@ public sealed class ChatTranscriptTests
     {
         Assert.Equal(expected, (bool)UsesTuiMethod.Invoke(null, [inputRedirected, outputRedirected])!);
     }
+
+    // ── Hands activity (Phase 55, H8) ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void A_tool_use_shows_one_line_that_its_outcome_completes()
+    {
+        Assert.Equal(["HandsLine { Label = Read notes.txt, Outcome =  }"], Map(HandsRequested("Read", "notes.txt")));
+        Assert.Equal(["HandsLine { Label = Read notes.txt, Outcome = succeeded }"],
+            Map(HandsRequested("Read", "notes.txt"), HandsResult(MissionToolOutcome.Succeeded)));
+    }
+
+    [Fact]
+    public void A_tool_use_goes_above_the_reply_still_waiting_and_the_reply_stays_last()
+    {
+        var blocks = Map(User("read it"), Started("ChatHands:Answerer"), HandsRequested("Read", "notes.txt"),
+            HandsResult(MissionToolOutcome.Succeeded), Step("The codeword is kiwi."), Status(ConversationRunStatus.Completed));
+
+        Assert.Equal([
+            "YouBlock { Text = read it }",
+            "HandsLine { Label = Read notes.txt, Outcome = succeeded }",
+            "ParticipantCard { Title = Answerer, Text = The codeword is kiwi., Mission = ChatHands }",
+        ], blocks);
+        Assert.Equal("Answerer", Replying(Started("ChatHands:Answerer"), HandsRequested("Read", "notes.txt")));
+    }
+
+    [Theory]
+    [InlineData(MissionToolOutcome.Failed, "failed")]
+    [InlineData(MissionToolOutcome.DeniedByPolicy, "denied by policy")]
+    [InlineData(MissionToolOutcome.DeniedOutOfProfile, "denied: outside the allowed tools")]
+    [InlineData(MissionToolOutcome.Cancelled, "cancelled")]
+    public void A_tool_use_that_did_not_succeed_shows_how_it_ended(MissionToolOutcome outcome, string shown)
+    {
+        Assert.Equal([$"HandsLine {{ Label = Write out.txt, Outcome = {shown} }}"],
+            Map(HandsRequested("Write", "out.txt"), HandsResult(outcome)));
+    }
+
+    [Theory]
+    [InlineData(ConversationEventKind.MissionHandsCancelled, "cancelled")]
+    [InlineData(ConversationEventKind.MissionHandsInterrupted, "interrupted")]
+    public void A_cancelled_or_interrupted_attempt_ends_the_line(ConversationEventKind kind, string shown)
+    {
+        Assert.Equal([$"HandsLine {{ Label = Edit a.md, Outcome = {shown} }}"],
+            Map(HandsRequested("Edit", "a.md"), Event(kind, null, null)));
+    }
+
+    [Fact]
+    public void A_tool_without_a_file_path_shows_its_name()
+    {
+        var noPath = HandsRequested("Read", null);
+
+        Assert.Equal(["HandsLine { Label = Read, Outcome =  }"], Map(noPath));
+    }
+
+    [Fact]
+    public void The_line_text_reads_running_then_finished()
+    {
+        var text = TranscriptMethod("HandsText");
+        var lineType = Forge.GetType("ForgeMission.Cli.Tui.HandsLine", throwOnError: true)!;
+
+        Assert.Equal("Read notes.txt …", text.Invoke(null, [Activator.CreateInstance(lineType, "Read notes.txt", null)]));
+        Assert.Equal("Read notes.txt → succeeded", text.Invoke(null, [Activator.CreateInstance(lineType, "Read notes.txt", "succeeded")]));
+    }
+
+    [Fact]
+    public void An_outcome_without_a_running_tool_use_changes_nothing()
+    {
+        Assert.Equal(["YouBlock { Text = hi }"], Map(User("hi"), HandsResult(MissionToolOutcome.Succeeded)));
+    }
+
+    private static ConversationEvent HandsRequested(string tool, string? path)
+    {
+        var arguments = JsonSerializer.SerializeToElement(path is null
+            ? new Dictionary<string, string>()
+            : new Dictionary<string, string> { ["file_path"] = path });
+        var request = new MissionToolRequest(Guid.NewGuid(), Guid.Empty, Guid.Empty, "", "", "call-1", tool, arguments);
+        return Event(ConversationEventKind.MissionHandsRequested, null, null) with { MissionHandsRequest = request };
+    }
+
+    private static ConversationEvent HandsResult(MissionToolOutcome outcome) =>
+        Event(ConversationEventKind.MissionHandsResult, null, null) with { MissionHandsOutcome = outcome };
 
     // ── Sent messages (53.7): shown at once, replaced by Forge's own events ─────────────────
 

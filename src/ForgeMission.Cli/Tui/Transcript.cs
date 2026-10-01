@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ForgeMission.Conversations.Contracts;
 
 namespace ForgeMission.Cli.Tui;
@@ -26,6 +27,10 @@ public sealed record NoticeLine(string Text) : TranscriptBlock;
 /// <summary>An error from the run or the connection.</summary>
 public sealed record ErrorLine(string Text) : TranscriptBlock;
 
+/// <summary>One tool use through hands (Phase 55, H8), e.g. <c>Read notes.txt</c>;
+/// <paramref name="Outcome"/> is null while it runs.</summary>
+public sealed record HandsLine(string Label, string? Outcome) : TranscriptBlock;
+
 // forge chat TUI (53.5, 53.7, 53.8): the one mapping from conversation events to transcript blocks,
 // used for both the replay of a reopened conversation and a live turn (including live reply deltas). A sent message is shown at once
 // as pending blocks keyed by its command id; Forge's own events then take their place. Replay only
@@ -43,8 +48,40 @@ public static class Transcript
         ConversationEventKind.ParticipantMessage => AddFinalResult(blocks, item.Text ?? ""),
         ConversationEventKind.Error => AddError(blocks, item),
         ConversationEventKind.RunStatus when item.RunStatus is { } status && IsTerminal(status) => EndTurn(blocks, status),
+        ConversationEventKind.MissionHandsRequested => AddHandsLine(blocks, new HandsLine(HandsLabel(item), null)),
+        ConversationEventKind.MissionHandsResult or ConversationEventKind.MissionHandsCancelled or
+            ConversationEventKind.MissionHandsInterrupted => EndHandsLine(blocks, HandsOutcome(item)),
         _ => blocks,
     };
+
+    /// <summary>The tool and the file it names: <c>Read notes.txt</c>, or the tool alone.</summary>
+    public static string HandsLabel(ConversationEvent item)
+    {
+        if (item.MissionHandsRequest is not { } request) return "Tool";
+        return FilePath(request.Arguments) is { } path ? $"{request.ToolName} {path}" : request.ToolName;
+    }
+
+    /// <summary>How a tool use ended, in words.</summary>
+    public static string HandsOutcome(ConversationEvent item) => item.Kind switch
+    {
+        ConversationEventKind.MissionHandsCancelled => "cancelled",
+        ConversationEventKind.MissionHandsInterrupted => "interrupted",
+        _ => item.MissionHandsOutcome switch
+        {
+            MissionToolOutcome.Succeeded => "succeeded",
+            MissionToolOutcome.DeniedOutOfProfile => "denied: outside the allowed tools",
+            MissionToolOutcome.DeniedByPolicy => "denied by policy",
+            MissionToolOutcome.DeniedByOperator => "denied",
+            MissionToolOutcome.Cancelled => "cancelled",
+            MissionToolOutcome.Interrupted => "interrupted",
+            MissionToolOutcome.Failed => "failed",
+            _ => "finished",
+        },
+    };
+
+    /// <summary>The one line a <see cref="HandsLine"/> shows.</summary>
+    public static string HandsText(HandsLine line) =>
+        line.Outcome is null ? $"{line.Label} …" : $"{line.Label} → {line.Outcome}";
 
     /// <summary>A message was just sent with <paramref name="commandId"/>: show it and a pending
     /// reply now, without waiting for Forge.</summary>
@@ -153,6 +190,33 @@ public static class Transcript
             ? ended
             : Append(ended, new NoticeLine($"(run {status.ToString().ToLowerInvariant()})"));
     }
+
+    /// <summary>A tool use goes above the reply card still waiting for text, so the reply that
+    /// follows it stays last; otherwise it is appended.</summary>
+    private static IReadOnlyList<TranscriptBlock> AddHandsLine(IReadOnlyList<TranscriptBlock> blocks, HandsLine line)
+    {
+        if (blocks.Count == 0 || blocks[^1] is not (ParticipantCard { Text: null } or PendingReplyBlock))
+            return Append(blocks, line);
+
+        var updated = blocks.ToList();
+        updated.Insert(blocks.Count - 1, line);
+        return updated;
+    }
+
+    /// <summary>The outcome completes the latest tool use still running (one runs at a time).</summary>
+    private static IReadOnlyList<TranscriptBlock> EndHandsLine(IReadOnlyList<TranscriptBlock> blocks, string outcome)
+    {
+        var index = -1;
+        for (var i = blocks.Count - 1; i >= 0 && index < 0; i--)
+            if (blocks[i] is HandsLine { Outcome: null }) index = i;
+        return index < 0 ? blocks : ReplaceAt(blocks, index, ((HandsLine)blocks[index]) with { Outcome = outcome });
+    }
+
+    private static string? FilePath(JsonElement arguments) =>
+        arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty("file_path", out var path) &&
+        path.ValueKind == JsonValueKind.String
+            ? path.GetString()
+            : null;
 
     private static IReadOnlyList<TranscriptBlock> WithoutPending(IReadOnlyList<TranscriptBlock> blocks, Guid commandId) =>
         blocks.Where(block => block switch

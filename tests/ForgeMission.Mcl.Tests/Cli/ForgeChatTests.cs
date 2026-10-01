@@ -2,27 +2,119 @@ using System.Reflection;
 
 namespace ForgeMission.Tests.Cli;
 
-// forge chat (53.2, 53.4): the rules that decide a turn has ended and which conversation to open,
-// read through reflection like the other CLI tests (the test project does not reference the forge
-// executable's assembly).
+// forge chat (53.2, 53.4, Phase 55): the rules that decide a turn has ended, which conversation to
+// open, and the --hands flag, policy, mission and one-time approval, read through reflection like the
+// other CLI tests (the test project does not reference the forge executable's assembly).
 public sealed class ForgeChatTests
 {
     private static readonly MethodInfo EndsTurn = LoadForgeChatMethod("EndsTurn");
     private static readonly MethodInfo ReusesLatest = LoadForgeChatMethod("ReusesLatest");
+    private static readonly MethodInfo ParseHands = LoadForgeChatMethod("ParseHands");
+    private static readonly MethodInfo PolicyFor = LoadForgeChatMethod("PolicyFor");
+    private static readonly MethodInfo ModeFor = LoadForgeChatMethod("ModeFor");
+    private static readonly MethodInfo AskApproval = LoadForgeChatMethod("AskApproval");
 
-    [Fact]
-    public void The_latest_conversation_on_Chat_is_reopened()
+    [Theory]
+    [InlineData("Chat", "Chat")]
+    [InlineData("ChatHands", "ChatHands")]
+    public void The_latest_conversation_on_the_modes_mission_is_reopened(string latest, string mission)
     {
-        Assert.True((bool)ReusesLatest.Invoke(null, ["Chat"])!);
+        Assert.True((bool)ReusesLatest.Invoke(null, [latest, mission])!);
     }
 
     [Theory]
-    [InlineData("Janus")]
-    [InlineData(null)]
-    public void A_latest_conversation_on_another_mission_or_none_creates_a_new_one(string? latestMissionName)
+    [InlineData("Janus", "Chat")]
+    [InlineData(null, "Chat")]
+    [InlineData("ChatHands", "Chat")]
+    [InlineData("Chat", "ChatHands")]
+    public void A_latest_conversation_on_another_mission_or_none_creates_a_new_one(string? latestMissionName, string mission)
     {
-        Assert.False((bool)ReusesLatest.Invoke(null, [latestMissionName])!);
+        Assert.False((bool)ReusesLatest.Invoke(null, [latestMissionName, mission])!);
     }
+
+    // ── --hands (Phase 55) ──────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Hands_are_off_unless_the_flag_is_given()
+    {
+        Assert.False((bool)ParseHands.Invoke(null, [Array.Empty<string>()])!);
+        Assert.True((bool)ParseHands.Invoke(null, [new[] { "--hands" }])!);
+    }
+
+    [Fact]
+    public void Plain_chat_denies_every_capability()
+    {
+        Assert.Equal("AutoDenied", Outcome(false, "file"));
+        Assert.Equal("AutoDenied", Outcome(false, "terminal"));
+    }
+
+    [Fact]
+    public void Hands_auto_approve_files_and_keep_the_terminal_denied()
+    {
+        Assert.Equal("AutoApproved", Outcome(true, "file"));
+        Assert.Equal("AutoDenied", Outcome(true, "terminal"));
+    }
+
+    [Fact]
+    public void Each_mode_has_its_own_mission_and_hands_profile()
+    {
+        Assert.Equal(("Chat", "NoHands"), Mode(false));
+        Assert.Equal(("ChatHands", "ProjectWorkspace"), Mode(true));
+        Assert.StartsWith("mission ChatHands(message)", (string)Property(ModeFor.Invoke(null, [true])!, "Definition"));
+    }
+
+    [Theory]
+    [InlineData("y\n")]
+    [InlineData("YES\n")]
+    [InlineData(" yes \n")]
+    public void Yes_on_a_terminal_approves(string typed)
+    {
+        var (answer, shown) = Ask(interactive: true, typed);
+
+        Assert.Equal("Approved", answer);
+        Assert.Equal("Allow Forge to read, write and edit files in /p/chat? [y/N] ", shown);
+    }
+
+    [Theory]
+    [InlineData("n\n")]
+    [InlineData("\n")]
+    [InlineData("yep\n")]
+    [InlineData("")]
+    public void Anything_else_or_end_of_input_declines(string typed)
+    {
+        Assert.Equal("Declined", Ask(interactive: true, typed).Answer);
+    }
+
+    [Fact]
+    public void A_piped_run_is_never_asked()
+    {
+        var (answer, shown) = Ask(interactive: false, "y\n");
+
+        Assert.Equal("NotInteractive", answer);
+        Assert.Equal("", shown);
+    }
+
+    private static string Outcome(bool hands, string capability)
+    {
+        var policy = PolicyFor.Invoke(null, [hands])!;
+        var rule = policy.GetType().GetMethod("RuleFor")!.Invoke(policy, [capability])!;
+        return Property(rule, "Outcome").ToString()!;
+    }
+
+    private static (string Mission, string Profile) Mode(bool hands)
+    {
+        var mode = ModeFor.Invoke(null, [hands])!;
+        return ((string)Property(mode, "MissionName"), Property(mode, "Profile").ToString()!);
+    }
+
+    private static (string Answer, string Shown) Ask(bool interactive, string typed)
+    {
+        var output = new StringWriter();
+        var answer = AskApproval.Invoke(null, ["/p/chat", interactive, new StringReader(typed), output])!;
+        return (answer.ToString()!, output.ToString());
+    }
+
+    private static object Property(object target, string name) => target.GetType().GetProperty(name)!.GetValue(target)!;
 
     [Theory]
     [InlineData("Completed")]

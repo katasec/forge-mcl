@@ -11,13 +11,16 @@ namespace ForgeMission.Cli.Tui;
 // forge chat TUI (53.5): the full-screen chat on a terminal. It runs the same conversation calls
 // as the line mode (ForgeChat.ReplayAsync / FollowTurnAsync, SubmitAsync, CancelAsync) inside
 // XenoAtom's single-threaded UI loop: awaited calls resume on the UI thread, so input and rendering
-// keep running while a turn streams. This file owns the turn lifecycle and the keys.
+// keep running while a turn streams. This file owns the turn lifecycle and the keys. With hands
+// (Phase 55), live events also feed the attachment, whose file operations run off the follow loop
+// and are cancelled by Ctrl-C or exit.
 internal sealed class ChatTui
 {
     private readonly IMissionConversationService _conversations;
     private readonly Guid _conversationId;
     private readonly ChatScreen _screen;
     private readonly CancellationToken _session;
+    private readonly ChatHandsAttachment? _hands;
     private IReadOnlyList<TranscriptBlock> _blocks = [];
     // The last event shown. Kept per event, so following again after Ctrl-C resumes where the
     // cancelled stream stopped.
@@ -28,10 +31,11 @@ internal sealed class ChatTui
     private CancellationTokenSource? _turn;
 
     private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
-        CancellationToken session)
+        ChatHandsAttachment? hands, CancellationToken session)
     {
         _conversations = conversations;
         _conversationId = conversationId;
+        _hands = hands;
         _session = session;
         _screen = new ChatScreen(header, new ForgeStyles(theme));
         _screen.Composer.Accepted((_, e) => Send(e.Text));
@@ -41,12 +45,12 @@ internal sealed class ChatTui
     }
 
     /// <summary>Runs the TUI until Ctrl-D. A turn still running on quit keeps running on Forge;
-    /// only this process stops following it.</summary>
+    /// only this process stops following it. A file operation still running is cancelled.</summary>
     public static async Task<int> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
-        ForgeTheme theme)
+        ForgeTheme theme, ChatHandsAttachment? hands)
     {
         using var session = new CancellationTokenSource();
-        var tui = new ChatTui(conversations, conversationId, header, theme, session.Token);
+        var tui = new ChatTui(conversations, conversationId, header, theme, hands, session.Token);
         try
         {
             await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync,
@@ -54,6 +58,7 @@ internal sealed class ChatTui
         }
         finally
         {
+            if (hands is not null) await hands.CancelInFlightAsync();
             await session.CancelAsync();
         }
         return 0;
@@ -85,8 +90,9 @@ internal sealed class ChatTui
     {
         var snapshot = (await _conversations.GetConversationAsync(_conversationId, _session)).Snapshot;
         await ForgeChat.ReplayAsync(_conversations, _conversationId, snapshot.LastSequence, Show, _session);
+        _hands?.Begin(ShowError);
         if (snapshot.ActiveRunId is { } running && !ForgeChat.IsTerminal(snapshot.Status))
-            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, running, includeDeltas: true, Show, _session);
+            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, running, includeDeltas: true, ShowLive, _session);
     }
 
     /// <summary>Submits one message (already shown as pending) with its command id and follows its
@@ -132,12 +138,13 @@ internal sealed class ChatTui
     {
         try
         {
-            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, includeDeltas: true, Show, turn);
+            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, includeDeltas: true, ShowLive, turn);
         }
         catch (OperationCanceledException) when (turn.IsCancellationRequested && !_session.IsCancellationRequested)
         {
+            if (_hands is not null) await _hands.CancelInFlightAsync();
             await _conversations.CancelAsync(_conversationId, submitted.TurnId, submitted.TurnAttemptId, Guid.NewGuid(), _session);
-            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, includeDeltas: true, Show, _session);
+            await ForgeChat.FollowTurnAsync(_conversations, _conversationId, _cursor, submitted.TurnAttemptId, includeDeltas: true, ShowLive, _session);
         }
     }
 
@@ -178,6 +185,15 @@ internal sealed class ChatTui
             _cursor = item.Sequence;
         ShowBlocks(Transcript.Apply(_blocks, item));
     }
+
+    /// <summary>A live event of a followed turn: hands act on it (never on replay), then it is shown.</summary>
+    private void ShowLive(ConversationEvent item)
+    {
+        _hands?.OnEvent(item);
+        Show(item);
+    }
+
+    private void ShowError(string message) => ShowBlocks([.. _blocks, new ErrorLine($"error: {message}")]);
 
     private void ShowBlocks(IReadOnlyList<TranscriptBlock> blocks)
     {
