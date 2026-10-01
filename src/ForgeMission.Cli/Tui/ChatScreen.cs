@@ -143,6 +143,9 @@ internal sealed class ChatScreen
             case ErrorLine error:
                 _flow.Items.Add(LineItem(error.Text, _styles.ErrorNotice));
                 return null;
+            case HandsLine hands:
+                _flow.Items.Add(LineItem(Transcript.HandsText(hands), _styles.Notice));
+                return null;
             default:
                 throw new InvalidOperationException($"No view for {block.GetType().Name}.");
         }
