@@ -71,7 +71,7 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         theme.CardRadius, theme.CardHairline, [theme.CardShadowNear, theme.CardShadowFar]);
 
     /// <summary>The theme's part of the card image ids (CardRing.ImageIds).</summary>
-    public int ImageIdTheme { get; } = ImageIdThemeOf(theme);
+    public int ImageIdSlot { get; } = theme.ImageIdSlot;
 
     /// <summary>The transcript gutter in columns; a card's border lands in this column.</summary>
     public int TranscriptGutterCols => ForgeTheme.TranscriptGutterCols;
@@ -142,11 +142,6 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         Background = theme.SurfaceAlt,
         FillBackground = true,
     };
-
-    private static int ImageIdThemeOf(ForgeTheme theme) =>
-        theme == ForgeTheme.Light ? 0
-        : theme == ForgeTheme.Dark ? 1
-        : throw new InvalidOperationException("A new theme needs its own card image-id slot here.");
 
     private static TextBlockStyle Foreground(Color color) => TextBlockStyle.Default with { Foreground = color };
 

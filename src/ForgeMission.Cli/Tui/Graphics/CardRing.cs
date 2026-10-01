@@ -23,8 +23,8 @@ internal sealed class CardRing
 
     public static CardRing Create(CardEdges edges, int themeSlot, CellSize cell)
     {
-        var (layout, tiles) = RingGeometry.Solve(edges, cell);
-        return new CardRing(layout, tiles, ImageIds(themeSlot, cell.Width, cell.Height));
+        var layout = RingGeometry.Solve(edges, cell);
+        return new CardRing(layout, CardTiles.Render(edges, layout), ImageIds(themeSlot, cell.Width, cell.Height));
     }
 
     /// <summary>Sends the eight tiles. Must run after the TUI has entered the alternate screen.</summary>

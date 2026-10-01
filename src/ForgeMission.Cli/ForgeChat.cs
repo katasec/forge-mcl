@@ -8,7 +8,6 @@ using ForgeMission.Core.Tools;
 using ForgeMission.Cli.Tui;
 using ForgeMission.Cli.Tui.Graphics;
 using Microsoft.Extensions.DependencyInjection;
-using XenoAtom.Terminal;
 // Transport and Contracts both name these; forge chat uses the surface (Transport) side.
 using CreateMissionConversationRequest = ForgeMission.Application.Transport.CreateMissionConversationRequest;
 using ListMissionConversationsRequest = ForgeMission.Application.Transport.ListMissionConversationsRequest;
@@ -60,7 +59,7 @@ public static class ForgeChat
         }
 
         var interactive = UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected);
-        if (interactive && !ShowsImages(CellMetrics.Environment()))
+        if (interactive && !TerminalFacts.ShowsImages(TerminalFacts.Environment()))
         {
             Console.Error.WriteLine(NeedsImagesMessage);
             return 1;
@@ -123,20 +122,6 @@ public static class ForgeChat
         Console.Error.WriteLine(NeedsImagesMessage);
         return 1;
     }
-
-    // ── Terminal (Phase 56 G8) ──────────────────────────────────────────────────────────────
-
-    /// <summary>G8, before sign-in: kitty graphics, not inside a multiplexer (tmux answers the
-    /// cell-size query but drops kitty images), and truecolor (the image id is a placeholder's
-    /// 24-bit colour). Environment facts only; nothing is sent to the terminal.</summary>
-    internal static bool ShowsImages(TerminalEnvironment environment) =>
-        environment.Protocols.Contains(TerminalGraphicsProtocol.Kitty) && !environment.IsMultiplexer &&
-        environment.Colors == TerminalColorLevel.TrueColor;
-
-    /// <summary>G8, on the TUI's first tick: the cell size the terminal answered, or null when it
-    /// did not answer (or answered 0×0) and the TUI cannot draw its images.</summary>
-    internal static CellSize? ImageCell(TerminalPixelMetrics? metrics) =>
-        metrics is { CellPixelWidth: > 0, CellPixelHeight: > 0 } m ? new CellSize(m.CellPixelWidth, m.CellPixelHeight) : null;
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
 

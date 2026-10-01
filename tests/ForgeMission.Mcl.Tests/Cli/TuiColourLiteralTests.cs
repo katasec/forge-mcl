@@ -57,12 +57,24 @@ public sealed partial class TuiColourLiteralTests
     public void Only_KittyImages_writes_to_stdout()
     {
         var writers = TuiLines()
-            .Where(item => item.Line.Contains("OpenStandardOutput", StringComparison.Ordinal))
-            .Select(item => Path.GetFileName(item.File))
-            .Distinct()
+            .Where(item => StdoutWriter().IsMatch(item.Line))
+            .Where(item => !(Path.GetFileName(item.File) == ImageIdFile && item.Line.Contains("OpenStandardOutput", StringComparison.Ordinal)))
+            .Select(item => $"{Path.GetRelativePath(CliSource(), item.File)}:{item.Number}: {item.Line.Trim()}")
             .ToList();
 
-        Assert.Equal([ImageIdFile], writers);
+        Assert.Empty(writers);
+        Assert.Contains(TuiLines(), item => Path.GetFileName(item.File) == ImageIdFile && item.Line.Contains("OpenStandardOutput", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Console.Out.Write(x);")]
+    [InlineData("Console.Write(x);")]
+    [InlineData("Console.WriteLine(x);")]
+    [InlineData("Terminal.Write(x);")]
+    [InlineData("using var stdout = Console.OpenStandardOutput();")]
+    public void The_stdout_scan_catches_every_writer(string line)
+    {
+        Assert.Matches(StdoutWriter(), line);
     }
 
     private static bool IsColourLiteral(string fileName, string line) =>
@@ -90,6 +102,9 @@ public sealed partial class TuiColourLiteralTests
     /// (target-typed or Rgb*) taking three decimal byte literals.</summary>
     [GeneratedRegex(@"\brgba?\s*\(|\(\s*0x[0-9a-fA-F]{1,2}\s*,\s*0x[0-9a-fA-F]{1,2}\s*,\s*0x[0-9a-fA-F]{1,2}\b|\bnew\s*(Rgb\w*\s*)?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\b")]
     private static partial Regex RawRgba();
+
+    [GeneratedRegex(@"\bConsole\.(Out\b|Write|OpenStandardOutput)|\bTerminal\.Write")]
+    private static partial Regex StdoutWriter();
 
     private static IEnumerable<(string File, string Line, int Number)> TuiLines() =>
         TuiSources().SelectMany(file => File.ReadLines(file).Select((line, index) => (file, line, index + 1)));

@@ -27,7 +27,7 @@ internal static class KittyImages
     /// <summary>The foreground colour that names image <paramref name="id"/>.</summary>
     public static Color IdColor(uint id) => Color.Rgb((byte)(id >> 16), (byte)(id >> 8), (byte)id);
 
-    /// <summary>Writes straight to the stdout stream: Terminal.Write output does not reach the
+    /// <summary>Writes straight to the stdout stream: XenoAtom's terminal writer does not reach the
     /// terminal while the app runs (tui-graphics.md).</summary>
     private static void WriteStdout(string escape)
     {

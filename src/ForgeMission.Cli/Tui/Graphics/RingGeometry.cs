@@ -4,13 +4,10 @@ namespace ForgeMission.Cli.Tui.Graphics;
 
 // Phase 56: the card edge ring in device px, from the theme's card tokens and the measured cell
 // size. u = cell height / ForgeTheme.MockupRowPx (device px per mockup px). The fit ring keeps the
-// mockup's radius and shadow and grows (in whole cells) until they fit: the shadow fades to
-// invisible before the ring's outer edge, the arc stays inside the corner tile, and each edge tile
-// cut from the middle of the card matches the cell next to the corner (no seam) — checked on a
-// rendered template, not assumed.
-
-/// <summary>A terminal cell in device px.</summary>
-internal readonly record struct CellSize(int Width, int Height);
+// mockup's radius and shadow and is as many whole cells thick as the shadow's fade-out plus the
+// arc need on each side. That the tiles cut from it are seamless, fade into the surface at the
+// ring's edge and leave a plain interior is proven by CardEdgeTests over every realistic cell
+// size, not checked at runtime.
 
 /// <summary>What the edge tiles are drawn from: ForgeTheme tokens, lengths in mockup px.</summary>
 internal sealed record CardEdges(Color Surface, Color CardSurface, Color CardBorder, double Radius, double Hairline,
@@ -29,31 +26,14 @@ internal sealed record RingLayout(
 
 internal static class RingGeometry
 {
-    private const int MaxRingCells = 8;
     private const int MaxShadowPx = 400;
 
     /// <summary>Largest output-level difference treated as invisible (the shadow's fade-out).</summary>
     private const double InvisibleLevels = 0.5;
 
-    /// <summary>The fit ring for <paramref name="cell"/> and the tiles it produced: the smallest ring
-    /// that holds arc and shadow, grown by whole cells until its tiles are clean.</summary>
-    public static (RingLayout Layout, CardTiles Tiles) Solve(CardEdges edges, CellSize cell)
-    {
-        var probe = Build(edges, cell, 1, 1, 1);
-        var cols = CellsFor(probe.SideInset + probe.Radius, cell.Width);
-        var top = CellsFor(probe.TopInset + probe.Radius, cell.Height);
-        var bottom = CellsFor(probe.BottomInset + probe.Radius, cell.Height);
-        (RingLayout, CardTiles) result = default;
-        for (var grow = 0; grow < MaxRingCells; grow++)
-        {
-            var layout = Build(edges, cell, cols + grow, top + grow, bottom + grow);
-            result = (layout, CardTiles.Render(edges, layout));
-            if (result.Item2.IsClean) return result;
-        }
-        return result;
-    }
-
-    private static RingLayout Build(CardEdges edges, CellSize cell, int cols, int top, int bottom)
+    /// <summary>The fit ring for <paramref name="cell"/>: on each side, the fewest whole cells that
+    /// hold the shadow's fade-out plus the corner arc.</summary>
+    public static RingLayout Solve(CardEdges edges, CellSize cell)
     {
         var u = cell.Height / ForgeTheme.MockupRowPx;
         var hairline = Math.Max(1, (int)Math.Round(edges.Hairline * u));
@@ -63,6 +43,9 @@ internal static class RingGeometry
         var side = ShadowExtent(surface, shadows, _ => 0);
         var topInset = ShadowExtent(surface, shadows, s => s.Dy);
         var bottomInset = ShadowExtent(surface, shadows, s => -s.Dy);
+        var cols = CellsFor(side + radius, cell.Width);
+        var top = CellsFor(topInset + radius, cell.Height);
+        var bottom = CellsFor(bottomInset + radius, cell.Height);
         return new RingLayout(cell, cols, top, bottom, radius, hairline, shadows, side, topInset, bottomInset,
             PadCols: Math.Max(0, side / cell.Width + ForgeTheme.CardPaddingCols - cols),
             PadTop: Math.Max(0, topInset / cell.Height + ForgeTheme.CardPaddingRows - top),

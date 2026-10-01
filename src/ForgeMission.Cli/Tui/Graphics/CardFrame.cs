@@ -31,13 +31,17 @@ internal sealed class CardFrame : Padder
         var b = Bounds;
         for (var y = b.Y; y < b.Y + b.Height; y++)
         for (var x = b.X; x < b.X + b.Width; x++)
-        {
-            var (index, row, col) = TileAt(_ring.Layout, b, x, y);
-            if (index == Inside)
-                buffer.SetCell(x, y, new System.Text.Rune(' '), _fill);
-            else
-                buffer.WriteText(x, y, KittyImages.Cell(row, col), _fill.WithForeground(KittyImages.IdColor(_ring.Ids[index])));
-        }
+            PaintCell(buffer, b, x, y);
+    }
+
+    /// <summary>A ring cell shows its tile's placeholder; any other cell is plain card fill.</summary>
+    private void PaintCell(CellBuffer buffer, Rectangle bounds, int x, int y)
+    {
+        var (index, row, col) = TileAt(_ring.Layout, bounds, x, y);
+        if (index == Inside)
+            buffer.SetCell(x, y, new System.Text.Rune(' '), _fill);
+        else
+            buffer.WriteText(x, y, KittyImages.Cell(row, col), _fill.WithForeground(KittyImages.IdColor(_ring.Ids[index])));
     }
 
     /// <summary>Which tile covers cell (x, y), and which cell of that tile; <see cref="Inside"/>

@@ -16,7 +16,8 @@ internal sealed record ChatHeader(string Project, string Mission, int Version, s
 // nothing about events (Transcript) or turns (ChatTui), and takes every style from ForgeStyles.
 // Participant cards (Phase 56) are framed by the card ring's edge tiles (CardFrame); this file only
 // places them, with the mockup's gutter and gap, and never builds pixels. The ring arrives on the
-// TUI's first tick (UseCards), before any block is shown.
+// TUI's first tick (UseCards), before any block is shown: ChatTui opens the conversation only
+// after it, and Enter does nothing until HasCards.
 internal sealed class ChatScreen
 {
     private const string PendingBody = "▌";
@@ -54,6 +55,9 @@ internal sealed class ChatScreen
 
     /// <summary>The card ring every card is framed with, sent to the terminal before the first block.</summary>
     public void UseCards(CardRing cards) => _cards = cards;
+
+    /// <summary>Whether the card ring has arrived; no block is shown before it (ChatTui).</summary>
+    public bool HasCards => _cards is not null;
 
     /// <summary>Brings the screen in line with <paramref name="blocks"/>. Blocks mostly append and
     /// a card's text changes in place; when a turn ends a pending card can drop out, so items are
@@ -192,7 +196,7 @@ internal sealed class ChatScreen
     /// frame's border falls in the transcript's gutter column.</summary>
     private DocumentFlowItem CardItem(string? title, MarkdownControl body) => new()
     {
-        Content = new FlowDocument().Add(new CardFrame(CardContent(title, body), Cards, _styles.CardFill)),
+        Content = new FlowDocument().Add(new CardFrame(CardContent(title, body), _cards!, _styles.CardFill)),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         Padding = new Thickness(CardGutter, _styles.CardGapRows, CardGutter, 0),
@@ -203,9 +207,7 @@ internal sealed class ChatScreen
         : new VStack(new TextBlock(title).Style(_styles.CardTitle), body).HorizontalAlignment(Align.Stretch);
 
     /// <summary>Columns between the transcript edge and the frame's outer edge.</summary>
-    private int CardGutter => Math.Max(0, _styles.TranscriptGutterCols - Cards.BorderCol);
-
-    private CardRing Cards => _cards ?? throw new InvalidOperationException("A card was shown before the card ring was sent.");
+    private int CardGutter => Math.Max(0, _styles.TranscriptGutterCols - _cards!.BorderCol);
 
     private static DocumentFlowItem LineItem(string text, Style style) => new()
     {

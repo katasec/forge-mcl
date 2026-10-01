@@ -14,7 +14,7 @@ public sealed class ForgeChatTests
     private static readonly MethodInfo PolicyFor = LoadForgeChatMethod("PolicyFor");
     private static readonly MethodInfo ModeFor = LoadForgeChatMethod("ModeFor");
     private static readonly MethodInfo AskApproval = LoadForgeChatMethod("AskApproval");
-    private static readonly MethodInfo ImageCell = LoadForgeChatMethod("ImageCell");
+    private static readonly MethodInfo ImageCell = LoadTerminalFactsMethod("ImageCell");
 
     private sealed record Listed(string Id, string? MissionName);
 
@@ -49,7 +49,7 @@ public sealed class ForgeChatTests
 
     // ── Terminal check (Phase 56 G8) ────────────────────────────────────────────────────────
 
-    private static readonly MethodInfo ShowsImages = LoadForgeChatMethod("ShowsImages");
+    private static readonly MethodInfo ShowsImages = LoadTerminalFactsMethod("ShowsImages");
     private static readonly TerminalPixelMetrics Retina = new(1520, 1680, 19, 42, 80, 40);
 
     [Fact]
@@ -243,6 +243,12 @@ public sealed class ForgeChatTests
         var statusValue = status is null ? null : Enum.Parse(statusType, status);
         return (bool)EndsTurn.Invoke(null, [kindValue, runId, statusValue, attemptId])!;
     }
+
+    /// <summary>The G8 decisions live beside the probe, in Tui/Graphics/TerminalFacts.</summary>
+    private static MethodInfo LoadTerminalFactsMethod(string name) =>
+        LoadForgeChatMethod("EndsTurn").DeclaringType!.Assembly
+            .GetType("ForgeMission.Cli.Tui.Graphics.TerminalFacts", throwOnError: true)!
+            .GetMethod(name, BindingFlags.Static | BindingFlags.Public)!;
 
     private static MethodInfo LoadForgeChatMethod(string name)
     {

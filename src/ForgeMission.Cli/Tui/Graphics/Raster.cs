@@ -113,25 +113,31 @@ internal static class Shapes
         return [.. Enumerable.Range(0, passes).Select(i => i < lowerCount ? lower : upper)];
     }
 
+    /// <summary>One box blur of every row (or column) of the mask, in place.</summary>
     private static void BoxPass(float[] mask, int width, int height, int radius, bool horizontal)
     {
         int lines = horizontal ? height : width, length = horizontal ? width : height;
         var line = new float[length];
-        var scale = 1f / (2 * radius + 1);
         for (var l = 0; l < lines; l++)
         {
-            for (var i = 0; i < length; i++) line[i] = mask[Index(l, i)];
-            var sum = 0f;
-            for (var i = 0; i <= Math.Min(radius, length - 1); i++) sum += line[i];
-            for (var i = 0; i < length; i++)
-            {
-                mask[Index(l, i)] = sum * scale;
-                if (i + radius + 1 < length) sum += line[i + radius + 1];
-                if (i - radius >= 0) sum -= line[i - radius];
-            }
+            int start = horizontal ? l * width : l, step = horizontal ? 1 : width;
+            for (var i = 0; i < length; i++) line[i] = mask[start + i * step];
+            BoxLine(line, mask, start, step, radius);
         }
+    }
 
-        int Index(int l, int i) => horizontal ? l * width + i : i * width + l;
+    /// <summary>Writes the running box average of <paramref name="line"/> back into the mask.</summary>
+    private static void BoxLine(float[] line, float[] mask, int start, int step, int radius)
+    {
+        var scale = 1f / (2 * radius + 1);
+        var sum = 0f;
+        for (var i = 0; i <= Math.Min(radius, line.Length - 1); i++) sum += line[i];
+        for (var i = 0; i < line.Length; i++)
+        {
+            mask[start + i * step] = sum * scale;
+            if (i + radius + 1 < line.Length) sum += line[i + radius + 1];
+            if (i - radius >= 0) sum -= line[i - radius];
+        }
     }
 }
 

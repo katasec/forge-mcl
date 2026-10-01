@@ -56,6 +56,7 @@ internal sealed record ForgeTheme
         CardHairline = 1,
         CardShadowNear = new(Color.Rgb(0x10, 0x1d, 0x34), Alpha: 0.05, OffsetY: 1, Blur: 2),
         CardShadowFar = new(Color.Rgb(0x10, 0x1d, 0x34), Alpha: 0.07, OffsetY: 6, Blur: 20),
+        ImageIdSlot = 0,
         PillCapLeft = "",
         PillCapRight = "",
     };
@@ -91,6 +92,7 @@ internal sealed record ForgeTheme
         CardHairline = 1,
         CardShadowNear = new(Color.Rgb(0x00, 0x00, 0x00), Alpha: 0.40, OffsetY: 1, Blur: 2),
         CardShadowFar = new(Color.Rgb(0x00, 0x00, 0x00), Alpha: 0.35, OffsetY: 8, Blur: 24),
+        ImageIdSlot = 1,
         PillCapLeft = "",
         PillCapRight = "",
     };
@@ -127,6 +129,10 @@ internal sealed record ForgeTheme
     public required double CardHairline { get; init; }
     public required CardShadow CardShadowNear { get; init; }
     public required CardShadow CardShadowFar { get; init; }
+
+    /// <summary>The theme's part of the card image ids (0 or 1, one per theme), so two themes never
+    /// share an image id (CardRing.ImageIds).</summary>
+    public required int ImageIdSlot { get; init; }
 
     /// <summary>Rounded pill ends (Nerd Font U+E0B6 / U+E0B4, one cell each). Falling back to
     /// half blocks is a change here only.</summary>

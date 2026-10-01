@@ -34,7 +34,6 @@ internal sealed class ChatTui
     private readonly CancellationToken _session;
     private readonly ChatHandsAttachment? _hands;
     private readonly ForgeStyles _styles;
-    private CardRing? _cards;
     private bool _noCellSize;
     private IReadOnlyList<TranscriptBlock> _blocks = [];
     private bool _opened;
@@ -80,10 +79,10 @@ internal sealed class ChatTui
     }
 
     /// <summary>The UI loop's one async step: on the first tick send the card images (or stop when
-    /// the terminal gives no cell size) and open the conversation; then submit
-    /// a waiting message or cancel this window's turn. After Ctrl-D it stops the app; the loop calls
-    /// this only once the previous step, with its busy work, has ended. A live stream that failed
-    /// unexpectedly ends the chat with its error.</summary>
+    /// the terminal gives no cell size) and open the conversation; then submit a waiting message
+    /// or cancel this window's turn. After Ctrl-D it stops the app; the loop calls this only once
+    /// the previous step, with its busy work, has ended. A live stream that failed unexpectedly
+    /// ends the chat with its error.</summary>
     private async ValueTask<TerminalLoopResult> UpdateAsync(TerminalRunningContext context)
     {
         if (_live is { IsFaulted: true }) await _live;
@@ -117,14 +116,14 @@ internal sealed class ChatTui
     /// sends it, and lets the screen show cards. Without one (G8), nothing is drawn.</summary>
     private async Task<bool> ShowCardsAsync()
     {
-        if (ForgeChat.ImageCell(await CellMetrics.QueryAsync()) is not { } cell)
+        if (TerminalFacts.ImageCell(await TerminalFacts.QueryCellAsync()) is not { } cell)
         {
             _noCellSize = true;
             return false;
         }
-        _cards = CardRing.Create(_styles.CardEdges, _styles.ImageIdTheme, cell);
-        _cards.Transmit();
-        _screen.UseCards(_cards);
+        var cards = CardRing.Create(_styles.CardEdges, _styles.ImageIdSlot, cell);
+        cards.Transmit();
+        _screen.UseCards(cards);
         return true;
     }
 
@@ -213,11 +212,12 @@ internal sealed class ChatTui
     // ── Input ───────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Enter: show the message and a pending reply at once, and queue the submit for the
-    /// next UI step. Before the card images are sent, while the conversation is opening, a call is in flight, or a turn from any
-    /// window runs, Enter does nothing and the text stays in the composer.</summary>
+    /// next UI step. Before the card images are sent, while the conversation is opening, a call
+    /// is in flight, or a turn from any window runs, Enter does nothing and the text stays in the
+    /// composer.</summary>
     private void Send(string text)
     {
-        if (_cards is null || _busy || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
+        if (!_screen.HasCards || _busy || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
             string.IsNullOrWhiteSpace(text)) return;
         var sent = new SentMessage(Guid.NewGuid(), text);
         _pendingMessage = sent;
@@ -310,5 +310,6 @@ internal sealed class ChatTui
     private sealed record SentMessage(Guid CommandId, string Text);
 }
 
-/// <summary>How the TUI ended: quit by the user, or stopped because the terminal gave no cell size.</summary>
+/// <summary>How the TUI ended: quit by the user, or stopped because the terminal gave no cell
+/// size.</summary>
 internal enum TuiExit { Quit, NoCellSize }
