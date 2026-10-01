@@ -410,6 +410,97 @@ public sealed class ChatTranscriptTests
             [service, Guid.NewGuid(), 5L, Guid.NewGuid(), true, (Action<ConversationEvent>)(_ => { }), CancellationToken.None])!);
     }
 
+    [Fact]
+    public async Task A_stream_that_times_out_waiting_is_reported_once_and_reopened_from_the_cursor()
+    {
+        var attempt = Guid.NewGuid();
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([
+            [Seq(Started("Chat:Answerer"), 6)],
+            StreamingConversations.TimedOut,
+            [Seq(Step("Hello!"), 7), Seq(Status(ConversationRunStatus.Completed), 8) with { RunId = attempt }],
+        ]));
+        var lost = new List<Exception>();
+
+        var cursor = await Stream(service, 5L, e => e.RunId == attempt, lost.Add, CancellationToken.None);
+
+        Assert.Equal(8, cursor);
+        Assert.Equal([(5L, true), (6L, true), (6L, true)], requests);
+        var timeout = Assert.IsType<TaskCanceledException>(Assert.Single(lost));
+        Assert.IsType<TimeoutException>(timeout.InnerException);
+    }
+
+    [Fact]
+    public async Task Repeated_timeouts_each_reconnect()
+    {
+        var attempt = Guid.NewGuid();
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([
+            StreamingConversations.TimedOut,
+            StreamingConversations.TimedOut,
+            [Seq(Status(ConversationRunStatus.Completed), 6) with { RunId = attempt }],
+        ]));
+        var lost = new List<Exception>();
+
+        var cursor = await Stream(service, 5L, e => e.RunId == attempt, lost.Add, CancellationToken.None);
+
+        Assert.Equal(6, cursor);
+        Assert.Equal([(5L, true), (5L, true), (5L, true)], requests);
+        Assert.Equal(2, lost.Count);
+    }
+
+    [Fact]
+    public async Task A_session_cancel_ends_the_stream_quietly()
+    {
+        var (service, requests) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.Cancelled]));
+        var lost = new List<Exception>();
+        using var session = new CancellationTokenSource();
+        session.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Stream(service, 5L, _ => false, lost.Add, session.Token));
+
+        Assert.Empty(lost);
+        Assert.Single(requests);
+    }
+
+    [Fact]
+    public async Task Without_a_lost_handler_a_timeout_stops_the_chat_with_connection_lost()
+    {
+        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.TimedOut]));
+
+        var failure = await Assert.ThrowsAsync<TaskCanceledException>(() => FollowTurn(service));
+
+        var (exit, error) = ReportConnectionLost(failure);
+        Assert.Equal(1, exit);
+        Assert.Equal("chat failed: connection lost (The request timed out.)", error);
+    }
+
+    [Fact]
+    public async Task Without_a_lost_handler_a_cut_connection_stops_the_chat_with_connection_lost()
+    {
+        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.Broken]));
+
+        var failure = await Assert.ThrowsAsync<IOException>(() => FollowTurn(service));
+
+        var (exit, error) = ReportConnectionLost(failure);
+        Assert.Equal(1, exit);
+        Assert.Equal("chat failed: connection lost (connection reset)", error);
+    }
+
+    private static Task<long> Stream(object service, long cursor, Func<ConversationEvent, bool> ends, Action<Exception> lost,
+        CancellationToken ct) =>
+        (Task<long>)StreamAsyncMethod.Invoke(null, [service, Guid.NewGuid(), cursor, true,
+            (Action<ConversationEvent>)(_ => { }), ends, lost, ct])!;
+
+    private static Task<long> FollowTurn(object service) => (Task<long>)FollowTurnAsyncMethod.Invoke(null,
+        [service, Guid.NewGuid(), 5L, Guid.NewGuid(), false, (Action<ConversationEvent>)(_ => { }), CancellationToken.None])!;
+
+    private static (int Exit, string Error) ReportConnectionLost(Exception failure)
+    {
+        var error = new StringWriter();
+        var exit = (int)Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+            .GetMethod("ReportConnectionLost", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [failure, error])!;
+        return (exit, error.ToString().TrimEnd());
+    }
+
     private static readonly MethodInfo StreamAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
         .GetMethod("StreamAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
     private static readonly Type ChatTuiType = Forge.GetType("ForgeMission.Cli.Tui.ChatTui", throwOnError: true)!;
@@ -451,13 +542,22 @@ public sealed class ChatTranscriptTests
             return Serve(Connections.Dequeue());
         }
 
+        // Each marker is its own instance (an empty collection expression is one shared array).
         /// <summary>A connection that fails in transport (an SSE body cut mid-read).</summary>
-        public static readonly ConversationEvent[] Broken = [];
+        public static readonly ConversationEvent[] Broken = new ConversationEvent[0];
+
+        /// <summary>A connection that never gets headers: HttpClient's timeout, a cancellation that is not the session's.</summary>
+        public static readonly ConversationEvent[] TimedOut = new ConversationEvent[0];
+
+        /// <summary>A connection ended by the session's own cancellation (Ctrl-D).</summary>
+        public static readonly ConversationEvent[] Cancelled = new ConversationEvent[0];
 
         private static async IAsyncEnumerable<ConversationEvent> Serve(ConversationEvent[] events)
         {
             await Task.Yield();
             if (ReferenceEquals(events, Broken)) throw new IOException("connection reset");
+            if (ReferenceEquals(events, TimedOut)) throw new TaskCanceledException("The request timed out.", new TimeoutException());
+            if (ReferenceEquals(events, Cancelled)) throw new OperationCanceledException("session cancelled");
             foreach (var item in events)
             {
                 await Task.Yield();
