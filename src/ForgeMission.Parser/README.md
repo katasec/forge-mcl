@@ -35,7 +35,7 @@ A change belongs here only if it advances MCL syntax, parse diagnostics, or the 
 - [`MclParser.Parse`](MclParser.cs) throws [`ParseException`](ParseException.cs) for callers that require valid source.
 - [`MclParser.TryParse`](MclParser.cs) returns [`ParseResult`](MclParser.cs) for tooling that must retain diagnostics.
 - [`Ast`](Ast.cs) is the typed handoff to Core.
-- [`ParserTests`](../ForgeMission.Tests/Parser/ParserTests.cs) and [`SourcePositionTests`](../ForgeMission.Tests/Parser/SourcePositionTests.cs) protect syntax and spans.
+- [`ParserTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Parser/ParserTests.cs) and [`SourcePositionTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Parser/SourcePositionTests.cs) protect syntax and spans.
 
 ## Communicates with
 

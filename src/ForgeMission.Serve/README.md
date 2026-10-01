@@ -28,13 +28,13 @@ CLI and Runner need identical protocol surfaces without each owning a separate w
 
 ## Change admission
 
-A change belongs here only if it advances the shared serving wire or health mapping. For a mission endpoint’s behavior change its caller (`ForgeMission.Cli` or `ForgeMission.Runner`); do not duplicate a protocol host.
+A change belongs here only if it advances the shared serving wire or health mapping. For a mission endpoint’s behavior change its caller (`ForgeMission.Cli`, or `ForgeMission.Runner` in forge-runner); do not duplicate a protocol host.
 
 ## Use these pieces
 
 - [`ForgeServe`](ForgeServe.cs) is the only public composition API.
-- [`Program`](../ForgeMission.Runner/Program.cs) maps the same wires on the Runner host.
-- [`ConvergedServeTests`](../ForgeMission.Tests/Integration/ConvergedServeTests.cs) and [`ClaudeCodeTests`](../ForgeMission.Tests/Integration/ClaudeCodeTests.cs) exercise the converged protocol surface.
+- [`Program`](https://github.com/katasec/forge-runner/blob/main/src/ForgeMission.Runner/Program.cs) maps the same wires on the Runner host.
+- [`ConvergedServeTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Integration/ConvergedServeTests.cs) and [`ClaudeCodeTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Integration/ClaudeCodeTests.cs) exercise the converged protocol surface.
 
 ## Communicates with
 
@@ -55,5 +55,5 @@ flowchart LR
 
 ## Related documentation
 
-- [Mission Runner](../ForgeMission.Runner/README.md)
-- [Architecture](../../docs/design/architecture.md)
+- [Mission Runner](https://github.com/katasec/forge-runner/blob/main/src/ForgeMission.Runner/README.md)
+- [Architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)

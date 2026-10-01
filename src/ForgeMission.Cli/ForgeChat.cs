@@ -32,7 +32,7 @@ public static class ForgeChat
     /// <summary>The <c>forge chat</c> command and its one flag.</summary>
     internal static Command BuildCommand()
     {
-        var cmd = new Command("chat", "Chat with Janus in your default Forge project");
+        var cmd = new Command("chat", "Chat in your default Forge project (--hands: let it read and edit files there)");
         cmd.Add(new Option<bool>(HandsFlag)
         {
             Description = "Let the model read, write and edit files in the chat project folder (asks once per project)",

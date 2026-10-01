@@ -27,14 +27,14 @@ Docker invocation details should not be replicated across CLI and Desktop orches
 
 ## Change admission
 
-A change belongs here only if it advances reusable Docker command or prerequisite behavior. For runtime selection and ownership of a started adapter change `ForgeMission.Orchestration`; for command UX change `ForgeMission.Cli`.
+A change belongs here only if it advances reusable Docker command or prerequisite behavior. For runtime selection and ownership of a started adapter change `ForgeMission.Orchestration` (in forge-desktop); for command UX change `ForgeMission.Cli`.
 
 ## Use these pieces
 
 - [`DockerCli`](DockerCli.cs) performs the supported Docker operations.
 - [`DockerPrereqChecker`](DockerPrereqChecker.cs) produces and short-circuits ordered checks.
 - [`DockerCliTests`](../../tests/ForgeMission.Mcl.Tests/Docker/DockerCliTests.cs) cover request construction.
-- [`LocalDockerMissionRuntimeLauncher`](../ForgeMission.Orchestration/LocalDockerMissionRuntimeLauncher.cs) is a lifecycle-owning consumer.
+- [`LocalDockerMissionRuntimeLauncher`](https://github.com/katasec/forge-desktop/blob/main/src/ForgeMission.Orchestration/LocalDockerMissionRuntimeLauncher.cs) is a lifecycle-owning consumer.
 
 ## Communicates with
 
@@ -54,5 +54,5 @@ flowchart LR
 
 ## Related documentation
 
-- [Runtime orchestration boundary](../ForgeMission.Orchestration/README.md)
-- [Local development environment](../../docs/design/deploy.md#local-dev-environment--shell--provider-keys-read-this-before-running-anything-locally)
+- [Runtime orchestration boundary](https://github.com/katasec/forge-desktop/blob/main/src/ForgeMission.Orchestration/README.md)
+- [Local development environment](https://github.com/katasec/mission-control-language/blob/main/docs/design/deploy.md#local-dev-environment--shell--provider-keys-read-this-before-running-anything-locally)
