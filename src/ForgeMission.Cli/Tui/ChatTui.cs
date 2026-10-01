@@ -17,6 +17,9 @@ namespace ForgeMission.Cli.Tui;
 // so every turn streams live whichever window sent it; submitting only posts the message. One turn
 // runs at a time. Ctrl-C cancels this window's own turn. With hands (Phase 55), only this window's
 // own turn drives the attachment; another window's tool use is shown, not executed.
+// Idle sleep (Phase 57 S5): ChatLink owns the connection. A stream that ends with no turn in flight
+// is not reopened; any key except Ctrl-D wakes it (a catch-up read, then the live stream), and an
+// Enter that wakes it sends only after the catch-up, under the normal send rule.
 // Ctrl-D (53.9 L2) replaces the app's quit command: it cancels the session, and the loop stops only
 // after the stream, the busy work and the hands cancel have ended on the live UI thread, so no await
 // resumes after the app has stopped.
@@ -46,8 +49,9 @@ internal sealed class ChatTui
     // The turn this window submitted, until the stream shows its end.
     private SubmitMissionTurnResponse? _ownTurn;
     private bool _stopOwnTurn;
-    private bool _connectionLost;
-    private Task? _live;
+    // An Enter pressed while the link was asleep or catching up: send once it is ready.
+    private bool _sendOnWake;
+    private readonly ChatLink _link;
 
     private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
         ChatHandsAttachment? hands, CancellationTokenSource session)
@@ -59,7 +63,9 @@ internal sealed class ChatTui
         _session = session.Token;
         _styles = new ForgeStyles(theme);
         _screen = new ChatScreen(header, _styles);
+        _link = new ChatLink(conversations, conversationId, InFlight, ShowLive, ShowNotice, _session);
         _screen.Composer.Accepted((_, e) => Send(e.Text));
+        WakeOnInput();
         AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", StopRun);
         AddKey(new KeyGesture(TerminalKey.PageUp), "Forge.PageUp", _screen.PageUp);
         AddKey(new KeyGesture(TerminalKey.PageDown), "Forge.PageDown", _screen.PageDown);
@@ -80,12 +86,12 @@ internal sealed class ChatTui
 
     /// <summary>The UI loop's one async step: on the first tick send the card images (or stop when
     /// the terminal gives no cell size) and open the conversation; then submit a waiting message
-    /// or cancel this window's turn. After Ctrl-D it stops the app; the loop calls this only once
-    /// the previous step, with its busy work, has ended. A live stream that failed unexpectedly
-    /// ends the chat with its error.</summary>
+    /// or cancel this window's turn, or send an Enter that woke the link once it has caught up.
+    /// After Ctrl-D it stops the app; the loop calls this only once the previous step, with its busy
+    /// work, has ended. A live stream that failed unexpectedly ends the chat with its error.</summary>
     private async ValueTask<TerminalLoopResult> UpdateAsync(TerminalRunningContext context)
     {
-        if (_live is { IsFaulted: true }) await _live;
+        if (_link.Live.IsFaulted) await _link.Live;
         if (_session.IsCancellationRequested)
             return await StopAsync();
         if (!_opened)
@@ -106,6 +112,12 @@ internal sealed class ChatTui
         {
             _stopOwnTurn = false;
             await WhileBusyAsync(() => CancelOwnTurnAsync(own));
+        }
+        else if (_sendOnWake)
+        {
+            _sendOnWake = false;
+            await WhileBusyAsync(_link.WakeAsync);
+            if (_link.Ready) Send(_screen.Composer.Text ?? "");
         }
         return TerminalLoopResult.Continue;
     }
@@ -134,24 +146,10 @@ internal sealed class ChatTui
     private async Task OpenAsync()
     {
         var snapshot = (await _conversations.GetConversationAsync(_conversationId, _session)).Snapshot;
-        var cursor = await ForgeChat.ReplayAsync(_conversations, _conversationId, snapshot.LastSequence, Show, _session);
+        var cursor = await ForgeChat.ReplayAsync(_conversations, _conversationId, 0, snapshot.LastSequence, Show, _session);
         _turnRunning = snapshot.ActiveRunId is not null && !ForgeChat.IsTerminal(snapshot.Status);
         _hands?.Begin(ShowError);
-        _live = LiveAsync(cursor);
-    }
-
-    /// <summary>The one live stream, with reply deltas, until Ctrl-D. A dropped or failed
-    /// connection reconnects from the cursor.</summary>
-    private async Task LiveAsync(long cursor)
-    {
-        try
-        {
-            await ForgeChat.StreamAsync(_conversations, _conversationId, cursor, includeDeltas: true, ShowLive,
-                ends: _ => false, ConnectionLost, _session);
-        }
-        catch (OperationCanceledException) when (_session.IsCancellationRequested)
-        {
-        }
+        _link.Start(cursor);
     }
 
     /// <summary>Posts one message (already shown as pending) with its command id; the live stream
@@ -204,7 +202,7 @@ internal sealed class ChatTui
     /// thread still runs (its report can still be shown), then stops the app.</summary>
     private async Task<TerminalLoopResult> StopAsync()
     {
-        if (_live is not null) await _live;
+        await _link.Live;
         if (_hands is not null) await _hands.CancelInFlightAsync();
         return TerminalLoopResult.Stop;
     }
@@ -212,12 +210,19 @@ internal sealed class ChatTui
     // ── Input ───────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Enter: show the message and a pending reply at once, and queue the submit for the
-    /// next UI step. Before the card images are sent, while the conversation is opening, a call
-    /// is in flight, or a turn from any window runs, Enter does nothing and the text stays in the
-    /// composer.</summary>
+    /// next UI step. While the link sleeps or catches up, Enter wakes it and sends once it is ready.
+    /// Before the card images are sent, while the conversation is opening, a call is in flight, or a
+    /// turn from any window runs, Enter does nothing and the text stays in the composer.</summary>
     private void Send(string text)
     {
-        if (!_screen.HasCards || _busy || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
+        if (_busy || _sendOnWake) return;
+        if (!_link.Ready)
+        {
+            _sendOnWake = true;
+            Wake();
+            return;
+        }
+        if (!_screen.HasCards || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
             string.IsNullOrWhiteSpace(text)) return;
         var sent = new SentMessage(Guid.NewGuid(), text);
         _pendingMessage = sent;
@@ -245,8 +250,37 @@ internal sealed class ChatTui
         Execute = _ => _sessionSource.Cancel(),
     };
 
+    /// <summary>A key of this window's own: it wakes the link first (commands never reach KeyDown).</summary>
     private void AddKey(KeyGesture gesture, string id, Action action) =>
-        _screen.Root.AddCommand(new Command { Id = id, LabelMarkup = string.Empty, Gesture = gesture, Execute = _ => action() });
+        _screen.Root.AddCommand(new Command
+        {
+            Id = id, LabelMarkup = string.Empty, Gesture = gesture, Execute = _ =>
+            {
+                Wake();
+                action();
+            },
+        });
+
+    /// <summary>Typed text, editing keys and pastes wake the link. XenoAtom runs a visual's own
+    /// handlers even after its class handler marked the event handled only on the source (the
+    /// focused composer), so the composer covers what it handles and the root what bubbles up
+    /// unhandled. XenoAtom raises Ctrl-D as a KeyDown before quitting, so it is skipped: Ctrl-D quits
+    /// without waking.</summary>
+    private void WakeOnInput()
+    {
+        foreach (var visual in new Visual[] { _screen.Composer, _screen.Root })
+        {
+            visual.KeyDownRouted += (_, e) =>
+            {
+                if (!QuitGesture.Matches(e.RawEvent)) Wake();
+            };
+            visual.TextInputRouted += (_, _) => Wake();
+            visual.PasteRouted += (_, _) => Wake();
+        }
+    }
+
+    /// <summary>Starts a wake; a failed catch-up surfaces through the link's live task.</summary>
+    private void Wake() => _ = _link.WakeAsync();
 
     // ── Output ──────────────────────────────────────────────────────────────────────────────
 
@@ -256,7 +290,6 @@ internal sealed class ChatTui
     /// state follows it, then it is shown.</summary>
     private void ShowLive(ConversationEvent item)
     {
-        _connectionLost = false;
         if (BelongsToOwnTurn(item, _ownTurn?.TurnAttemptId))
             _hands?.OnEvent(item);
         _turnRunning = TurnRunning(_turnRunning, item);
@@ -268,13 +301,13 @@ internal sealed class ChatTui
         ShowBlocks(Transcript.ApplyLive(_blocks, item));
     }
 
-    /// <summary>The stream failed in transport and is reconnecting: one line until an event arrives.</summary>
-    private void ConnectionLost(Exception failure)
+    /// <summary>The link's state as one notice line (the live events remove the reconnect line).</summary>
+    private void ShowNotice(LinkNotice notice) => ShowBlocks(notice switch
     {
-        if (_connectionLost) return;
-        _connectionLost = true;
-        ShowBlocks([.. _blocks, new NoticeLine("connection lost; reconnecting")]);
-    }
+        LinkNotice.Idle => Transcript.Idle(_blocks),
+        LinkNotice.Awake => Transcript.Awake(_blocks),
+        _ => Transcript.Reconnecting(_blocks),
+    });
 
     private void ShowError(string message) => ShowBlocks([.. _blocks, new ErrorLine($"error: {message}")]);
 
@@ -285,6 +318,10 @@ internal sealed class ChatTui
     }
 
     // ── Rules ───────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>A turn is in flight (S5): one runs in the conversation, from any window, or this
+    /// window waits for a reply.</summary>
+    private bool InFlight() => _turnRunning || Transcript.Replying(_blocks) is not null;
 
     /// <summary>An event of this window's own turn: the Host stamps each turn's events with its
     /// attempt id as <c>RunId</c>. Only these drive hands, so a second window never executes (or is

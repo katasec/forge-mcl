@@ -21,7 +21,7 @@ public sealed record PendingYouBlock(Guid CommandId, string Text) : TranscriptBl
 /// starts; it has no title until then.</summary>
 public sealed record PendingReplyBlock(Guid CommandId) : TranscriptBlock;
 
-/// <summary>A muted one-line notice: a run that did not complete.</summary>
+/// <summary>A muted one-line notice: a run that did not complete, or the state of the connection.</summary>
 public sealed record NoticeLine(string Text) : TranscriptBlock;
 
 /// <summary>An error from the run or the connection.</summary>
@@ -37,6 +37,10 @@ public sealed record HandsLine(string Label, string? Outcome) : TranscriptBlock;
 // applies Forge's events, so it never shows a pending block. Pure: no terminal, no Client.
 public static class Transcript
 {
+    // The connection notices (Phase 57 S5): each shows only while its state lasts.
+    private static readonly NoticeLine ReconnectingNotice = new("connection lost; reconnecting");
+    private static readonly NoticeLine IdleNotice = new("idle — reconnects when you type");
+
     /// <summary>Returns the transcript after <paramref name="item"/>; unchanged when the event has
     /// no visible block.</summary>
     public static IReadOnlyList<TranscriptBlock> Apply(IReadOnlyList<TranscriptBlock> blocks, ConversationEvent item) => item.Kind switch
@@ -54,16 +58,28 @@ public static class Transcript
         _ => blocks,
     };
 
-    /// <summary>Applies a live event (53.9 L1): as <see cref="Apply"/>, and a message sent from
+    /// <summary>Applies a live event (53.9 L1): as <see cref="Apply"/>, after removing a reconnect
+    /// notice (events flow again), and a message sent from
     /// another window (an echo with no pending pill of this window) also gets a pending reply, so it
     /// shows as replying until its first participant starts.</summary>
     public static IReadOnlyList<TranscriptBlock> ApplyLive(IReadOnlyList<TranscriptBlock> blocks, ConversationEvent item)
     {
-        var applied = Apply(blocks, item);
+        var applied = Apply(WithoutLast(blocks, ReconnectingNotice), item);
         if (item.Kind != ConversationEventKind.UserMessage) return applied;
         var sentHere = IndexOf(blocks, block => block is PendingYouBlock you && you.CommandId == item.EventId) >= 0;
         return sentHere ? applied : Append(applied, new PendingReplyBlock(item.EventId));
     }
+
+    /// <summary>A transport failure during a turn: shown until the next live event.</summary>
+    public static IReadOnlyList<TranscriptBlock> Reconnecting(IReadOnlyList<TranscriptBlock> blocks) =>
+        Append(blocks, ReconnectingNotice);
+
+    /// <summary>The live stream ended with nothing in flight and was not reopened: shown until a
+    /// key wakes it.</summary>
+    public static IReadOnlyList<TranscriptBlock> Idle(IReadOnlyList<TranscriptBlock> blocks) => Append(blocks, IdleNotice);
+
+    /// <summary>A key woke the stream: the idle notice goes, wherever it is.</summary>
+    public static IReadOnlyList<TranscriptBlock> Awake(IReadOnlyList<TranscriptBlock> blocks) => WithoutLast(blocks, IdleNotice);
 
     /// <summary>The tool and the file it names: <c>Read notes.txt</c>, or the tool alone.</summary>
     public static string HandsLabel(ConversationEvent item)
@@ -225,6 +241,18 @@ public static class Transcript
             PendingReplyBlock reply => reply.CommandId != commandId,
             _ => true,
         }).ToList();
+
+    private static IReadOnlyList<TranscriptBlock> WithoutLast(IReadOnlyList<TranscriptBlock> blocks, TranscriptBlock block)
+    {
+        for (var i = blocks.Count - 1; i >= 0; i--)
+        {
+            if (blocks[i] != block) continue;
+            var updated = blocks.ToList();
+            updated.RemoveAt(i);
+            return updated;
+        }
+        return blocks;
+    }
 
     private static int IndexOf(IReadOnlyList<TranscriptBlock> blocks, Func<TranscriptBlock, bool> match)
     {
