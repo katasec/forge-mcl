@@ -119,9 +119,7 @@ public class PipelineRunner
             return new MissionResult(checkpoint.RootMissionName, string.Empty, MissionStatus.Fail,
                 PipelineFailure.InvalidContinuation.ToString(), Failure: PipelineFailure.InvalidContinuation);
 
-        if (!string.Equals(checkpoint.RootToolScopeFingerprint,
-                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(
-                    string.Join("\n", checkpoint.ToolDeclarations.Select(d => $"{d.Name}\u001f{d.Description}\u001f{d.InputSchema.GetRawText()}"))))),
+        if (!string.Equals(checkpoint.RootToolScopeFingerprint, ScopeFingerprint(checkpoint.ToolDeclarations),
                 StringComparison.Ordinal))
             return new MissionResult(checkpoint.RootMissionName, string.Empty, MissionStatus.Fail,
                 PipelineFailure.InvalidContinuation.ToString(), Failure: PipelineFailure.InvalidContinuation);
@@ -738,6 +736,19 @@ public class PipelineRunner
     // This interpreter is deliberately small and explicit.  A root-scoped call is a durable
     // boundary, so it cannot borrow the normal recursive call stack or a live Task while waiting
     // for a tool result.  Every parent activation and eligible-parallel branch is represented here.
+    // Pause hashes the declared schemas; resume hashes the checkpoint's re-serialized copies. Both
+    // hash the same compact form so schema whitespace never invalidates a continuation.
+    private static string ScopeFingerprint(IEnumerable<PipelineToolDeclaration> declarations) => Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n",
+            declarations.Select(d => $"{d.Name}\u001f{d.Description}\u001f{CompactJson(d.InputSchema)}")))));
+
+    private static string CompactJson(JsonElement element)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer)) element.WriteTo(writer);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
     private sealed class RootScopedExecution
     {
         private const int CheckpointVersion = 1;
@@ -1062,8 +1073,6 @@ public class PipelineRunner
             if (tool is not AIFunction function) throw new InvalidOperationException($"Root tool '{tool.Name}' must be an AIFunction declaration.");
             return new PipelineToolDeclaration(function.Name, function.Description ?? string.Empty, function.JsonSchema.Clone());
         }
-        private static string ScopeFingerprint(IEnumerable<PipelineToolDeclaration> declarations) => Convert.ToHexString(
-            System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", declarations.Select(d => $"{d.Name}\u001f{d.Description}\u001f{d.InputSchema.GetRawText()}")))));
         private static PipelineProviderToolTurn ProviderTurn(PipelineContinuationCheckpoint checkpoint, PipelineToolResult result) => new(
             new FunctionCallContent(checkpoint.ToolCall.CallId,
                 checkpoint.ToolCall.Name, JsonToArguments(checkpoint.ToolCall.Arguments)), result);

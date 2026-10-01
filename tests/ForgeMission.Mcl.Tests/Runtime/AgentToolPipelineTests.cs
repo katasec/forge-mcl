@@ -3,6 +3,7 @@ using System.Text.Json;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
+using ForgeMission.Core.Tools;
 using ForgeMission.Parser;
 using Microsoft.Extensions.AI;
 
@@ -194,6 +195,32 @@ public sealed class AgentToolPipelineTests
             .OfType<FunctionResultContent>());
         Assert.Equal(pause.ToolCall.CallId, result.CallId);
         Assert.Equal("probe content", result.Result);
+    }
+
+    // AgentToolDeclarations schemas are indented; the checkpoint stores them compacted. The scope
+    // fingerprint must hash the same canonical form at pause and resume (Phase 55 Task 1c).
+    [Fact]
+    public async Task RootScopedToolPause_ResumesWithIndentedSchema()
+    {
+        var ast = MclParser.Parse("mission Root = { Respond }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+        {
+            ["Respond"] = new("Respond", "any", "text", "You respond.", Role: "agent"),
+        };
+        var client = new ContinuationClient();
+        var runner = new PipelineRunner(new DirectExpertRunner(client));
+        var paused = await runner.RunAsync(ast, experts,
+            new PipelineRunOptions("Root", RootTools: [AgentToolDeclarations.Read]));
+        var pause = Assert.IsType<PipelineToolPause>(paused.Pause);
+
+        var completed = await runner.ResumeAsync(ast, experts,
+            new PipelineResumeRequest(pause.Continuation,
+                new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "file text")),
+            new PipelineRunOptions("ignored"));
+
+        Assert.Null(completed.Failure);
+        Assert.Equal(MissionStatus.Pass, completed.Status);
+        Assert.Equal(2, client.Calls.Count);
     }
 
     [Fact]
