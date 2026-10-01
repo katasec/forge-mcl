@@ -12,6 +12,7 @@ namespace ForgeMission.Tests.Cli;
 // XenoAtom behaviours, pinned here against the package directly: a command registered under
 // DefaultQuitCommandId replaces the built-in quit (its Execute runs, the app keeps running), and an
 // update step returning Stop ends the run.
+[Collection(XenoAtomUiCollection.Name)]
 public sealed class TuiQuitContractTests
 {
     private static readonly KeyGesture CtrlD = new(TerminalChar.CtrlD, TerminalModifiers.Ctrl);

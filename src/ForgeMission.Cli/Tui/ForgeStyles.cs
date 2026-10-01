@@ -1,3 +1,4 @@
+using ForgeMission.Cli.Tui.Graphics;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Extensions.Markdown.Styling;
 using XenoAtom.Terminal.UI.Styling;
@@ -62,9 +63,21 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public TextBlockStyle YouLabel { get; } = Foreground(theme.TextMuted);
 
-    public Style CardFrame { get; } = Style.None.WithForeground(theme.CardBorder);
-
+    /// <summary>The card's text cells (and the ring's plain cells): the card surface.</summary>
     public Style CardFill { get; } = Style.None.WithBackground(theme.CardSurface);
+
+    /// <summary>What the card edge tiles are drawn from (Phase 56).</summary>
+    public CardEdges CardEdges { get; } = new(theme.Surface, theme.CardSurface, theme.CardBorder,
+        theme.CardRadius, theme.CardHairline, [theme.CardShadowNear, theme.CardShadowFar]);
+
+    /// <summary>The theme's part of the card image ids (CardRing.ImageIds).</summary>
+    public int ImageIdSlot { get; } = theme.ImageIdSlot;
+
+    /// <summary>The transcript gutter in columns; a card's border lands in this column.</summary>
+    public int TranscriptGutterCols => ForgeTheme.TranscriptGutterCols;
+
+    /// <summary>Blank rows above each card.</summary>
+    public int CardGapRows => ForgeTheme.CardGapRows;
 
     public TextBlockStyle CardTitle { get; } = Foreground(theme.CardTitle);
 

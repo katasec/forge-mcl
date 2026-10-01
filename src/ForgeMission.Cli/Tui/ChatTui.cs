@@ -1,5 +1,6 @@
 using ForgeMission.Application;
 using ForgeMission.Conversations.Contracts;
+using ForgeMission.Cli.Tui.Graphics;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Commands;
@@ -19,6 +20,9 @@ namespace ForgeMission.Cli.Tui;
 // Ctrl-D (53.9 L2) replaces the app's quit command: it cancels the session, and the loop stops only
 // after the stream, the busy work and the hands cancel have ended on the live UI thread, so no await
 // resumes after the app has stopped.
+// Card edges (Phase 56): on the first tick (on the alternate screen, with XenoAtom owning input) the
+// TUI asks for the cell size, draws the card ring at that size and sends it once; every card names
+// those images. Without a cell size the app stops before opening the conversation (G8).
 internal sealed class ChatTui
 {
     private static readonly KeyGesture QuitGesture = new(TerminalChar.CtrlD, TerminalModifiers.Ctrl);
@@ -29,6 +33,8 @@ internal sealed class ChatTui
     private readonly CancellationTokenSource _sessionSource;
     private readonly CancellationToken _session;
     private readonly ChatHandsAttachment? _hands;
+    private readonly ForgeStyles _styles;
+    private bool _noCellSize;
     private IReadOnlyList<TranscriptBlock> _blocks = [];
     private bool _opened;
     // Opening, submitting, or cancelling: one UI step is awaiting a call.
@@ -51,28 +57,32 @@ internal sealed class ChatTui
         _hands = hands;
         _sessionSource = session;
         _session = session.Token;
-        _screen = new ChatScreen(header, new ForgeStyles(theme));
+        _styles = new ForgeStyles(theme);
+        _screen = new ChatScreen(header, _styles);
         _screen.Composer.Accepted((_, e) => Send(e.Text));
         AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", StopRun);
         AddKey(new KeyGesture(TerminalKey.PageUp), "Forge.PageUp", _screen.PageUp);
         AddKey(new KeyGesture(TerminalKey.PageDown), "Forge.PageDown", _screen.PageDown);
     }
 
-    /// <summary>Runs the TUI until Ctrl-D. A turn still running on quit keeps running on Forge;
-    /// only this process stops following it. A file operation still running is cancelled.</summary>
-    public static async Task<int> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
+    /// <summary>Runs the TUI until Ctrl-D, or until the terminal gives no cell size on the first
+    /// tick (<see cref="TuiExit.NoCellSize"/>; the caller reports it). A turn still running on quit
+    /// keeps running on Forge; only this process stops following it. A file operation still
+    /// running is cancelled.</summary>
+    public static async Task<TuiExit> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
         ForgeTheme theme, ChatHandsAttachment? hands)
     {
         using var session = new CancellationTokenSource();
         var tui = new ChatTui(conversations, conversationId, header, theme, hands, session);
         await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture });
-        return 0;
+        return tui._noCellSize ? TuiExit.NoCellSize : TuiExit.Quit;
     }
 
-    /// <summary>The UI loop's one async step: open the conversation on the first tick, then submit
-    /// a waiting message or cancel this window's turn. After Ctrl-D it stops the app; the loop calls
-    /// this only once the previous step, with its busy work, has ended. A live stream that failed
-    /// unexpectedly ends the chat with its error.</summary>
+    /// <summary>The UI loop's one async step: on the first tick send the card images (or stop when
+    /// the terminal gives no cell size) and open the conversation; then submit a waiting message
+    /// or cancel this window's turn. After Ctrl-D it stops the app; the loop calls this only once
+    /// the previous step, with its busy work, has ended. A live stream that failed unexpectedly
+    /// ends the chat with its error.</summary>
     private async ValueTask<TerminalLoopResult> UpdateAsync(TerminalRunningContext context)
     {
         if (_live is { IsFaulted: true }) await _live;
@@ -83,6 +93,8 @@ internal sealed class ChatTui
             _opened = true;
             context.App.AddGlobalCommand(QuitCommand());
             context.App.Focus(_screen.Composer);
+            if (!await ShowCardsAsync())
+                return TerminalLoopResult.Stop;
             await WhileBusyAsync(OpenAsync);
         }
         else if (_pendingMessage is { } sent)
@@ -96,6 +108,23 @@ internal sealed class ChatTui
             await WhileBusyAsync(() => CancelOwnTurnAsync(own));
         }
         return TerminalLoopResult.Continue;
+    }
+
+    // ── Card images ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Asks the terminal for its cell size; with one, draws the card ring at that size,
+    /// sends it, and lets the screen show cards. Without one (G8), nothing is drawn.</summary>
+    private async Task<bool> ShowCardsAsync()
+    {
+        if (TerminalFacts.ImageCell(await TerminalFacts.QueryCellAsync()) is not { } cell)
+        {
+            _noCellSize = true;
+            return false;
+        }
+        var cards = CardRing.Create(_styles.CardEdges, _styles.ImageIdSlot, cell);
+        cards.Transmit();
+        _screen.UseCards(cards);
+        return true;
     }
 
     // ── Conversation ────────────────────────────────────────────────────────────────────────
@@ -183,11 +212,12 @@ internal sealed class ChatTui
     // ── Input ───────────────────────────────────────────────────────────────────────────────
 
     /// <summary>Enter: show the message and a pending reply at once, and queue the submit for the
-    /// next UI step. While the conversation is opening, a call is in flight, or a turn from any
-    /// window runs, Enter does nothing and the text stays in the composer.</summary>
+    /// next UI step. Before the card images are sent, while the conversation is opening, a call
+    /// is in flight, or a turn from any window runs, Enter does nothing and the text stays in the
+    /// composer.</summary>
     private void Send(string text)
     {
-        if (_busy || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
+        if (!_screen.HasCards || _busy || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
             string.IsNullOrWhiteSpace(text)) return;
         var sent = new SentMessage(Guid.NewGuid(), text);
         _pendingMessage = sent;
@@ -279,3 +309,7 @@ internal sealed class ChatTui
     /// the <c>UserMessage</c> event id.</summary>
     private sealed record SentMessage(Guid CommandId, string Text);
 }
+
+/// <summary>How the TUI ended: quit by the user, or stopped because the terminal gave no cell
+/// size.</summary>
+internal enum TuiExit { Quit, NoCellSize }

@@ -6,8 +6,25 @@ namespace ForgeMission.Cli.Tui;
 // This file is the only place a colour literal appears; ForgeStyles builds every component style
 // from a ForgeTheme. A new theme is one more instance here plus its name in ForgeConfig.
 // Light is sampled from docs/design/forge_tui_light_mockup.png; Dark is the 53.5 mockup's palette.
+// Card edges (Phase 56) come from docs/design/forge_tui_finish_line_mockup.html (:root and
+// [data-theme="dark"]): lengths in mockup px, where 1 mockup px = cell height / MockupRowPx.
 internal sealed record ForgeTheme
 {
+    // ── Layout shared by every theme (finish-line mockup) ───────────────────────────────────
+
+    /// <summary>--cell-h: 20px. One terminal row in the mockup; defines the mockup px.</summary>
+    public const double MockupRowPx = 20;
+
+    /// <summary>.scroll padding: … 4ch. The transcript gutter: a card's border lands in this column.</summary>
+    public const int TranscriptGutterCols = 4;
+
+    /// <summary>.card padding: var(--cell-h) 3ch. Text sits 3 columns and 1 row inside the border.</summary>
+    public const int CardPaddingCols = 3;
+    public const int CardPaddingRows = 1;
+
+    /// <summary>.card margin: var(--cell-h) 0. One blank row above each card (the nearest whole row).</summary>
+    public const int CardGapRows = 1;
+
     public static ForgeTheme Light { get; } = new()
     {
         Surface = Color.Rgb(0xf7, 0xf8, 0xfe),
@@ -34,6 +51,12 @@ internal sealed record ForgeTheme
         CodeBlockText = Color.Rgb(0x10, 0x1d, 0x34),
         InlineCode = Color.Rgb(0x0f, 0x6f, 0xeb),
         Link = Color.Rgb(0x0f, 0x6f, 0xeb),
+        // .card border-radius: 14px; border: 1px; --shadow: 0 1px 2px rgba(16,29,52,.05), 0 6px 20px rgba(16,29,52,.07)
+        CardRadius = 14,
+        CardHairline = 1,
+        CardShadowNear = new(Color.Rgb(0x10, 0x1d, 0x34), Alpha: 0.05, OffsetY: 1, Blur: 2),
+        CardShadowFar = new(Color.Rgb(0x10, 0x1d, 0x34), Alpha: 0.07, OffsetY: 6, Blur: 20),
+        ImageIdSlot = 0,
         PillCapLeft = "",
         PillCapRight = "",
     };
@@ -43,7 +66,7 @@ internal sealed record ForgeTheme
         Surface = Color.Rgb(0x0f, 0x16, 0x22),
         SurfaceHeader = Color.Rgb(0x0f, 0x16, 0x22),
         SurfaceAlt = Color.Rgb(0x1a, 0x22, 0x30),
-        CardSurface = Color.Rgb(0x0f, 0x16, 0x22),
+        CardSurface = Color.Rgb(0x15, 0x1f, 0x2e),
         Text = Color.Rgb(0xc9, 0xd4, 0xe3),
         TextStrong = Color.Rgb(0xe8, 0xee, 0xf7),
         TextMuted = Color.Rgb(0x6b, 0x7a, 0x91),
@@ -51,7 +74,7 @@ internal sealed record ForgeTheme
         Accent = Color.Rgb(0x4f, 0x9b, 0xff),
         Prompt = Color.Rgb(0x24, 0xd5, 0xee),
         Border = Color.Rgb(0x24, 0x30, 0x44),
-        CardBorder = Color.Rgb(0x2a, 0x38, 0x50),
+        CardBorder = Color.Rgb(0x22, 0x30, 0x4a),
         Selection = Color.Rgb(0x16, 0x34, 0x5a),
         UserPillFill = Color.Rgb(0x16, 0x34, 0x5a),
         UserPillText = Color.Rgb(0xe8, 0xee, 0xf7),
@@ -64,6 +87,12 @@ internal sealed record ForgeTheme
         CodeBlockText = Color.Rgb(0xc9, 0xd4, 0xe3),
         InlineCode = Color.Rgb(0x4f, 0x9b, 0xff),
         Link = Color.Rgb(0x4f, 0x9b, 0xff),
+        // --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35)
+        CardRadius = 14,
+        CardHairline = 1,
+        CardShadowNear = new(Color.Rgb(0x00, 0x00, 0x00), Alpha: 0.40, OffsetY: 1, Blur: 2),
+        CardShadowFar = new(Color.Rgb(0x00, 0x00, 0x00), Alpha: 0.35, OffsetY: 8, Blur: 24),
+        ImageIdSlot = 1,
         PillCapLeft = "",
         PillCapRight = "",
     };
@@ -95,8 +124,23 @@ internal sealed record ForgeTheme
     public required Color InlineCode { get; init; }
     public required Color Link { get; init; }
 
+    // Card edges (Phase 56), drawn as image tiles: mockup px.
+    public required double CardRadius { get; init; }
+    public required double CardHairline { get; init; }
+    public required CardShadow CardShadowNear { get; init; }
+    public required CardShadow CardShadowFar { get; init; }
+
+    /// <summary>The theme's part of the card image ids (0 or 1, one per theme), so two themes never
+    /// share an image id (CardRing.ImageIds).</summary>
+    public required int ImageIdSlot { get; init; }
+
     /// <summary>Rounded pill ends (Nerd Font U+E0B6 / U+E0B4, one cell each). Falling back to
     /// half blocks is a change here only.</summary>
     public required string PillCapLeft { get; init; }
     public required string PillCapRight { get; init; }
 }
+
+/// <summary>One CSS box-shadow layer under a card: an opaque colour at <paramref name="Alpha"/>,
+/// moved down by <paramref name="OffsetY"/> and blurred by <paramref name="Blur"/> (the CSS blur
+/// radius), both in mockup px. The mockup's card shadows have no x offset.</summary>
+internal readonly record struct CardShadow(Color Color, double Alpha, double OffsetY, double Blur);

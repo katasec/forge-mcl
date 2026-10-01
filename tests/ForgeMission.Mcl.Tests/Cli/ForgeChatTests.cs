@@ -1,4 +1,5 @@
 using System.Reflection;
+using XenoAtom.Terminal;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -13,6 +14,7 @@ public sealed class ForgeChatTests
     private static readonly MethodInfo PolicyFor = LoadForgeChatMethod("PolicyFor");
     private static readonly MethodInfo ModeFor = LoadForgeChatMethod("ModeFor");
     private static readonly MethodInfo AskApproval = LoadForgeChatMethod("AskApproval");
+    private static readonly MethodInfo ImageCell = LoadTerminalFactsMethod("ImageCell");
 
     private sealed record Listed(string Id, string? MissionName);
 
@@ -43,6 +45,71 @@ public sealed class ForgeChatTests
     {
         Assert.Null(Select([new("janus", "Janus"), new("orphan", null)], mission));
         Assert.Null(Select([], mission));
+    }
+
+    // ── Terminal check (Phase 56 G8) ────────────────────────────────────────────────────────
+
+    private static readonly MethodInfo ShowsImages = LoadTerminalFactsMethod("ShowsImages");
+    private static readonly TerminalPixelMetrics Retina = new(1520, 1680, 19, 42, 80, 40);
+
+    [Fact]
+    public void Kitty_with_truecolor_outside_a_multiplexer_passes_the_start_up_check()
+    {
+        Assert.True(Shows([TerminalGraphicsProtocol.Kitty], false, TerminalColorLevel.TrueColor));
+        Assert.True(Shows([TerminalGraphicsProtocol.ITerm2, TerminalGraphicsProtocol.Kitty], false, TerminalColorLevel.TrueColor));
+    }
+
+    [Fact]
+    public void No_kitty_graphics_stops_forge_chat()
+    {
+        Assert.False(Shows([], false, TerminalColorLevel.TrueColor));
+        Assert.False(Shows([TerminalGraphicsProtocol.ITerm2], false, TerminalColorLevel.TrueColor));
+    }
+
+    [Fact]
+    public void A_multiplexer_stops_forge_chat_even_when_kitty_is_detected()
+    {
+        // tmux inside kitty: KITTY_WINDOW_ID reaches the pane, tmux answers the cell-size query
+        // itself, then drops the images.
+        Assert.False(Shows([TerminalGraphicsProtocol.Kitty], true, TerminalColorLevel.TrueColor));
+    }
+
+    [Theory]
+    [InlineData(TerminalColorLevel.Color256)]
+    [InlineData(TerminalColorLevel.Color16)]
+    [InlineData(TerminalColorLevel.None)]
+    public void Less_than_truecolor_stops_forge_chat(TerminalColorLevel colors)
+    {
+        Assert.False(Shows([TerminalGraphicsProtocol.Kitty], false, colors));
+    }
+
+    [Fact]
+    public void A_cell_size_reply_gives_the_cell_the_ring_is_drawn_for()
+    {
+        Assert.Equal((19, 42), Cell(Retina));
+    }
+
+    [Fact]
+    public void No_cell_size_reply_stops_the_TUI()
+    {
+        Assert.Null(Cell(null));
+        Assert.Null(Cell(new TerminalPixelMetrics(0, 0, 0, 0, 80, 40)));
+        Assert.Null(Cell(new TerminalPixelMetrics(1520, 0, 19, 0, 80, 40)));
+    }
+
+    private static bool Shows(TerminalGraphicsProtocol[] protocols, bool multiplexer, TerminalColorLevel colors)
+    {
+        var environmentType = ShowsImages.GetParameters()[0].ParameterType;
+        var environment = Activator.CreateInstance(environmentType, protocols, multiplexer, colors);
+        return (bool)ShowsImages.Invoke(null, [environment])!;
+    }
+
+    private static (int Width, int Height)? Cell(TerminalPixelMetrics? metrics)
+    {
+        var cell = ImageCell.Invoke(null, [metrics]);
+        if (cell is null) return null;
+        int Value(string name) => (int)cell.GetType().GetProperty(name)!.GetValue(cell)!;
+        return (Value("Width"), Value("Height"));
     }
 
     // ── --hands (Phase 55) ──────────────────────────────────────────────────────────────────
@@ -176,6 +243,12 @@ public sealed class ForgeChatTests
         var statusValue = status is null ? null : Enum.Parse(statusType, status);
         return (bool)EndsTurn.Invoke(null, [kindValue, runId, statusValue, attemptId])!;
     }
+
+    /// <summary>The G8 decisions live beside the probe, in Tui/Graphics/TerminalFacts.</summary>
+    private static MethodInfo LoadTerminalFactsMethod(string name) =>
+        LoadForgeChatMethod("EndsTurn").DeclaringType!.Assembly
+            .GetType("ForgeMission.Cli.Tui.Graphics.TerminalFacts", throwOnError: true)!
+            .GetMethod(name, BindingFlags.Static | BindingFlags.Public)!;
 
     private static MethodInfo LoadForgeChatMethod(string name)
     {

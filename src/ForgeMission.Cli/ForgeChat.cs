@@ -6,6 +6,7 @@ using ForgeMission.Conversations.Contracts;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 using ForgeMission.Cli.Tui;
+using ForgeMission.Cli.Tui.Graphics;
 using Microsoft.Extensions.DependencyInjection;
 // Transport and Contracts both name these; forge chat uses the surface (Transport) side.
 using CreateMissionConversationRequest = ForgeMission.Application.Transport.CreateMissionConversationRequest;
@@ -20,6 +21,9 @@ namespace ForgeMission.Cli;
 // messages on ForgeAPI. This file owns only the order of those calls and what is printed.
 // `forge chat --hands` (Phase 55) runs the separate ChatHands mission instead: the model may read,
 // write and edit files in the project folder through Bob, after a one-time approval per project.
+// The TUI needs a terminal that shows kitty images (Phase 56 G8), checked in two stages with one
+// message and no plain fallback: the environment before sign-in or any network call, and the cell
+// size on the TUI's first tick (ChatTui), where XenoAtom already owns terminal input.
 public static class ForgeChat
 {
     private const string ProjectTitle = "Chat";
@@ -28,6 +32,8 @@ public static class ForgeChat
     private const string HandsFlag = "--hands";
     private static readonly TimeSpan EvaluationPollDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromMilliseconds(250);
+    private const string NeedsImagesMessage = "forge chat needs a terminal that can show images, such as Ghostty or Kitty " +
+        "(not inside tmux). Open forge chat again from one of those.";
 
     /// <summary>The <c>forge chat</c> command and its one flag.</summary>
     internal static Command BuildCommand()
@@ -52,6 +58,13 @@ public static class ForgeChat
             return 1;
         }
 
+        var interactive = UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected);
+        if (interactive && !TerminalFacts.ShowsImages(TerminalFacts.Environment()))
+        {
+            Console.Error.WriteLine(NeedsImagesMessage);
+            return 1;
+        }
+
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
         {
@@ -71,7 +84,7 @@ public static class ForgeChat
 
         try
         {
-            return await ChatInDefaultProjectAsync(app, ModeFor(hands), theme);
+            return await ChatInDefaultProjectAsync(app, ModeFor(hands), interactive, theme);
         }
         catch (ChatStoppedException stopped)
         {
@@ -86,10 +99,11 @@ public static class ForgeChat
     }
 
     /// <summary>Opens the default Project, gates hands on the one-time approval, makes sure the
-    /// mode's mission is published, opens its conversation, attaches hands, and runs the chat.</summary>
-    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, ForgeTheme theme)
+    /// mode's mission is published, opens its conversation, attaches hands, and runs the chat:
+    /// the TUI on a terminal, otherwise the line mode.</summary>
+    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, bool interactive,
+        ForgeTheme theme)
     {
-        var interactive = UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected);
         var session = await OpenDefaultProjectAsync(app.Projects);
         if (mode.HasHands && !await HandsAllowedAsync(app.MissionConversations, session, interactive))
             return 1;
@@ -103,7 +117,10 @@ public static class ForgeChat
             return await ChatAsync(app.MissionConversations, conversationId, hands);
 
         var header = new ChatHeader(Path.GetFileName(session.Project.Home), mode.MissionName, version, ChatProfile(mode));
-        return await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, hands);
+        if (await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, hands) == TuiExit.Quit)
+            return 0;
+        Console.Error.WriteLine(NeedsImagesMessage);
+        return 1;
     }
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
