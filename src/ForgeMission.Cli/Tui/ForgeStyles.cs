@@ -87,6 +87,15 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         theme.CardRadius, theme.CardHairline, [theme.CardShadowNear, theme.CardShadowFar], null,
         ForgeTheme.CardPaddingCols, ForgeTheme.CardPaddingRows, ForgeTheme.CardPaddingRows);
 
+    /// <summary>The card's edge while the pointer is over it (Task 5, .card:hover): the same ring
+    /// with the Border hairline in place of CardBorder.</summary>
+    public RingShape CardHoverShape { get; } = new(theme.Surface, theme.CardSurface, theme.Border,
+        theme.CardRadius, theme.CardHairline, [theme.CardShadowNear, theme.CardShadowFar], null,
+        ForgeTheme.CardPaddingCols, ForgeTheme.CardPaddingRows, ForgeTheme.CardPaddingRows);
+
+    /// <summary>The streaming caret (Task 5, .caret): an Accent block on the reply's own cells.</summary>
+    public Style StreamCaret { get; } = Style.None.WithForeground(theme.Accent);
+
     /// <summary>The theme's part of the image ids (TileSet.ImageIds).</summary>
     public int ImageIdSlot { get; } = theme.ImageIdSlot;
 
@@ -142,6 +151,15 @@ internal sealed class ForgeStyles(ForgeTheme theme)
     // ── Composer and key bar ────────────────────────────────────────────────────────────────
 
     public TextBlockStyle Progress { get; } = TextBlockStyle.Default with { Foreground = theme.TextMuted, TextStyle = TextStyle.Italic };
+
+    /// <summary>The progress row's spinner (Task 5, .progress .dot): Selection ring, Accent arc, on
+    /// the screen surface.</summary>
+    public SpinnerShape ProgressSpinner { get; } = new(theme.Surface, theme.Selection, theme.Accent,
+        ForgeTheme.ProgressSpinnerDiameter, ForgeTheme.SpinnerStroke);
+
+    /// <summary>A running tool chip's spinner (Task 5, .tool .dot), on the chip's fill.</summary>
+    public SpinnerShape ToolSpinner { get; } = new(theme.ToolFill, theme.Selection, theme.Accent,
+        ForgeTheme.ToolSpinnerDiameter, ForgeTheme.SpinnerStroke);
 
     public PromptEditorStyle Composer { get; } = PromptEditorStyle.Default with
     {

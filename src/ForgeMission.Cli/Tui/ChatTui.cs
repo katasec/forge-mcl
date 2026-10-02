@@ -27,6 +27,8 @@ namespace ForgeMission.Cli.Tui;
 // TUI asks for the cell size, draws every tile set at that size and sends it once; every shape names
 // those images. Text images (Task 4) are drawn at the same cell size and sent when first needed, on
 // the UI thread. Without a cell size the app stops before opening the conversation (G8).
+// Motion (Task 5): the pointer's moves go to the screen's link pointer, which is also rechecked on
+// every UI tick; the default pointer comes back on every exit, inside the caret colour's restore.
 internal sealed class ChatTui
 {
     private static readonly KeyGesture QuitGesture = new(TerminalChar.CtrlD, TerminalModifiers.Ctrl);
@@ -69,6 +71,8 @@ internal sealed class ChatTui
         _link = new ChatLink(conversations, conversationId, InFlight, ShowLive, ShowNotice, _session);
         _screen.Composer.Accepted((_, e) => Send(e.Text));
         WakeOnInput();
+        // The pointer's shape over links (Task 5). Moving the pointer never wakes the link.
+        _screen.Root.PointerMovedRouted += (_, e) => _screen.Links.PointerAt(e.UiX, e.UiY);
         AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", StopRun);
         AddKey(new KeyGesture(TerminalKey.PageUp), "Forge.PageUp", _screen.PageUp);
         AddKey(new KeyGesture(TerminalKey.PageDown), "Forge.PageDown", _screen.PageDown);
@@ -84,8 +88,8 @@ internal sealed class ChatTui
         using var session = new CancellationTokenSource();
         var tui = new ChatTui(conversations, conversationId, header, theme, fonts, hands, session);
         TypeAhead.Discard();
-        await TerminalCaret.WhileRunning(tui._styles.Caret, () =>
-            Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture }).AsTask());
+        await TerminalCaret.WhileRunning(tui._styles.Caret, () => TerminalPointer.WhileRunning(() =>
+            Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture }).AsTask()));
         return tui._noCellSize ? TuiExit.NoCellSize : TuiExit.Quit;
     }
 
@@ -97,6 +101,7 @@ internal sealed class ChatTui
     private async ValueTask<TerminalLoopResult> UpdateAsync(TerminalRunningContext context)
     {
         if (_link.Live.IsFaulted) await _link.Live;
+        _screen.Links.Recheck();
         if (_session.IsCancellationRequested)
             return await StopAsync();
         if (!_opened)
@@ -322,6 +327,7 @@ internal sealed class ChatTui
     private void ShowBlocks(IReadOnlyList<TranscriptBlock> blocks)
     {
         _blocks = blocks;
+        _screen.TurnRunning = _turnRunning;
         _screen.Show(_blocks);
     }
 

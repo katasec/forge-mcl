@@ -91,6 +91,40 @@ internal sealed record ForgeTheme
     /// <summary>kbd margin-right: .6ch; .keys gap: 2.5ch. Columns after a chip, and between key groups.</summary>
     public const int ChipGapCols = 1, KeyGroupGapCols = 2;
 
+    // ── Motion (Phase 56 Task 5), shared by every theme ─────────────────────────────────────
+
+    /// <summary>.fade: animation: fade .22s ease-out. Each changed cell of a streaming reply fades
+    /// from its background to its text colour over this time.</summary>
+    public const double FadeMs = 220;
+
+    /// <summary>CSS ease-out: cubic-bezier(0, 0, .58, 1).</summary>
+    public const double FadeEaseX1 = 0, FadeEaseY1 = 0, FadeEaseX2 = 0.58, FadeEaseY2 = 1;
+
+    /// <summary>How often a fade repaints while it runs (about one terminal frame).</summary>
+    public const double FadeFrameMs = 16;
+
+    /// <summary>.caret: animation: blink 1s steps(2). On for half the period, off for half.</summary>
+    public const double CaretBlinkMs = 500;
+
+    /// <summary>.caret: an Accent block one column wide at the end of the streaming text.</summary>
+    public const string CaretGlyph = "█";
+
+    /// <summary>.dot: animation: spin .8s linear, drawn as this many image frames (80 ms each).</summary>
+    public const double SpinnerTurnMs = 800;
+    public const int SpinnerFrames = 10;
+
+    /// <summary>.progress .dot: 10px; .tool .dot: 12px (border-box); border: 2px.</summary>
+    public const double ProgressSpinnerDiameter = 10, ToolSpinnerDiameter = 12, SpinnerStroke = 2;
+
+    /// <summary>border-top-color on a circle: the coloured arc spans a quarter turn.</summary>
+    public const double SpinnerArcDegrees = 90;
+
+    /// <summary>A spinner's image columns, and the gap after it (.progress / .tool gap: 1ch).</summary>
+    public const int SpinnerCols = 2, SpinnerGapCols = 1;
+
+    /// <summary>.md a: cursor: pointer. The OSC 22 pointer shape while over a link.</summary>
+    public const string LinkPointerShape = "pointer";
+
     // Accent values that other light/dark tokens reuse (caret, composer glow). Declared before the
     // themes: static initialisers run in source order.
     private static readonly Color LightAccent = Color.Rgb(0x0f, 0x6f, 0xeb);

@@ -193,7 +193,13 @@ public sealed partial class ChatScreenTileTests
         var line = pending.FindIndex(r => Text(r).Contains("Hello World in Pascal"));
         Assert.True(line > 0, "the pending heading is not shown as text");
         Assert.DoesNotContain(pending[line], c => c.IsTextImage);
-        Assert.Equal(Token("Light", "TextStrong"), pending[line][Text(pending[line]).IndexOf("Hello", StringComparison.Ordinal)].Foreground);
+        // Streamed text fades in (Task 5): once its fade has run, the pending heading is TextStrong.
+        var now = 0L;
+        var faded = new Screen(clock: () => now).Show(CardOf("Answerer", reply, true));
+        faded.Render();
+        now += System.Diagnostics.Stopwatch.Frequency;
+        var settledRow = CardRows(faded.Render())[line];
+        Assert.Equal(Token("Light", "TextStrong"), settledRow[Text(settledRow).IndexOf("Hello", StringComparison.Ordinal)].Foreground);
         Assert.DoesNotContain("Hello World", Text(complete[line]));
         Assert.Contains(complete[line], c => c.IsTextImage);
         Assert.Contains(complete[line + 1], c => c.IsTextImage);
@@ -294,12 +300,15 @@ public sealed partial class ChatScreenTileTests
         private readonly Type _screenType = Type("ForgeMission.Cli.Tui.ChatScreen");
         private readonly object _screen;
 
-        public Screen(List<uint>? sent = null)
+        public Screen(List<uint>? sent = null, Func<long>? clock = null)
         {
             var stylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
             var styles = Activator.CreateInstance(stylesType, Theme("Light"))!;
             var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
-            _screen = Activator.CreateInstance(_screenType, [header, styles])!;
+            _screen = clock is null
+                ? Activator.CreateInstance(_screenType, [header, styles])!
+                : Activator.CreateInstance(_screenType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [header, styles, clock, (Action<string>)(_ => { })], null)!;
             var cell = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.CellSize"), 19, 42)!;
             var tiles = Type("ForgeMission.Cli.Tui.ScreenTiles").GetMethod("Create")!.Invoke(null, [styles, cell]);
             _screenType.GetMethod("UseImages")!.Invoke(_screen, [tiles, TextImagesFor(styles, cell, sent)]);
@@ -350,12 +359,14 @@ public sealed partial class ChatScreenTileTests
     {
         private const string Placeholder = "􎻮";
         private const uint TextBit = 1u << 23;
+        private const uint SpinnerBit = 1u << 22;
 
         private uint? Id => Text.StartsWith(Placeholder, StringComparison.Ordinal) && Foreground is { } c
             ? (uint)(c.R << 16 | c.G << 8 | c.B) : null;
 
-        /// <summary>The tile set a tile cell names; null for a text image (id bit 23) or text.</summary>
-        public int? Set => Id is { } id && id < TextBit ? (int)(id >> 3 & 7) : null;
+        /// <summary>The tile set a tile cell names; null for a text image (id bit 23), a spinner
+        /// frame (bit 22, Task 5) or text.</summary>
+        public int? Set => Id is { } id && id < SpinnerBit ? (int)(id >> 3 & 7) : null;
 
         public bool IsTextImage => Id >= TextBit;
 
