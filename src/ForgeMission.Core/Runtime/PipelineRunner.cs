@@ -180,7 +180,10 @@ public class PipelineRunner
 
             var context = ContextBuilder.Seed(ast, options.Vars, options.ContextObjects);
             if (options.ChatHistory is not null)
+            {
                 context[ChatHistory.ContextKey] = options.ChatHistory;
+                context["output"] = ChatInput(mission, options.Vars);
+            }
             context["attempt"]   = attempt.ToString();
             context["max_loops"] = maxLoops.ToString();
             if (loopFeedback is not null)
@@ -469,6 +472,14 @@ public class PipelineRunner
         {
             StreamLlmDeltas = parent.StreamLlmDeltas,
         };
+
+    // Phase 58: in a chat run the first step's input is the new message — the root mission's first
+    // declared parameter — not "Begin.". Seeded only when the run carries ChatHistory, so every
+    // other run keeps today's empty initial output.
+    private static string ChatInput(MissionDeclaration mission, IReadOnlyDictionary<string, string>? vars)
+        => mission.Params.FirstOrDefault() is { } parameter && vars?.TryGetValue(parameter, out var value) == true
+            ? value
+            : string.Empty;
 
     private static bool IsNegotiationEligible(
         MissionDeclaration mission,
@@ -991,10 +1002,16 @@ public class PipelineRunner
             return Frame.FromCheckpoint(checkpoint, context, initial);
         }
 
+        // The root frame of a chat run starts with the new message as its input (Phase 58). It sits
+        // in the frame's initial context, so a loop retry restores it and a resume rebuilds it
+        // without any checkpoint change.
         private Dictionary<string, string> InitialContext(string missionName, IReadOnlyDictionary<string, string>? vars)
         {
             var allowed = RootInputs(missionName, vars);
-            return StringSnapshot(ContextBuilder.Seed(_ast, allowed, null));
+            var context = StringSnapshot(ContextBuilder.Seed(_ast, allowed, null));
+            if (_options.ChatHistory is not null && missionName == _options.MissionName)
+                context["output"] = ChatInput(Mission(missionName), allowed);
+            return context;
         }
 
         private IReadOnlyDictionary<string, string> RootInputs(string missionName, IReadOnlyDictionary<string, string>? vars)

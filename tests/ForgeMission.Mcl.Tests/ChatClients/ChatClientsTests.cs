@@ -5,6 +5,7 @@ using System.Text.Json;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
+using ForgeMission.Parser;
 using ForgeMission.Core.Manifest;
 using Microsoft.Extensions.AI;
 using ForgeChatClients = ForgeMission.ChatClients.ChatClients;
@@ -92,23 +93,25 @@ public sealed class ChatClientsTests
         AssertStructuredTurns(messages.Skip(1).ToList());
     }
 
+    // The durable chat path: `mission Chat(message) = { Answerer }`, streamed as the runner does,
+    // with earlier turns as ChatHistory and the new message as the mission's root input.
     private static async Task StreamHistoryStepAsync(IChatClient client)
     {
-        var context = new Dictionary<string, object>
+        var ast = MclParser.Parse("mission Chat(message) = { Answerer }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
         {
-            ["output"] = "step input",
-            [ChatHistory.ContextKey] = new ChatHistory(
-            [
-                new ChatMessage(ChatRole.User, "first question"),
-                new ChatMessage(ChatRole.Assistant, "first answer"),
-                new ChatMessage(ChatRole.User, "second question"),
-                new ChatMessage(ChatRole.Assistant, "(no reply: run failed)"),
-            ]),
+            ["Answerer"] = new("Answerer", "message", "reply", "You are a critic."),
         };
-        var expert = new ExpertDefinition("Critic", "draft", "critique", "You are a critic.");
-        await foreach (var _ in new DirectExpertRunner(client).StreamAsync(expert, context))
-        {
-        }
+        var history = new ChatHistory(
+        [
+            new ChatMessage(ChatRole.User, "first question"),
+            new ChatMessage(ChatRole.Assistant, "first answer"),
+            new ChatMessage(ChatRole.User, "second question"),
+            new ChatMessage(ChatRole.Assistant, "(no reply: run failed)"),
+        ]);
+        await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
+            new PipelineRunOptions("Chat", new Dictionary<string, string> { ["message"] = "the new message" })
+            { ChatHistory = history, StreamLlmDeltas = true });
     }
 
     private static void AssertStructuredTurns(IReadOnlyList<JsonElement> messages)
@@ -116,7 +119,8 @@ public sealed class ChatClientsTests
         Assert.Equal(["user", "assistant", "user", "assistant", "user"],
             messages.Select(message => message.GetProperty("role").GetString()));
         Assert.Equal("(no reply: run failed)", ContentText(messages[3]));
-        Assert.Equal("step input", ContentText(messages[^1]));
+        Assert.Equal("the new message", ContentText(messages[^1]));
+        Assert.DoesNotContain(messages, message => ContentText(message).Contains("Begin."));
         Assert.DoesNotContain(messages, message =>
             ContentText(message).Contains("user:", StringComparison.OrdinalIgnoreCase)
             || ContentText(message).Contains("assistant:", StringComparison.OrdinalIgnoreCase));

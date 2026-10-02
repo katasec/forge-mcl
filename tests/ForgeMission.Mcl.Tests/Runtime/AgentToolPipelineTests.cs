@@ -542,6 +542,62 @@ public sealed class AgentToolPipelineTests
         Assert.False(CarriesHistory(client.Calls[1].Messages));
     }
 
+    // Phase 58 addition A: in a chat run, step 1's input is the root input (the new message);
+    // later steps take the previous step's output. Without ChatHistory, "Begin." is unchanged.
+    private static readonly Dictionary<string, string> NewMessage = new() { ["message"] = "the new message" };
+
+    private static string LastUserText(IList<ChatMessage> messages)
+        => messages.Last(message => message.Role == ChatRole.User).Text;
+
+    [Fact]
+    public async Task Recursive_ChatRun_FirstStepGetsRootInput_SecondGetsFirstOutput()
+    {
+        var ast = MclParser.Parse("mission Chat(message) = { Enrich -> Verify }");
+        var client = new ContinuationClient();
+
+        await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Chat", NewMessage) { ChatHistory = EarlierTurns() });
+
+        Assert.Equal("the new message", LastUserText(client.Calls[0].Messages));
+        Assert.Equal("continued", LastUserText(client.Calls[1].Messages));
+        Assert.DoesNotContain(client.Calls.SelectMany(call => call.Messages), message => message.Text == "Begin.");
+    }
+
+    [Fact]
+    public async Task RootScoped_ChatRun_FirstStepAndItsResumeGetRootInput()
+    {
+        var ast = MclParser.Parse("mission Chat(message) = { Respond -> Verify }");
+        var client = new ContinuationClient();
+
+        var paused = await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Chat", NewMessage, RootTools: ClientTools()) { ChatHistory = EarlierTurns() });
+        var pause = Assert.IsType<PipelineToolPause>(paused.Pause);
+        await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, Experts(),
+            new PipelineResumeRequest(pause.Continuation,
+                new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "probe content")),
+            new PipelineRunOptions("ignored") { ChatHistory = EarlierTurns() });
+
+        Assert.Equal(3, client.Calls.Count);
+        Assert.Equal("the new message", LastUserText(client.Calls[0].Messages));
+        Assert.Equal(
+            [ChatRole.System, ChatRole.User, ChatRole.Assistant, ChatRole.User, ChatRole.Assistant, ChatRole.Tool],
+            client.Calls[1].Messages.Select(message => message.Role));
+        Assert.Equal("the new message", LastUserText(client.Calls[1].Messages));
+        Assert.Equal("continued", LastUserText(client.Calls[2].Messages));
+    }
+
+    [Fact]
+    public async Task WithoutChatHistory_FirstStepStillBegins()
+    {
+        var ast = MclParser.Parse("mission Chat(message) = { Enrich }");
+        var client = new ContinuationClient();
+
+        await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Chat", NewMessage));
+
+        Assert.Equal("Begin.", LastUserText(client.Calls[0].Messages));
+    }
+
     private static ChatResponse ToolCallReply(ChatOptions? _) => new(
         [new ChatMessage(ChatRole.Assistant,
             [new FunctionCallContent("toolu_pipeline_1", "Read",
