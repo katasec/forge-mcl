@@ -19,6 +19,9 @@
     <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />
     <!-- Phase 56 G2: proportional text in forge chat; referenced only by Tui/Graphics/GlyphText.cs. -->
     <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
+    <!-- Phase 56 G12: syntax colours in code blocks (brings TextMateSharp, its grammars and libonigwrap);
+         TextMateSharp is referenced only by Tui/Graphics/CodeColours.cs. -->
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" Version="3.10.0" />
   </ItemGroup>
 
   <!-- Phase 56 G4: Inter 4.1 subset (eng/fonts/inter-subset.sh) and its OFL licence, embedded. -->

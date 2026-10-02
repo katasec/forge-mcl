@@ -12,6 +12,7 @@ public sealed partial class TuiColourLiteralTests
 {
     private const string ImageIdFile = "KittyImages.cs";
     private const string RawStdoutFile = "RawStdout.cs";
+    private const string CodeColoursFile = "CodeColours.cs";
 
     [Fact]
     public void Colour_literals_appear_only_in_ForgeTheme()
@@ -33,6 +34,19 @@ public sealed partial class TuiColourLiteralTests
         Assert.Single(lines);
         Assert.Contains("IdColor(uint id) => Color.Rgb((byte)(id >> 16), (byte)(id >> 8), (byte)id)", lines[0]);
     }
+
+    /// <summary>G12: CodeColours turns a TextMate theme's colour strings into colours; that is its only literal.</summary>
+    [Fact]
+    public void The_code_colours_exception_covers_only_the_theme_colour_conversion()
+    {
+        var lines = File.ReadLines(Path.Combine(CliSource(), "Tui", "Graphics", CodeColoursFile)).Where(line => ColourLiteral().IsMatch(line)).ToList();
+
+        Assert.Single(lines);
+        Assert.Contains("return Color.Rgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);", lines[0]);
+    }
+
+    [Fact]
+    public void Only_CodeColours_references_TextMateSharp() => Assert.Equal([Path.Combine("Tui", "Graphics", CodeColoursFile)], CodeUsers("TextMateSharp"));
 
     [Theory]
     [InlineData("Color.Rgb(0x10, 0x1d, 0x34)")]
@@ -108,11 +122,18 @@ public sealed partial class TuiColourLiteralTests
         Assert.Equal([Path.Combine("Tui", "XenoCells.cs")], users);
     }
 
+    private static List<string> CodeUsers(string name) =>
+        [.. Directory.EnumerateFiles(CliSource(), "*.cs", SearchOption.AllDirectories)
+            .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(file => File.ReadLines(file).Any(line => line.Split("//")[0].Contains(name, StringComparison.Ordinal)))
+            .Select(file => Path.GetRelativePath(CliSource(), file))];
+
     [GeneratedRegex(@"\bStbTrueType|\bunsafe\b|\bfixed\s*\(")]
     private static partial Regex StbOrUnsafe();
 
     private static bool IsColourLiteral(string fileName, string line) =>
-        RawRgba().IsMatch(line) || (ColourLiteral().IsMatch(line) && fileName != ImageIdFile);
+        RawRgba().IsMatch(line) || (ColourLiteral().IsMatch(line) && fileName != ImageIdFile && fileName != CodeColoursFile);
 
     [Fact]
     public void ChatScreen_never_names_a_theme()

@@ -282,6 +282,33 @@ public sealed partial class ChatScreenTileTests
     }
 
     [Theory]
+    [InlineData("Light")]
+    [InlineData("Dark")]
+    public void A_go_block_is_syntax_coloured_inside_the_unchanged_frame(string theme)
+    {
+        const string code = "func main() {\n    fmt.Println(\"hi\")\n}";
+        var plain = new Screen(theme: theme).Show(Card($"```\n{code}\n```\n")).Render();
+        var go = new Screen(theme: theme).Show(Card($"```go\n{code}\n```\n")).Render();
+
+        Assert.Equal(TileRows(plain), TileRows(go));
+        var codeCells = InsideCodeBlock(go);
+        Assert.All(codeCells, c => Assert.Equal(Token(theme, "CodeBlockFill"), c.Background));
+        Assert.True(codeCells.Select(c => c.Foreground).Distinct().Count() > 1, "expected more than one foreground colour");
+        Assert.Equal(Token(theme, "CodeBlockText"), codeCells.First(c => c.Text == "(").Foreground);
+        // The keyword func, the call Println and the string "hi" each have their own colour.
+        var coloured = new[] { "f", "P", "\"" }.Select(t => codeCells.First(c => c.Text == t).Foreground).ToList();
+        Assert.Equal(3, coloured.Distinct().Count());
+        Assert.DoesNotContain(Token(theme, "CodeBlockText"), coloured.Cast<Color>());
+        Assert.All(InsideCodeBlock(plain), c => Assert.Equal(Token(theme, "CodeBlockText"), c.Foreground));
+    }
+
+    /// <summary>The visible text cells between a code-block row's left and right ring tiles.</summary>
+    private static List<Cell> InsideCodeBlock(List<List<Cell>> rows) =>
+        [.. rows.Where(r => r.Any(c => c.Set == CodeBlockSet && c.Slot == LeftSlot)).SelectMany(r =>
+            r.Skip(r.FindIndex(c => c.Set == CodeBlockSet)).Take(r.FindLastIndex(c => c.Set == CodeBlockSet) - r.FindIndex(c => c.Set == CodeBlockSet)))
+            .Where(c => c.Set is null && c.Text.Trim().Length > 0)];
+
+    [Theory]
     [InlineData(1)]
     [InlineData(6)]
     [InlineData(12)]
@@ -294,16 +321,16 @@ public sealed partial class ChatScreenTileTests
 
     // ── Screen ──────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>The real ChatScreen (theme Light) with its tile sets at 19×42.</summary>
+    /// <summary>The real ChatScreen (theme Light unless named) with its tile sets at 19×42.</summary>
     private sealed class Screen
     {
         private readonly Type _screenType = Type("ForgeMission.Cli.Tui.ChatScreen");
         private readonly object _screen;
 
-        public Screen(List<uint>? sent = null, Func<long>? clock = null)
+        public Screen(List<uint>? sent = null, Func<long>? clock = null, string theme = "Light")
         {
             var stylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
-            var styles = Activator.CreateInstance(stylesType, Theme("Light"))!;
+            var styles = Activator.CreateInstance(stylesType, Theme(theme))!;
             var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
             _screen = clock is null
                 ? Activator.CreateInstance(_screenType, [header, styles])!
@@ -415,6 +442,9 @@ public sealed partial class ChatScreenTileTests
     private static string Text(IEnumerable<Cell> row) => string.Concat(row.Select(c => c.IsTextImage ? "▓" : c.Set is null ? c.Text : "▒"));
 
     private static (int?, int)[] Tiles(IEnumerable<Cell> cells) => [.. cells.Select(c => (c.Set, c.Slot))];
+
+    private static List<string> TileRows(List<List<Cell>> rows) =>
+        [.. rows.Select(row => string.Join(' ', row.Select((c, i) => (c, i)).Where(t => t.c.Set is not null).Select(t => $"{t.i}:{t.c.Set}.{t.c.Slot}")))];
 
     private static List<int> Indexes(List<List<Cell>> rows, int set) =>
         [.. rows.Select((row, i) => (row, i)).Where(r => r.row.Any(c => c.Set == set)).Select(r => r.i)];

@@ -129,10 +129,9 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         CautionAlert = Alert(theme.Error, theme.CardSurface),
     };
 
-    /// <summary>Fenced and indented code in replies: the code on its fill, no language label.</summary>
-    public CodeBlockStyle CodeBlock { get; } = new(
-        Style.None.WithBackground(theme.CodeBlockFill),
-        Style.None.WithForeground(theme.CodeBlockText).WithBackground(theme.CodeBlockFill));
+    /// <summary>Fenced and indented code in replies: the code on its fill, no language label,
+    /// syntax-coloured by the theme's Light+ or Dark+ (G12).</summary>
+    public CodeBlockStyle CodeBlock { get; } = CodeBlockOf(theme);
 
     /// <summary>A code block's ring: radius 10, hairline CodeBlockBorder, no shadow, on the card.</summary>
     public RingShape CodeBlockShape { get; } = new(theme.CardSurface, theme.CodeBlockFill, theme.CodeBlockBorder,
@@ -241,6 +240,12 @@ internal sealed class ForgeStyles(ForgeTheme theme)
             Badge(ForgeTheme.SendSize, ForgeTheme.SendRadius, t.AvatarFill, true, ForgeTheme.SendGlyphSize, t.CardSurface));
     }
 
+    private static CodeBlockStyle CodeBlockOf(ForgeTheme theme)
+    {
+        var text = Style.None.WithForeground(theme.CodeBlockText).WithBackground(theme.CodeBlockFill);
+        return new(Style.None.WithBackground(theme.CodeBlockFill), text, new CodeColours(theme.CodeIsLight, text));
+    }
+
     private static TextBlockStyle Foreground(Color color) => TextBlockStyle.Default with { Foreground = color };
 
     private static MarkdownAlertStyle Alert(Color token, Color surface) => MarkdownAlertStyle.Default with
@@ -252,7 +257,7 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 }
 
 /// <summary>A reply code block: fill and text (its ring is <see cref="ForgeStyles.CodeBlockShape"/>).</summary>
-internal sealed record CodeBlockStyle(Style Fill, Style Text);
+internal sealed record CodeBlockStyle(Style Fill, Style Text, CodeColours Colours);
 
 /// <summary>A Markdown heading drawn as an image: its cells' fill, and its pending text style.</summary>
 internal sealed record HeadingStyle(Style Fill, Style Pending);
