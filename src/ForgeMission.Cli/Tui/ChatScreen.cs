@@ -14,13 +14,16 @@ internal sealed record ChatHeader(string Project, string Mission, int Version, s
 // forge chat TUI (53.5, 53.6): every visual on the screen — header, transcript, progress line,
 // composer, key bar — laid out as the accepted mockups. It renders transcript blocks; it decides
 // nothing about events (Transcript) or turns (ChatTui), and takes every style from ForgeStyles.
-// Participant cards (Phase 56) are framed by the card ring's edge tiles (CardFrame); this file only
-// places them, with the mockup's gutter and gap, and never builds pixels. The ring arrives on the
-// TUI's first tick (UseCards), before any block is shown: ChatTui opens the conversation only
-// after it, and Enter does nothing until HasCards.
+// Shapes (Phase 56) — cards, code blocks, user messages, the APPROVED pill, tool chips, the
+// composer — are framed by image tiles (TileFrame); this file only places them, with the mockup's
+// gutter and gap, and never builds pixels. It holds the tile-set registry (ScreenTiles), which
+// arrives on the TUI's first tick (UseTiles), before any block is shown: ChatTui opens the
+// conversation only after it, and Enter does nothing until HasTiles. The header pill and the
+// composer frame are placed into their slots then, and the code-block renderer is created then.
 internal sealed class ChatScreen
 {
     private const string PendingBody = "▌";
+    private const string YouLabel = "You";
     private const string Keys = "enter send · shift+enter newline · pgup/pgdn scroll · ctrl-c stop · ctrl-d quit";
 
     private readonly DocumentFlow _flow = new DocumentFlow().ItemSpacing(0);
@@ -29,22 +32,25 @@ internal sealed class ChatScreen
     private readonly List<TranscriptBlock> _shown = [];
     private readonly List<MarkdownControl?> _cardBodies = [];
     private readonly ForgeStyles _styles;
-    private readonly ForgeCodeBlockRenderer _codeBlocks;
-    private CardRing? _cards;
+    // Filled by UseTiles: the APPROVED pill in the header, the composer's frame.
+    private readonly Padder _approvedSlot = new();
+    private readonly Padder _composerSlot = new() { HorizontalAlignment = Align.Stretch };
+    private ForgeCodeBlockRenderer? _codeBlocks;
+    private ScreenTiles? _tiles;
 
     public ChatScreen(ChatHeader header, ForgeStyles styles)
     {
         _styles = styles;
-        _codeBlocks = new ForgeCodeBlockRenderer(styles.CodeBlock);
         Composer = BuildComposer(header);
+        // Progress row, composer ring, one blank row, key bar; all on the transcript's gutter.
+        var gutter = styles.TranscriptGutterCols;
         Root = new DockLayout()
             .Top(new VStack(BuildHeader(header), Divider()))
             .Content(_flow.Style(styles.Scroll))
             .Bottom(new VStack(
-                new TextBlock(() => _progress.Value).Style(styles.Progress).Margin(new Thickness(1, 0, 1, 0)),
-                Divider(),
-                Composer,
-                new TextBlock($" {Keys}").Style(styles.KeyBar).HorizontalAlignment(Align.Stretch)));
+                new TextBlock(() => _progress.Value).Style(styles.Progress).Margin(new Thickness(gutter, 0, 1, 0)),
+                _composerSlot,
+                new TextBlock(Keys).Style(styles.KeyBar).Margin(new Thickness(gutter, styles.KeyBarGapRows, 1, 0))));
         Root.Style(styles.Screen);
         Root.Style(styles.Markdown);
     }
@@ -53,11 +59,19 @@ internal sealed class ChatScreen
 
     public PromptEditor Composer { get; }
 
-    /// <summary>The card ring every card is framed with, sent to the terminal before the first block.</summary>
-    public void UseCards(CardRing cards) => _cards = cards;
+    /// <summary>The tile sets every shape is framed with, sent to the terminal before the first
+    /// block. Places the header pill and the composer frame, and creates the code-block renderer.</summary>
+    public void UseTiles(ScreenTiles tiles)
+    {
+        _tiles = tiles;
+        _codeBlocks = new ForgeCodeBlockRenderer(_styles.CodeBlock, tiles.CodeBlock);
+        _approvedSlot.Content = PillOf("APPROVED", _styles.Approved, tiles.Approved);
+        _composerSlot.Padding = new Thickness(Gutter(tiles.Composer), 0, Gutter(tiles.Composer), 0);
+        _composerSlot.Content = new TileFrame(Composer, tiles.Composer, _styles.ComposerFill, Align.Stretch);
+    }
 
-    /// <summary>Whether the card ring has arrived; no block is shown before it (ChatTui).</summary>
-    public bool HasCards => _cards is not null;
+    /// <summary>Whether the tile sets have arrived; no block is shown before them (ChatTui).</summary>
+    public bool HasTiles => _tiles is not null;
 
     /// <summary>Brings the screen in line with <paramref name="blocks"/>. Blocks mostly append and
     /// a card's text changes in place; when a turn ends a pending card can drop out, so items are
@@ -156,20 +170,25 @@ internal sealed class ChatScreen
                 _flow.Items.Add(LineItem(error.Text, _styles.ErrorNotice));
                 return null;
             case HandsLine hands:
-                _flow.Items.Add(LineItem(Transcript.HandsText(hands), _styles.Notice));
+                _flow.Items.Add(ToolItem(Transcript.HandsText(hands)));
                 return null;
             default:
                 throw new InvalidOperationException($"No view for {block.GetType().Name}.");
         }
     }
 
-    /// <summary>A one-line message is a capped pill; a multi-line one keeps the filled block.</summary>
+    /// <summary>A message that fits one row is a capped pill; one that wraps or has line breaks is
+    /// the user ring. The frame chooses at layout, so a window resize can switch it. The label sits
+    /// in a column kept free beside the frame, centred on it, so a wrapping message never covers it.</summary>
     private DocumentFlowItem YouItem(string text) => new()
     {
-        Content = new FlowDocument().Add(new HStack(
-                text.Contains('\n') ? Text($" {text} ", _styles.UserBlock) : PillOf(text, _styles.User),
-                new TextBlock("You").Style(_styles.YouLabel))
-            .Spacing(1)
+        Content = new FlowDocument().Add(new ZStack(
+                new Padder(TileFrame.OneLineOr(Text(text, _styles.UserText), _tiles!.UserCaps, _tiles.UserRing, _styles.UserFill, Align.End))
+                {
+                    Padding = new Thickness(0, 0, YouLabel.Length + 1, 0),
+                    HorizontalAlignment = Align.End,
+                },
+                new TextBlock(YouLabel).Style(_styles.YouLabel).HorizontalAlignment(Align.End).VerticalAlignment(Align.Center))
             .HorizontalAlignment(Align.End)),
         Alignment = DocumentFlowAlignment.Right,
         Padding = new Thickness(1, 0, 1, 0),
@@ -183,7 +202,7 @@ internal sealed class ChatScreen
         VerticalAlignment = Align.Start,
         HorizontalScrollEnabled = false,
         VerticalScrollEnabled = false,
-        Options = MarkdownRenderOptions.Default with { WrapCodeBlocks = true, CodeBlockRenderer = _codeBlocks },
+        Options = MarkdownRenderOptions.Default with { WrapCodeBlocks = true, CodeBlockRenderer = _codeBlocks! },
     };
 
     private static void SetMarkdown(MarkdownControl body, string markdown)
@@ -196,18 +215,29 @@ internal sealed class ChatScreen
     /// frame's border falls in the transcript's gutter column.</summary>
     private DocumentFlowItem CardItem(string? title, MarkdownControl body) => new()
     {
-        Content = new FlowDocument().Add(new CardFrame(CardContent(title, body), _cards!, _styles.CardFill)),
+        Content = new FlowDocument().Add(new TileFrame(CardContent(title, body), _tiles!.Card, _styles.CardFill, Align.Stretch)),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
-        Padding = new Thickness(CardGutter, _styles.CardGapRows, CardGutter, 0),
+        Padding = new Thickness(Gutter(_tiles.Card), _styles.CardGapRows, Gutter(_tiles.Card), 0),
     };
 
     private Visual CardContent(string? title, MarkdownControl body) => title is null
         ? body
         : new VStack(new TextBlock(title).Style(_styles.CardTitle), body).HorizontalAlignment(Align.Stretch);
 
-    /// <summary>Columns between the transcript edge and the frame's outer edge.</summary>
-    private int CardGutter => Math.Max(0, _styles.TranscriptGutterCols - _cards!.BorderCol);
+    /// <summary>Columns between the screen edge and a frame's outer edge, so its border falls in
+    /// the transcript's gutter column.</summary>
+    private int Gutter(TileSet tiles) => Math.Max(0, _styles.TranscriptGutterCols - tiles.BorderCol);
+
+    /// <summary>A tool (hands) line: a one-row chip on the gutter, cut short with an ellipsis when
+    /// it is wider than the transcript.</summary>
+    private DocumentFlowItem ToolItem(string text) => new()
+    {
+        Content = new FlowDocument().Add(PillOf(text, _styles.Tool, _tiles!.Tool)),
+        Alignment = DocumentFlowAlignment.Left,
+        MaxWidthPercent = 100,
+        Padding = new Thickness(_styles.TranscriptGutterCols, 0, 1, 0),
+    };
 
     private static DocumentFlowItem LineItem(string text, Style style) => new()
     {
@@ -216,11 +246,9 @@ internal sealed class ChatScreen
         Padding = new Thickness(1, 0, 1, 0),
     };
 
-    /// <summary>The text on its fill between rounded caps drawn in the fill colour.</summary>
-    private static HStack PillOf(string text, Pill pill) => new(
-        new TextBlock(pill.CapLeft).Style(pill.Cap),
-        new TextBlock($" {text} ").Style(pill.Text),
-        new TextBlock(pill.CapRight).Style(pill.Cap));
+    /// <summary>One row of text on its fill between the set's cap tiles.</summary>
+    private static TileFrame PillOf(string text, Pill pill, TileSet caps) => new(
+        new TextBlock(text) { Trimming = TextTrimming.EndEllipsis }.Style(pill.Text), caps, pill.Fill, Align.Start);
 
     /// <summary>Wrapped text that keeps its line breaks (TextBlock folds them into spaces), in one
     /// token style.</summary>
@@ -248,7 +276,7 @@ internal sealed class ChatScreen
             .Spacing(1)).Padding(new Thickness(1, 0, 0, 0)))
         .Right(new Padder(new HStack(
                 new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · ").Style(_styles.Label),
-                PillOf("APPROVED", _styles.Approved),
+                _approvedSlot,
                 new TextBlock($" · {header.Profile}").Style(_styles.Label))).Padding(new Thickness(0, 0, 1, 0)))
         .Style(_styles.Header);
 

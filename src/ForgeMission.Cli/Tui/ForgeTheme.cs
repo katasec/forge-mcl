@@ -2,12 +2,13 @@ using XenoAtom.Terminal.UI;
 
 namespace ForgeMission.Cli.Tui;
 
-// forge chat TUI (53.6): a theme is data — purpose-named colour tokens plus the pill cap glyphs.
+// forge chat TUI (53.6): a theme is data — purpose-named colour tokens and shape values.
 // This file is the only place a colour literal appears; ForgeStyles builds every component style
 // from a ForgeTheme. A new theme is one more instance here plus its name in ForgeConfig.
 // Light is sampled from docs/design/forge_tui_light_mockup.png; Dark is the 53.5 mockup's palette.
-// Card edges (Phase 56) come from docs/design/forge_tui_finish_line_mockup.html (:root and
-// [data-theme="dark"]): lengths in mockup px, where 1 mockup px = cell height / MockupRowPx.
+// Shapes (Phase 56: cards, code blocks, user messages, pills, composer) come from
+// docs/design/forge_tui_finish_line_mockup.html (:root and [data-theme="dark"]): lengths in mockup
+// px, where 1 mockup px = cell height / MockupRowPx.
 internal sealed record ForgeTheme
 {
     // ── Layout shared by every theme (finish-line mockup) ───────────────────────────────────
@@ -25,11 +26,32 @@ internal sealed record ForgeTheme
     /// <summary>.card margin: var(--cell-h) 0. One blank row above each card (the nearest whole row).</summary>
     public const int CardGapRows = 1;
 
+    /// <summary>pre.code padding: … 2ch. Code sits 2 columns inside the code block's outer edge.</summary>
+    public const int CodeBlockPaddingCols = 2;
+
+    /// <summary>.you .bubble padding: … 1.6ch. A multi-line user message's text sits 2 columns in.</summary>
+    public const int UserPaddingCols = 2;
+
+    /// <summary>.composer padding: 0 1.5ch 0 2ch. The prompt sits 2 columns inside the border.</summary>
+    public const int ComposerPaddingCols = 2;
+
+    /// <summary>Code block, user message and composer: text one row below the shape's top (the
+    /// nearest whole row to pre.code's .75 and the composer's 2.5-row height).</summary>
+    public const int ShapePaddingRows = 1;
+
+    /// <summary>Pill caps (one-line user message, APPROVED, tool chip): 2 columns each, the
+    /// half-round end and the mockup's ~1.6ch padding. A half circle of the cell height is wider
+    /// than one column on every display.</summary>
+    public const int PillCapCols = 2;
+
+    /// <summary>.keys margin-top: calc(var(--cell-h) * .6). One blank row above the key bar.</summary>
+    public const int KeyBarGapRows = 1;
+
     public static ForgeTheme Light { get; } = new()
     {
         Surface = Color.Rgb(0xf7, 0xf8, 0xfe),
         SurfaceHeader = Color.Rgb(0xf8, 0xfa, 0xff),
-        SurfaceAlt = Color.Rgb(0xf8, 0xfa, 0xff),
+        SurfaceAlt = Color.Rgb(0xf1, 0xf4, 0xfb),
         CardSurface = Color.Rgb(0xff, 0xff, 0xff),
         Text = Color.Rgb(0x10, 0x1d, 0x34),
         TextStrong = Color.Rgb(0x10, 0x1d, 0x34),
@@ -51,21 +73,31 @@ internal sealed record ForgeTheme
         CodeBlockText = Color.Rgb(0x10, 0x1d, 0x34),
         InlineCode = Color.Rgb(0x0f, 0x6f, 0xeb),
         Link = Color.Rgb(0x0f, 0x6f, 0xeb),
+        ToolFill = Color.Rgb(0xec, 0xef, 0xf6),
         // .card border-radius: 14px; border: 1px; --shadow: 0 1px 2px rgba(16,29,52,.05), 0 6px 20px rgba(16,29,52,.07)
         CardRadius = 14,
         CardHairline = 1,
         CardShadowNear = new(Color.Rgb(0x10, 0x1d, 0x34), Alpha: 0.05, OffsetY: 1, Blur: 2),
         CardShadowFar = new(Color.Rgb(0x10, 0x1d, 0x34), Alpha: 0.07, OffsetY: 6, Blur: 20),
+        // pre.code border-radius: 10px; border: 1px. .you .bubble border-radius: 14px.
+        CodeBlockRadius = 10,
+        CodeBlockHairline = 1,
+        UserRadius = 14,
+        // .composer border-radius: 14px; border: 1px solid var(--accent);
+        // box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent) (no drop shadow, Ameer)
+        ComposerRadius = 14,
+        ComposerHairline = 1,
+        ComposerGlow = new(Color.Rgb(0x0f, 0x6f, 0xeb), Alpha: 0.14, Spread: 4),
+        // .pill-ok::before width: 6px; height: 6px
+        PillDotDiameter = 6,
         ImageIdSlot = 0,
-        PillCapLeft = "",
-        PillCapRight = "",
     };
 
     public static ForgeTheme Dark { get; } = new()
     {
         Surface = Color.Rgb(0x0f, 0x16, 0x22),
-        SurfaceHeader = Color.Rgb(0x0f, 0x16, 0x22),
-        SurfaceAlt = Color.Rgb(0x1a, 0x22, 0x30),
+        SurfaceHeader = Color.Rgb(0x11, 0x1a, 0x28),
+        SurfaceAlt = Color.Rgb(0x14, 0x1d, 0x2b),
         CardSurface = Color.Rgb(0x15, 0x1f, 0x2e),
         Text = Color.Rgb(0xc9, 0xd4, 0xe3),
         TextStrong = Color.Rgb(0xe8, 0xee, 0xf7),
@@ -82,19 +114,25 @@ internal sealed record ForgeTheme
         SuccessFill = Color.Rgb(0x1d, 0x2a, 0x1a),
         Warning = Color.Rgb(0xf0, 0xb3, 0x5a),
         Error = Color.Rgb(0xf0, 0x71, 0x78),
-        CodeBlockFill = Color.Rgb(0x13, 0x1c, 0x2b),
+        CodeBlockFill = Color.Rgb(0x0f, 0x16, 0x22),
         CodeBlockBorder = Color.Rgb(0x2a, 0x38, 0x50),
-        CodeBlockText = Color.Rgb(0xc9, 0xd4, 0xe3),
+        CodeBlockText = Color.Rgb(0xe8, 0xee, 0xf7),
         InlineCode = Color.Rgb(0x4f, 0x9b, 0xff),
         Link = Color.Rgb(0x4f, 0x9b, 0xff),
+        ToolFill = Color.Rgb(0x1a, 0x23, 0x33),
         // --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35)
         CardRadius = 14,
         CardHairline = 1,
         CardShadowNear = new(Color.Rgb(0x00, 0x00, 0x00), Alpha: 0.40, OffsetY: 1, Blur: 2),
         CardShadowFar = new(Color.Rgb(0x00, 0x00, 0x00), Alpha: 0.35, OffsetY: 8, Blur: 24),
+        CodeBlockRadius = 10,
+        CodeBlockHairline = 1,
+        UserRadius = 14,
+        ComposerRadius = 14,
+        ComposerHairline = 1,
+        ComposerGlow = new(Color.Rgb(0x4f, 0x9b, 0xff), Alpha: 0.14, Spread: 4),
+        PillDotDiameter = 6,
         ImageIdSlot = 1,
-        PillCapLeft = "",
-        PillCapRight = "",
     };
 
     public required Color Surface { get; init; }
@@ -117,12 +155,15 @@ internal sealed record ForgeTheme
     public required Color Warning { get; init; }
     public required Color Error { get; init; }
 
-    // Markdown (the next step): defined so both themes are complete, not used yet.
+    // Markdown replies (53.7) and code blocks.
     public required Color CodeBlockFill { get; init; }
     public required Color CodeBlockBorder { get; init; }
     public required Color CodeBlockText { get; init; }
     public required Color InlineCode { get; init; }
     public required Color Link { get; init; }
+
+    /// <summary>The tool (hands) line chip's fill (Phase 56 Task 3; no outline).</summary>
+    public required Color ToolFill { get; init; }
 
     // Card edges (Phase 56), drawn as image tiles: mockup px.
     public required double CardRadius { get; init; }
@@ -130,17 +171,27 @@ internal sealed record ForgeTheme
     public required CardShadow CardShadowNear { get; init; }
     public required CardShadow CardShadowFar { get; init; }
 
-    /// <summary>The theme's part of the card image ids (0 or 1, one per theme), so two themes never
-    /// share an image id (CardRing.ImageIds).</summary>
-    public required int ImageIdSlot { get; init; }
+    // Other shapes (Phase 56 Task 3), drawn as image tiles: mockup px.
+    public required double CodeBlockRadius { get; init; }
+    public required double CodeBlockHairline { get; init; }
+    public required double UserRadius { get; init; }
+    public required double ComposerRadius { get; init; }
+    public required double ComposerHairline { get; init; }
+    public required RingGlow ComposerGlow { get; init; }
 
-    /// <summary>Rounded pill ends (Nerd Font U+E0B6 / U+E0B4, one cell each). Falling back to
-    /// half blocks is a change here only.</summary>
-    public required string PillCapLeft { get; init; }
-    public required string PillCapRight { get; init; }
+    /// <summary>The APPROVED pill's dot, drawn in its left cap.</summary>
+    public required double PillDotDiameter { get; init; }
+
+    /// <summary>The theme's part of the image ids (0 or 1, one per theme), so two themes never
+    /// share an image id (TileSet.ImageIds).</summary>
+    public required int ImageIdSlot { get; init; }
 }
 
 /// <summary>One CSS box-shadow layer under a card: an opaque colour at <paramref name="Alpha"/>,
 /// moved down by <paramref name="OffsetY"/> and blurred by <paramref name="Blur"/> (the CSS blur
 /// radius), both in mockup px. The mockup's card shadows have no x offset.</summary>
 internal readonly record struct CardShadow(Color Color, double Alpha, double OffsetY, double Blur);
+
+/// <summary>A hard focus glow around a shape's border (CSS box-shadow 0 0 0 spread): the colour at
+/// <paramref name="Alpha"/>, <paramref name="Spread"/> mockup px wide, no blur.</summary>
+internal readonly record struct RingGlow(Color Color, double Alpha, double Spread);
