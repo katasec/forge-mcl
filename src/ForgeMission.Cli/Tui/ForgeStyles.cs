@@ -75,6 +75,9 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public CapShape ToolCaps { get; } = new(theme.Surface, theme.ToolFill, null, 0);
 
+    /// <summary>The widest a user message may be, as a share of the transcript.</summary>
+    public double UserMaxWidthPercent => ForgeTheme.UserMaxWidthPercent;
+
     public TextBlockStyle YouLabel { get; } = Foreground(theme.TextMuted);
 
     /// <summary>The card's text cells (and the ring's plain cells): the card surface.</summary>

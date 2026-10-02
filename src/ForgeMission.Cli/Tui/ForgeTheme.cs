@@ -32,6 +32,10 @@ internal sealed record ForgeTheme
     /// <summary>.you .bubble padding: … 1.6ch. A multi-line user message's text sits 2 columns in.</summary>
     public const int UserPaddingCols = 2;
 
+    /// <summary>A user message (with its label) is at most this share of the transcript wide and
+    /// wraps inside it (supervisor ruling, Phase 56 Task 3 review; the mockup's messages are short).</summary>
+    public const double UserMaxWidthPercent = 75;
+
     /// <summary>.composer padding: 0 1.5ch 0 2ch. The prompt sits 2 columns inside the border.</summary>
     public const int ComposerPaddingCols = 2;
 

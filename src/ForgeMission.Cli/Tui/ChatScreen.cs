@@ -179,7 +179,8 @@ internal sealed class ChatScreen
 
     /// <summary>A message that fits one row is a capped pill; one that wraps or has line breaks is
     /// the user ring. The frame chooses at layout, so a window resize can switch it. The label sits
-    /// in a column kept free beside the frame, centred on it, so a wrapping message never covers it.</summary>
+    /// in a column kept free beside the frame, centred on it, so a wrapping message never covers it.
+    /// The message is at most UserMaxWidthPercent of the transcript wide and never left of the gutter.</summary>
     private DocumentFlowItem YouItem(string text) => new()
     {
         Content = new FlowDocument().Add(new ZStack(
@@ -191,7 +192,8 @@ internal sealed class ChatScreen
                 new TextBlock(YouLabel).Style(_styles.YouLabel).HorizontalAlignment(Align.End).VerticalAlignment(Align.Center))
             .HorizontalAlignment(Align.End)),
         Alignment = DocumentFlowAlignment.Right,
-        Padding = new Thickness(1, 0, 1, 0),
+        MaxWidthPercent = _styles.UserMaxWidthPercent,
+        Padding = new Thickness(_styles.TranscriptGutterCols, 0, 1, 0),
     };
 
     /// <summary>A reply body: Markdown in the theme's styles (set on the root), code blocks
@@ -284,8 +286,8 @@ internal sealed class ChatScreen
     {
         // Shift+Enter is the only newline gesture: the editor attaches before the kitty keyboard
         // probe completes, and the default fallback would otherwise rebind newline to Ctrl+N.
-        var composer = new PromptEditor(PromptEditorConfig.Default with { InsertNewLineFallbackGesture = null })
-            .PromptMarkup("›")
+        var composer = new ComposerEditor(PromptEditorConfig.Default with { InsertNewLineFallbackGesture = null })
+            .PromptMarkup(ComposerEditor.PromptGlyph)
             .Placeholder($"Message {header.Mission} v{header.Version}…")
             .AutoSizeMode(TextEditorAutoSizeMode.Height)
             .MinHeight(1)

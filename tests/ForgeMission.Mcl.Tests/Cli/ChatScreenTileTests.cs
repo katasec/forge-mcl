@@ -65,11 +65,31 @@ public sealed partial class ChatScreenTileTests
         Assert.True(ring.Count >= 4, $"expected top, two or more text rows and bottom; got {ring.Count}");
         Assert.All(ring[0].Where(c => c.Set == UserRingSet), c => Assert.InRange(c.Slot, 0, 2));
         Assert.All(ring[^1].Where(c => c.Set == UserRingSet), c => Assert.InRange(c.Slot, 5, 7));
-        // Right-aligned, with " You" beside the ring on its middle row.
-        var middle = ring[ring.Count / 2];
+        // Never left of the gutter, at most 3/4 of the transcript wide.
+        Assert.All(ring, row => Assert.True(row.FindIndex(c => c.Set == UserRingSet) >= Gutter, "ring starts left of the gutter"));
+        Assert.All(ring, row => Assert.True(row.Count(c => c.Set == UserRingSet && c.Slot is 0 or 1 or 2) <= 40 * 3 / 4));
+        // Right-aligned, with " You" beside the ring on a middle row.
+        var middle = Assert.Single(ring, r => Text(r).Contains(" You"));
         Assert.EndsWith("▒ You ", Text(middle));
         var label = Text(middle).IndexOf(" You", StringComparison.Ordinal);
         Assert.Equal((UserRingSet, RightSlot), (middle[label - 1].Set, middle[label - 1].Slot));
+    }
+
+    [Fact]
+    public void A_wrapped_user_message_is_at_most_three_quarters_wide_and_right_aligned()
+    {
+        var text = string.Join(' ', Enumerable.Repeat("words", 40));
+        var rows = new Screen().Show(You(text)).Render();
+        var ring = rows.Where(r => r.Any(c => c.Set == UserRingSet)).ToList();
+
+        var left = ring.Min(row => row.FindIndex(c => c.Set == UserRingSet));
+        var right = ring.Max(row => row.FindLastIndex(c => c.Set == UserRingSet));
+        Assert.True(right - left + 1 <= Width * 3 / 4, $"ring is {right - left + 1} wide");
+        Assert.True(left >= Gutter, $"ring starts at column {left}");
+        Assert.All(ring.Skip(1).SkipLast(1), row => Assert.All(row[(left + 2)..(right - 1)].Where(c => c.Text != " "),
+            c => Assert.Equal(Token("Light", "UserPillText"), c.Foreground)));
+        var labelled = Assert.Single(ring, r => Text(r).Contains(" You"));
+        Assert.Equal(" You", Text(labelled[(right + 1)..(right + 5)]));
     }
 
     [Fact]
@@ -140,6 +160,20 @@ public sealed partial class ChatScreenTileTests
         screen.Composer.Text = text;
 
         Assert.Equal(rows, Indexes(screen.Render(), ComposerSet).Count);
+    }
+
+    [Fact]
+    public void A_wrapping_composer_line_is_exactly_as_tall_as_its_wrapped_rows()
+    {
+        // 80 columns: gutters 4 + 4, ring 2 + 2, prompt 1 leave 67 text columns; this wraps to 3 rows there.
+        var text = string.Join(' ', Enumerable.Repeat("wrapping", 20)).TrimEnd();
+        var screen = new Screen();
+        screen.Composer.Text = text;
+
+        var rows = screen.Render();
+        var composer = Indexes(rows, ComposerSet);
+        Assert.Equal(3 + 2, composer.Count);
+        Assert.Contains("wrapping", Text(rows[composer[^2]]));
     }
 
     [Fact]
