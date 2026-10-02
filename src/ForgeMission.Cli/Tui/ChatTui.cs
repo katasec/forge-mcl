@@ -29,6 +29,9 @@ namespace ForgeMission.Cli.Tui;
 // the UI thread. Without a cell size the app stops before opening the conversation (G8).
 // Motion (Task 5): the pointer's moves go to the screen's link pointer, which is also rechecked on
 // every UI tick; the default pointer comes back on every exit, inside the caret colour's restore.
+// /edit (spike): a composer line "/edit <path>" is never sent; it opens the file in a FileEditor in
+// place of the transcript. While it is open, Ctrl-D, Ctrl-C and PgUp/PgDn do nothing here (Ctrl-C
+// copies in the editor); Esc, with the unsaved-changes guard, is the only way back to the chat.
 internal sealed class ChatTui
 {
     private static readonly KeyGesture QuitGesture = new(TerminalChar.CtrlD, TerminalModifiers.Ctrl);
@@ -228,6 +231,11 @@ internal sealed class ChatTui
     /// turn from any window runs, Enter does nothing and the text stays in the composer.</summary>
     private void Send(string text)
     {
+        if (EditFile.Parse(text) is { } edit)
+        {
+            OpenEditor(edit);
+            return;
+        }
         if (_busy || _sendOnWake) return;
         if (!_link.Ready)
         {
@@ -241,6 +249,47 @@ internal sealed class ChatTui
         _pendingMessage = sent;
         _screen.Composer.Text = "";
         ShowBlocks(Transcript.Submit(_blocks, sent.CommandId, sent.Text));
+    }
+
+    // ── /edit ───────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>/edit: never sent. Without a path it shows the usage; a file that cannot be opened
+    /// shows why; otherwise the editor replaces the transcript and takes focus. Nothing happens
+    /// before the images arrive (the screen is not up yet).</summary>
+    private void OpenEditor(EditCommand edit)
+    {
+        if (!_screen.HasTiles || _screen.Editing) return;
+        _screen.Composer.Text = "";
+        if (edit.Path is not { } path)
+        {
+            ShowLine(EditCommand.Usage);
+            return;
+        }
+        if (OpenFile(path) is not { } file) return;
+        var editor = new FileEditor(file, _styles, CloseEditor);
+        _screen.ShowEditor(editor.View);
+        _screen.Root.App?.Focus(editor.Editor);
+    }
+
+    /// <summary>The file at <paramref name="path"/>, relative to the folder forge chat was started
+    /// in; null, with a notice, when it cannot be opened.</summary>
+    private EditFile? OpenFile(string path)
+    {
+        try
+        {
+            return EditFile.Open(path, Directory.GetCurrentDirectory(), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            ShowLine($"cannot open {path}: {failure.Message}");
+            return null;
+        }
+    }
+
+    private void CloseEditor()
+    {
+        _screen.ShowChat();
+        _screen.Root.App?.Focus(_screen.Composer);
     }
 
     /// <summary>Ctrl-C: stop the turn this window submitted (once its submit returns); nothing
@@ -260,14 +309,18 @@ internal sealed class ChatTui
         Gesture = QuitGesture,
         Importance = CommandImportance.Primary,
         Presentation = CommandPresentation.CommandBar,
+        CanExecute = _ => !_screen.Editing,
         Execute = _ => _sessionSource.Cancel(),
     };
 
-    /// <summary>A key of this window's own: it wakes the link first (commands never reach KeyDown).</summary>
+    /// <summary>A key of this window's own: it wakes the link first (commands never reach KeyDown).
+    /// While the file editor is open the key goes on to the editor (the command stands aside and
+    /// does not consume it).</summary>
     private void AddKey(KeyGesture gesture, string id, Action action) =>
         _screen.Root.AddCommand(new Command
         {
-            Id = id, LabelMarkup = string.Empty, Gesture = gesture, Execute = _ =>
+            Id = id, LabelMarkup = string.Empty, Gesture = gesture,
+            CanExecute = _ => !_screen.Editing, ConsumesGestureWhenUnavailable = false, Execute = _ =>
             {
                 Wake();
                 action();
@@ -321,6 +374,8 @@ internal sealed class ChatTui
         LinkNotice.Awake => Transcript.Awake(_blocks),
         _ => Transcript.Reconnecting(_blocks),
     });
+
+    private void ShowLine(string text) => ShowBlocks([.. _blocks, new NoticeLine(text)]);
 
     private void ShowError(string message) => ShowBlocks([.. _blocks, new ErrorLine($"error: {message}")]);
 

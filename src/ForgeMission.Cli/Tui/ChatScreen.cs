@@ -27,12 +27,15 @@ internal sealed record ChatHeader(string Project, string Mission, int Version, s
 // caret (StreamCaret) and its link probe (LinkPointer) — and a card's frame darkens its edge on
 // hover. The progress row and a running tool chip show a spinner (SpinnerCells) only while a reply
 // is in flight, so an idle screen has nothing animating.
+// /edit (spike): ShowEditor puts a FileEditor's view where the transcript is, hides the progress row
+// and the composer, and turns the key bar into the editor's keys; ShowChat puts the chat back.
 internal sealed class ChatScreen
 {
     private const string YouLabel = "You";
     private const string SendGlyph = "↵";
-    private static readonly (string Chip, string Label)[] Keys =
+    private static readonly (string Chip, string Label)[] ChatKeys =
         [("enter", "send"), ("⇧ enter", "newline"), ("pgup/pgdn", "scroll"), ("ctrl c", "stop"), ("ctrl d", "quit")];
+    private static readonly (string Chip, string Label)[] EditorKeys = [("ctrl s", "save"), ("esc", "close")];
 
     private readonly DocumentFlow _flow = new DocumentFlow().ItemSpacing(0);
     private readonly State<string> _progress = new("");
@@ -49,6 +52,9 @@ internal sealed class ChatScreen
     private readonly Padder _approvedSlot = new();
     private readonly Padder _composerSlot = new() { HorizontalAlignment = Align.Stretch };
     private readonly Padder _keysSlot = new();
+    private readonly DockLayout _dock;
+    private readonly Visual _transcript;
+    private readonly Visual _progressRow;
     private ForgeCodeBlockRenderer? _codeBlocks;
     private ScreenTiles? _tiles;
     private TextImages? _text;
@@ -67,13 +73,16 @@ internal sealed class ChatScreen
         Composer = BuildComposer(header);
         // Progress row, composer ring, one blank row, key bar; all on the transcript's gutter.
         var gutter = styles.TranscriptGutterCols;
-        Root = new DockLayout()
+        _transcript = _flow.Style(styles.Scroll);
+        _progressRow = new HStack(_progressSpinner, new TextBlock(() => _progress.Value).Style(styles.Progress)).Margin(new Thickness(gutter, 0, 1, 0));
+        _dock = new DockLayout()
             .Top(new VStack(BuildHeader(header), Divider()))
-            .Content(_flow.Style(styles.Scroll))
+            .Content(_transcript)
             .Bottom(new VStack(
-                new HStack(_progressSpinner, new TextBlock(() => _progress.Value).Style(styles.Progress)).Margin(new Thickness(gutter, 0, 1, 0)),
+                _progressRow,
                 _composerSlot,
                 _keysSlot.Margin(new Thickness(gutter, styles.KeyBarGapRows, 1, 0))));
+        Root = _dock;
         Root.Style(styles.Screen);
         Root.Style(styles.Markdown);
         Links = new LinkPointer(Root, writePointer);
@@ -90,6 +99,30 @@ internal sealed class ChatScreen
 
     public PromptEditor Composer { get; }
 
+    /// <summary>Whether the file editor is on screen in place of the transcript (/edit).</summary>
+    public bool Editing { get; private set; }
+
+    /// <summary>Shows a file editor's view in place of the transcript: the progress row and the
+    /// composer are hidden and the key bar shows the editor's keys. Needs the images (HasTiles).</summary>
+    public void ShowEditor(Visual editor)
+    {
+        Editing = true;
+        _dock.Content = editor;
+        _progressRow.IsVisible = false;
+        _composerSlot.IsVisible = false;
+        _keysSlot.Content = KeyBar(EditorKeys);
+    }
+
+    /// <summary>Puts the transcript, progress row, composer and chat keys back.</summary>
+    public void ShowChat()
+    {
+        Editing = false;
+        _dock.Content = _transcript;
+        _progressRow.IsVisible = true;
+        _composerSlot.IsVisible = true;
+        _keysSlot.Content = KeyBar(ChatKeys);
+    }
+
     /// <summary>The tile sets every shape is framed with, sent to the terminal before the first
     /// block, and the session's text images. Places the brand and breadcrumb, the header pill, the
     /// composer frame with its send button and the key bar, and creates the code-block renderer.</summary>
@@ -105,7 +138,7 @@ internal sealed class ChatScreen
         _approvedSlot.Content = PillOf("APPROVED", _styles.Approved, tiles.Approved);
         _composerSlot.Padding = new Thickness(Gutter(tiles.Composer), 0, Gutter(tiles.Composer), 0);
         _composerSlot.Content = new TileFrame(ComposerWithSend(), tiles.Composer, _styles.ComposerFill, Align.Stretch);
-        _keysSlot.Content = KeyBar();
+        _keysSlot.Content = KeyBar(ChatKeys);
     }
 
     /// <summary>Whether the tile sets have arrived; no block is shown before them (ChatTui).</summary>
@@ -439,7 +472,7 @@ internal sealed class ChatScreen
     }
 
     /// <summary>Each key's chip and muted label; clipped at the right in a narrow window.</summary>
-    private HStack KeyBar() => new HStack([.. Keys.Select(key => (Visual)new HStack(
+    private HStack KeyBar((string Chip, string Label)[] keys) => new HStack([.. keys.Select(key => (Visual)new HStack(
             Image(TextKind.Chip, key.Chip, _styles.SurfaceFill),
             new TextBlock(key.Label).Style(_styles.KeyLabel)).Spacing(_styles.ChipGapCols))])
         .Spacing(_styles.KeyGroupGapCols);

@@ -3,6 +3,8 @@ using TextMateSharp.Grammars;
 using TextMateSharp.Internal.Grammars; // EncodedTokenAttributes: public, decodes a token's metadata
 using TextMateSharp.Registry;
 using XenoAtom.Terminal.UI;
+using XenoAtom.Terminal.UI.Controls;
+using XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp;
 using XenoAtom.Terminal.UI.Text;
 
 namespace ForgeMission.Cli.Tui.Graphics;
@@ -12,6 +14,8 @@ namespace ForgeMission.Cli.Tui.Graphics;
 // theme; each token keeps only its foreground, on the code block's own fill. A token in the theme's
 // default foreground, and any language the bundled grammars do not know, stays in CodeBlockText.
 // The registry and each grammar load once, on first use.
+// The /edit editor's colours come from here too (EditorHighlighter): XenoAtom's TextMate highlighter
+// picks the grammar from the file's extension and Light+ or Dark+ from the screen theme's background.
 internal sealed class CodeColours(bool light, Style text)
 {
     // TextMate colour ids: 0 is "none", 1 the theme's default foreground (vscode-textmate's colour map).
@@ -38,6 +42,20 @@ internal sealed class CodeColours(bool light, Style text)
             start += line.Length + 1;
         }
         return [.. runs];
+    }
+
+    /// <summary>The /edit editor's syntax colours for <paramref name="fileName"/>, chosen by its
+    /// extension; null (plain text) when no bundled grammar knows the extension.</summary>
+    public static CodeEditorSyntaxHighlighter? EditorHighlighter(string fileName)
+    {
+        try
+        {
+            return new TextMateCodeEditorSyntaxHighlighter(new TextMateCodeEditorOptions { FileName = fileName });
+        }
+        catch (ArgumentException)
+        {
+            return null; // the package's answer for an extension with no grammar
+        }
     }
 
     private IGrammar? Grammar(string language)
