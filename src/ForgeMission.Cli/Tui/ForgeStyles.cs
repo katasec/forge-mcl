@@ -158,6 +158,9 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         ShowPromptSeparator = false,
     };
 
+    /// <summary>The terminal cursor's colour while the TUI runs (TerminalCaret).</summary>
+    public Color Caret { get; } = theme.Caret;
+
     /// <summary>The composer's text cells (and its ring's plain cells): the card surface.</summary>
     public Style ComposerFill { get; } = Style.None.WithBackground(theme.CardSurface);
 

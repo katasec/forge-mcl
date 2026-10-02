@@ -63,6 +63,7 @@ internal sealed record ForgeTheme
         CardTitle = Color.Rgb(0x5b, 0x6b, 0x83),
         Accent = Color.Rgb(0x0f, 0x6f, 0xeb),
         Prompt = Color.Rgb(0x68, 0x9d, 0xf1),
+        Caret = Color.Rgb(0x0f, 0x6f, 0xeb),
         Border = Color.Rgb(0xd5, 0xda, 0xe5),
         CardBorder = Color.Rgb(0xe7, 0xec, 0xf4),
         Selection = Color.Rgb(0xdb, 0xe7, 0xfb),
@@ -109,6 +110,7 @@ internal sealed record ForgeTheme
         CardTitle = Color.Rgb(0x6b, 0x7a, 0x91),
         Accent = Color.Rgb(0x4f, 0x9b, 0xff),
         Prompt = Color.Rgb(0x24, 0xd5, 0xee),
+        Caret = Color.Rgb(0x24, 0xd5, 0xee),
         Border = Color.Rgb(0x24, 0x30, 0x44),
         CardBorder = Color.Rgb(0x22, 0x30, 0x4a),
         Selection = Color.Rgb(0x16, 0x34, 0x5a),
@@ -149,6 +151,10 @@ internal sealed record ForgeTheme
     public required Color CardTitle { get; init; }
     public required Color Accent { get; init; }
     public required Color Prompt { get; init; }
+
+    /// <summary>The composer caret: the terminal cursor's colour while forge chat runs (OSC 12).
+    /// Light uses Accent (a light cursor is lost on the white composer); dark keeps Prompt.</summary>
+    public required Color Caret { get; init; }
     public required Color Border { get; init; }
     public required Color CardBorder { get; init; }
     public required Color Selection { get; init; }
