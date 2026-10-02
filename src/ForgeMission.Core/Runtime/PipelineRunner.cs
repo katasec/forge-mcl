@@ -179,6 +179,11 @@ public class PipelineRunner
                 await sw.WriteLineAsync($"(attempt {attempt}/{maxLoops})");
 
             var context = ContextBuilder.Seed(ast, options.Vars, options.ContextObjects);
+            if (options.ChatHistory is not null)
+            {
+                context[ChatHistory.ContextKey] = options.ChatHistory;
+                context["output"] = ChatInput(mission, options.Vars);
+            }
             context["attempt"]   = attempt.ToString();
             context["max_loops"] = maxLoops.ToString();
             if (loopFeedback is not null)
@@ -467,6 +472,14 @@ public class PipelineRunner
         {
             StreamLlmDeltas = parent.StreamLlmDeltas,
         };
+
+    // Phase 58: in a chat run the first step's input is the new message — the root mission's first
+    // declared parameter — not "Begin.". Seeded only when the run carries ChatHistory, so every
+    // other run keeps today's empty initial output.
+    private static string ChatInput(MissionDeclaration mission, IReadOnlyDictionary<string, string>? vars)
+        => mission.Params.FirstOrDefault() is { } parameter && vars?.TryGetValue(parameter, out var value) == true
+            ? value
+            : string.Empty;
 
     private static bool IsNegotiationEligible(
         MissionDeclaration mission,
@@ -826,7 +839,7 @@ public class PipelineRunner
         {
             if (!parallel.Steps.Any(CanReachRootToolAgent))
             {
-                var snapshot = parent.Context.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal);
+                var snapshot = StepContext(parent);
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(_ct);
                 var results = await Task.WhenAll(parallel.Steps.Select(step => _owner.ExecuteParallelStepAsync(
                     step, _ast, _experts, snapshot, _options, Path(), parent.Attempt, linked)));
@@ -884,7 +897,7 @@ public class PipelineRunner
 
             foreach (var (key, value) in Bindings(step, frame.Context)) frame.Context[key] = value;
             RecordEnvironmentBindings(frame, step);
-            var context = frame.Context.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal);
+            var context = StepContext(frame);
             if (expert.IsAgent) context["tools"] = _tools;
             if (frame.ResumePausedAgent)
             {
@@ -898,7 +911,6 @@ public class PipelineRunner
             try { envelope = await InvokeExpertAsync(RunnerFor(expert, step), expert, context, _options, Path(), step.ExpertName, frame.Attempt, _ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { return Failure(PipelineFailure.ProviderFailed); }
             await Trace(new PipelineStepCompleted(_options.MissionName, Path(), step.ExpertName, expert.Kind, frame.Attempt, envelope));
-            frame.Context["output"] = envelope.Text;
 
             if (envelope.Status == "fail")
             {
@@ -930,8 +942,21 @@ public class PipelineRunner
                 return Pause(frame, step.ExpertName, call, context);
             }
 
+            // Set only once the step did not pause: a paused step's checkpoint keeps its original
+            // input, so the resumed provider call repeats the same user message (Phase 58).
+            frame.Context["output"] = envelope.Text;
             if (!parallelDirect) frame.ElementIndex++;
             return null;
+        }
+
+        // The object view of a frame's context for one step. Only the root frame carries the
+        // durable chat history; child mission frames inherit nothing (Phase 58).
+        private Dictionary<string, object> StepContext(Frame frame)
+        {
+            var context = frame.Context.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal);
+            if (_options.ChatHistory is not null && ReferenceEquals(frame, _frames[0]))
+                context[ChatHistory.ContextKey] = _options.ChatHistory;
+            return context;
         }
 
         private MissionResult Pause(Frame frame, string expertName, PipelineToolCall call, Dictionary<string, object> context)
@@ -977,10 +1002,16 @@ public class PipelineRunner
             return Frame.FromCheckpoint(checkpoint, context, initial);
         }
 
+        // The root frame of a chat run starts with the new message as its input (Phase 58). It sits
+        // in the frame's initial context, so a loop retry restores it and a resume rebuilds it
+        // without any checkpoint change.
         private Dictionary<string, string> InitialContext(string missionName, IReadOnlyDictionary<string, string>? vars)
         {
             var allowed = RootInputs(missionName, vars);
-            return StringSnapshot(ContextBuilder.Seed(_ast, allowed, null));
+            var context = StringSnapshot(ContextBuilder.Seed(_ast, allowed, null));
+            if (_options.ChatHistory is not null && missionName == _options.MissionName)
+                context["output"] = ChatInput(Mission(missionName), allowed);
+            return context;
         }
 
         private IReadOnlyDictionary<string, string> RootInputs(string missionName, IReadOnlyDictionary<string, string>? vars)

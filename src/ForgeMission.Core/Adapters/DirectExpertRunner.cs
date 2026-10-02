@@ -88,11 +88,8 @@ Or on failure:
             // Drive the tool loop on the NATIVE conversation (prior tool_use/tool_result included)
             // so the provider model can continue its own loop across continuations. The client's
             // system prompt is replaced by the expert's — the mission is the brain.
-            if (context.TryGetValue("conversation", out var c) && c is Conversation conversation)
-            {
-                messages = [new ChatMessage(ChatRole.System, systemPrompt)];
-                messages.AddRange(conversation.Messages.Where(m => m.Role != ChatRole.System));
-            }
+            if (ToolConversation(context) is { } conversation)
+                messages = ConversationMessages(systemPrompt, conversation);
         }
 
         var response = await chatClient.GetResponseAsync(messages, options, cancellationToken: ct);
@@ -164,11 +161,8 @@ Or on failure:
                 && amtc is bool allowMultiple)
                 options.AllowMultipleToolCalls = allowMultiple;
 
-            if (context.TryGetValue("conversation", out var c) && c is Conversation conversation)
-            {
-                messages = [new ChatMessage(ChatRole.System, systemPrompt)];
-                messages.AddRange(conversation.Messages.Where(m => m.Role != ChatRole.System));
-            }
+            if (ToolConversation(context) is { } conversation)
+                messages = ConversationMessages(systemPrompt, conversation);
         }
         else if (expert.IsJudge)
         {
@@ -201,12 +195,16 @@ Or on failure:
         Dictionary<string, object> context)
     {
         var systemPrompt = ContextInterpolator.Interpolate(expert.SystemPrompt, context);
+        List<ChatMessage> messages = [new(ChatRole.System, systemPrompt)];
+
+        // Phase 58: durable chat history (earlier turns) precedes this step's own input.
+        if (context.TryGetValue(ChatHistory.ContextKey, out var chatValue) && chatValue is ChatHistory chat)
+            messages.AddRange(chat.Messages);
 
         if (context.TryGetValue("history", out var historyValue)
             && historyValue is SpeakerTranscript history
             && history.Turns.Count > 0)
         {
-            var messages = new List<ChatMessage> { new(ChatRole.System, systemPrompt) };
             messages.AddRange(history.AsMessages(expert.Name));
             return (messages, systemPrompt);
         }
@@ -214,7 +212,28 @@ Or on failure:
         var userMessage = context.TryGetValue("output", out var output) && !string.IsNullOrWhiteSpace(output?.ToString())
             ? output.ToString()!
             : "Begin.";
-        return ([new(ChatRole.System, systemPrompt), new(ChatRole.User, userMessage)], systemPrompt);
+        messages.Add(new ChatMessage(ChatRole.User, userMessage));
+        return (messages, systemPrompt);
+    }
+
+    // Tool mode drives the NATIVE client conversation (forge serve / forge claude). A step that
+    // also carries durable chat history has two competing message sources — refuse it rather
+    // than silently dropping one (Phase 58).
+    private static Conversation? ToolConversation(Dictionary<string, object> context)
+    {
+        if (!context.TryGetValue("conversation", out var c) || c is not Conversation conversation)
+            return null;
+        if (context.ContainsKey(ChatHistory.ContextKey))
+            throw new InvalidOperationException(
+                "A tool step cannot carry both a client conversation and durable chat history.");
+        return conversation;
+    }
+
+    private static List<ChatMessage> ConversationMessages(string systemPrompt, Conversation conversation)
+    {
+        List<ChatMessage> messages = [new(ChatRole.System, systemPrompt)];
+        messages.AddRange(conversation.Messages.Where(m => m.Role != ChatRole.System));
+        return messages;
     }
 
 }

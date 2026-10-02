@@ -56,4 +56,10 @@ public record PipelineRunOptions(
     /// the durable executor; a streamed step's result is its plain text with status pass. Judges and
     /// steps with tools attached keep the non-streaming path. Inherited by child missions.</summary>
     public bool StreamLlmDeltas { get; init; }
+
+    /// <summary>Earlier turns of a durable chat (Phase 58). Seeded into the root mission's step
+    /// context on both the recursive and root-scoped paths, and makes the root mission's first declared
+    /// parameter the first step's input; never inherited by child missions and
+    /// never checkpointed — a caller passes it again on <see cref="PipelineRunner.ResumeAsync"/>.</summary>
+    public ChatHistory? ChatHistory { get; init; }
 }

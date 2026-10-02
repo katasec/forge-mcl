@@ -77,4 +77,59 @@ public sealed class MissionChatClientConversationTests
         Assert.IsType<Conversation>(context["conversation"]);
         Assert.Equal("hi", context["goal"]);
     }
+    // Phase 58: durable chat history must not change forge serve / forge claude. A full-conversation
+    // run still sends a pre-agent step only system + one user message, and the tool-capable agent the
+    // mission's system prompt plus the native client conversation, with no step input appended.
+    [Fact]
+    public async Task FullConversation_MessageShapes_UnchangedByChatHistory()
+    {
+        var ast = ForgeMission.Parser.MclParser.Parse("mission Task(goal) = { Enrich -> Respond }\noutput(Task)");
+        var experts = new Dictionary<string, ForgeMission.Core.Experts.ExpertDefinition>(StringComparer.Ordinal)
+        {
+            ["Enrich"]  = new("Enrich", "any", "text", "ENRICH-PROMPT"),
+            ["Respond"] = new("Respond", "any", "text", "RESPOND-PROMPT", Role: "agent"),
+        };
+        var provider = new RecordingClient();
+        var mission  = new MissionChatClient(ast, experts, new DirectExpertRunner(provider), fullConversation: true);
+        List<ChatMessage> client =
+        [
+            new(ChatRole.System, "client system"),
+            new(ChatRole.User, "earlier"),
+            new(ChatRole.Assistant, "earlier reply"),
+            new(ChatRole.User, "the goal"),
+        ];
+
+        await mission.GetResponseAsync(client,
+            new ChatOptions { Tools = [AIFunctionFactory.Create((string path) => "", "Read", "Reads a file")] });
+
+        Assert.Equal(2, provider.Requests.Count);
+        Assert.Equal([ChatRole.System, ChatRole.User], provider.Requests[0].Select(m => m.Role));
+        Assert.Equal("Begin.", provider.Requests[0][1].Text);  // today: the goal reaches step 1 via {{goal}}
+        Assert.Equal(["RESPOND-PROMPT", "earlier", "earlier reply", "the goal"],
+            provider.Requests[1].Select(m => m.Text));
+    }
+
+    private sealed class RecordingClient : IChatClient
+    {
+        public List<List<ChatMessage>> Requests { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(messages.ToList());
+            return Task.FromResult(new ChatResponse(
+                [new ChatMessage(ChatRole.Assistant, """{"text": "ok", "status": "pass", "reason": null}""")]));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var response = await GetResponseAsync(messages, options, cancellationToken);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
 }
