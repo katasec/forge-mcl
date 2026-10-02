@@ -5,7 +5,7 @@ set -euo pipefail
 package_directory=${1:?usage: verify-core-package.sh <package-directory> <repository-commit>}
 repository_commit=${2:?usage: verify-core-package.sh <package-directory> <repository-commit>}
 package_id=Katasec.Forge.Mcl.Core
-package_version=0.1.3
+package_version=0.1.4
 package_path="$package_directory/$package_id.$package_version.nupkg"
 
 if [[ ! -f "$package_path" ]]; then
