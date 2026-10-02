@@ -30,7 +30,7 @@ public sealed class TileSetTests
 
     private const int CapCols = 2;
 
-    private static readonly string[] RingSets = ["CardShape", "CodeBlockShape", "UserShape", "ComposerShape"];
+    private static readonly string[] RingSets = ["CardShape", "CodeBlockShape", "UserShape", "ComposerShape", "CardHoverShape"];
     private static readonly string[] CapSets = ["UserCaps", "ApprovedCaps", "ToolCaps"];
 
     private static readonly Assembly Forge = LoadForge();
@@ -134,6 +134,40 @@ public sealed class TileSetTests
             Assert.Equal((CapCols * width, height), (caps.Right.Width, caps.Right.Height));
         }
     }
+
+    /// <summary>Task 5 (.card:hover): the hover edge is the card's ring with the Border hairline.
+    /// Same geometry, so a frame can swap them; its border line is Border, the card's CardBorder.</summary>
+    [Theory]
+    [InlineData("Light", 19, 42)]
+    [InlineData("Dark", 10, 21)]
+    public void The_card_hover_set_is_the_card_ring_with_the_border_hairline(string theme, int width, int height)
+    {
+        var card = Ring(theme, "CardShape", width, height);
+        var hover = Ring(theme, "CardHoverShape", width, height);
+
+        Assert.Equal(Size(card), Size(hover));
+        Assert.Equal((card.SideInset, card.PadCols, card.PadTop, card.PadBottom), (hover.SideInset, hover.PadCols, hover.PadTop, hover.PadBottom));
+        var border = Rgb(Get(Shape(theme, "CardHoverShape"), "Border"));
+        var cardBorder = Rgb(Get(Shape(theme, "CardShape"), "Border"));
+        Assert.NotEqual(cardBorder, border);
+        Assert.Contains(MiddleColumn(hover), px => Distance(px, border) <= 3);
+        Assert.Contains(MiddleColumn(card), px => Distance(px, cardBorder) <= 3);
+        Assert.DoesNotContain(MiddleColumn(card), px => Distance(px, border) <= 3);
+    }
+
+    private static IEnumerable<(byte R, byte G, byte B)> MiddleColumn(RingFacts ring)
+    {
+        var t = ring.Template;
+        var x = t.Width / 2;
+        for (var y = 0; y < t.Height; y++)
+        {
+            var i = (y * t.Width + x) * 3;
+            yield return (t.Pixels[i], t.Pixels[i + 1], t.Pixels[i + 2]);
+        }
+    }
+
+    private static int Distance((byte R, byte G, byte B) a, (byte R, byte G, byte B) b) =>
+        Math.Max(Math.Abs(a.R - b.R), Math.Max(Math.Abs(a.G - b.G), Math.Abs(a.B - b.B)));
 
     [Fact]
     public void Image_ids_are_disjoint_across_themes_sets_and_cell_sizes_and_fit_24_bits()

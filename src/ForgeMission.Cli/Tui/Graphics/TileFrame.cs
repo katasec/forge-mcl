@@ -17,6 +17,9 @@ namespace ForgeMission.Cli.Tui.Graphics;
 // ring once it wraps). Both sets must have the same side columns, so the choice never changes the
 // content's width.
 //
+// A frame given a hover set (Task 5, the card) paints it while the pointer is over the frame:
+// reading IsHovered while rendering makes XenoAtom repaint the frame when it changes.
+//
 // A frame inside a DocumentFlow block is arranged at its full size (also when scrolled partly off
 // screen), so its tile rows count from its real top.
 internal sealed class TileFrame : Padder
@@ -25,18 +28,20 @@ internal sealed class TileFrame : Padder
 
     private readonly TileSet _oneLine;
     private readonly TileSet? _multiLine;
+    private readonly TileSet? _hover;
     private readonly Style _fill;
     private TileSet _active;
 
     public TileFrame(Visual content, TileSet tiles, Style fill, Align alignment)
-        : this(content, tiles, null, fill, alignment)
+        : this(content, tiles, null, null, fill, alignment)
     {
     }
 
-    private TileFrame(Visual content, TileSet oneLine, TileSet? multiLine, Style fill, Align alignment)
+    private TileFrame(Visual content, TileSet oneLine, TileSet? multiLine, TileSet? hover, Style fill, Align alignment)
     {
         _oneLine = oneLine;
         _multiLine = multiLine;
+        _hover = hover;
         _active = oneLine;
         _fill = fill;
         Content = content;
@@ -46,7 +51,12 @@ internal sealed class TileFrame : Padder
     /// <summary>A frame that is <paramref name="oneLine"/> while its content fits one row and
     /// <paramref name="multiLine"/> once it does not.</summary>
     public static TileFrame OneLineOr(Visual content, TileSet oneLine, TileSet multiLine, Style fill, Align alignment) =>
-        new(content, oneLine, multiLine, fill, alignment);
+        new(content, oneLine, multiLine, null, fill, alignment);
+
+    /// <summary>A frame that paints <paramref name="hover"/> (same geometry as
+    /// <paramref name="tiles"/>) while the pointer is over it.</summary>
+    public static TileFrame WithHover(Visual content, TileSet tiles, TileSet hover, Style fill, Align alignment) =>
+        new(content, tiles, null, hover, fill, alignment);
 
     protected override Thickness Inset => InsetOf(_active.Layout);
 
@@ -59,9 +69,10 @@ internal sealed class TileFrame : Padder
     protected override void RenderOverride(CellBuffer buffer)
     {
         var b = Bounds;
+        var tiles = _hover is not null && IsHovered ? _hover : _active;
         for (var y = b.Y; y < b.Y + b.Height; y++)
         for (var x = b.X; x < b.X + b.Width; x++)
-            PaintCell(buffer, b, x, y);
+            PaintCell(buffer, b, tiles, x, y);
     }
 
     private static Thickness InsetOf(RingLayout l) => new(l.SideCols + l.PadCols, l.TopRows + l.PadTop,
@@ -78,13 +89,13 @@ internal sealed class TileFrame : Padder
     }
 
     /// <summary>A ring cell shows its tile's placeholder; any other cell is plain fill.</summary>
-    private void PaintCell(CellBuffer buffer, Rectangle bounds, int x, int y)
+    private void PaintCell(CellBuffer buffer, Rectangle bounds, TileSet tiles, int x, int y)
     {
-        var (index, row, col) = TileAt(_active.Layout, bounds, x, y);
+        var (index, row, col) = TileAt(tiles.Layout, bounds, x, y);
         if (index == Inside)
             buffer.SetCell(x, y, new System.Text.Rune(' '), _fill);
         else
-            buffer.WriteText(x, y, KittyImages.Cell(row, col), _fill.WithForeground(KittyImages.IdColor(_active.Ids[index])));
+            buffer.WriteText(x, y, KittyImages.Cell(row, col), _fill.WithForeground(KittyImages.IdColor(tiles.Ids[index])));
     }
 
     /// <summary>Which tile slot covers cell (x, y), and which cell of that tile; <see cref="Inside"/>

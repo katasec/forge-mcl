@@ -89,6 +89,38 @@ internal static class Shapes
         return mask;
     }
 
+    /// <summary>Area coverage of a ring centred at (<paramref name="cx"/>, <paramref name="cy"/>):
+    /// outer radius <paramref name="radius"/>, <paramref name="stroke"/> px wide (Task 5 spinner).</summary>
+    public static float[] Ring(int width, int height, double cx, double cy, double radius, double stroke)
+    {
+        var mask = new float[width * height];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var d = Math.Sqrt(Math.Pow(x + 0.5 - cx, 2) + Math.Pow(y + 0.5 - cy, 2));
+            var outer = Math.Clamp(radius - d + 0.5, 0, 1);
+            var inner = Math.Clamp(d - (radius - stroke) + 0.5, 0, 1);
+            mask[y * width + x] = (float)(outer * inner);
+        }
+        return mask;
+    }
+
+    /// <summary>The part of <paramref name="ring"/> within <paramref name="halfAngle"/> radians of
+    /// <paramref name="angle"/> (0 points up, positive turns clockwise), anti-aliased at both ends.</summary>
+    public static float[] Arc(float[] ring, int width, int height, double cx, double cy, double angle, double halfAngle)
+    {
+        var mask = new float[ring.Length];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var (dx, dy) = (x + 0.5 - cx, y + 0.5 - cy);
+            var off = Math.Abs(Math.IEEERemainder(Math.Atan2(dx, -dy) - angle, 2 * Math.PI)) - halfAngle;
+            var beyond = off >= Math.PI / 2 ? double.MaxValue : Math.Sqrt(dx * dx + dy * dy) * Math.Sin(off);
+            mask[y * width + x] = ring[y * width + x] * (float)Math.Clamp(0.5 - beyond, 0, 1);
+        }
+        return mask;
+    }
+
     /// <summary>Gaussian blur (standard deviation <paramref name="sigma"/> px) as three box blurs
     /// per axis; pixels outside the mask count as zero.</summary>
     public static void Blur(float[] mask, int width, int height, double sigma)

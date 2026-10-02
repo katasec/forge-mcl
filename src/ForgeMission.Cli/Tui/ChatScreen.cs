@@ -23,9 +23,12 @@ internal sealed record ChatHeader(string Project, string Mission, int Version, s
 // shown: ChatTui opens the conversation only after it, and Enter does nothing until HasTiles. The
 // header images and pill, the composer frame and the key bar are placed into their slots then, and
 // the code-block renderer is created then. Text an image cannot carry (G9) stays terminal text.
+// Motion (Task 5): each reply body carries three overlays — its fade-in (FadeIn), its streaming
+// caret (StreamCaret) and its link probe (LinkPointer) — and a card's frame darkens its edge on
+// hover. The progress row and a running tool chip show a spinner (SpinnerCells) only while a reply
+// is in flight, so an idle screen has nothing animating.
 internal sealed class ChatScreen
 {
-    private const string PendingBody = "▌";
     private const string YouLabel = "You";
     private const string SendGlyph = "↵";
     private static readonly (string Chip, string Label)[] Keys =
@@ -33,9 +36,12 @@ internal sealed class ChatScreen
 
     private readonly DocumentFlow _flow = new DocumentFlow().ItemSpacing(0);
     private readonly State<string> _progress = new("");
-    // The blocks on screen, and per block the body of a card (null for other blocks).
+    // The blocks on screen, and per block what changes in place: a card's body and its overlays,
+    // a running tool chip's spinner.
     private readonly List<TranscriptBlock> _shown = [];
-    private readonly List<MarkdownControl?> _cardBodies = [];
+    private readonly List<BlockView> _views = [];
+    private readonly Padder _progressSpinner = new();
+    private readonly Func<long> _clock;
     private readonly ForgeStyles _styles;
     private readonly ChatHeader _header;
     // Filled by UseImages: the brand and breadcrumb, the APPROVED pill, the composer's frame, the key bar.
@@ -48,8 +54,15 @@ internal sealed class ChatScreen
     private TextImages? _text;
 
     public ChatScreen(ChatHeader header, ForgeStyles styles)
+        : this(header, styles, Motion.Now, RawStdout.Write)
+    {
+    }
+
+    /// <summary>The screen with its motion clock and pointer-shape writer given (tests).</summary>
+    internal ChatScreen(ChatHeader header, ForgeStyles styles, Func<long> clock, Action<string> writePointer)
     {
         _styles = styles;
+        _clock = clock;
         _header = header;
         Composer = BuildComposer(header);
         // Progress row, composer ring, one blank row, key bar; all on the transcript's gutter.
@@ -58,14 +71,22 @@ internal sealed class ChatScreen
             .Top(new VStack(BuildHeader(header), Divider()))
             .Content(_flow.Style(styles.Scroll))
             .Bottom(new VStack(
-                new TextBlock(() => _progress.Value).Style(styles.Progress).Margin(new Thickness(gutter, 0, 1, 0)),
+                new HStack(_progressSpinner, new TextBlock(() => _progress.Value).Style(styles.Progress)).Margin(new Thickness(gutter, 0, 1, 0)),
                 _composerSlot,
                 _keysSlot.Margin(new Thickness(gutter, styles.KeyBarGapRows, 1, 0))));
         Root.Style(styles.Screen);
         Root.Style(styles.Markdown);
+        Links = new LinkPointer(Root, writePointer);
     }
 
     public Visual Root { get; }
+
+    /// <summary>The pointer's shape over links (ChatTui feeds it the pointer's moves).</summary>
+    public LinkPointer Links { get; }
+
+    /// <summary>Whether a turn from any window runs (ChatTui): a running tool chip spins only then
+    /// or while a reply is pending or streams.</summary>
+    public bool TurnRunning { get; set; }
 
     public PromptEditor Composer { get; }
 
@@ -99,32 +120,67 @@ internal sealed class ChatScreen
         for (var i = _shown.Count - 1; i >= kept; i--)
         {
             _flow.Items.RemoveAt(i);
-            _cardBodies.RemoveAt(i);
+            if (_views[i].Card is { } gone) Links.Forget(gone.Probe);
+            _views.RemoveAt(i);
             _shown.RemoveAt(i);
         }
 
         for (var i = kept; i < blocks.Count; i++)
         {
-            _cardBodies.Add(AppendBlock(blocks[i]));
+            _views.Add(AppendBlock(blocks[i]));
             _shown.Add(blocks[i]);
         }
 
-        // Live reply deltas (53.8) call this several times a second: SetMarkdown assigns only a card
-        // whose text changed, and an unchanged card carries the same string instance, so every other
-        // card costs one reference comparison and is never re-parsed.
         for (var i = 0; i < blocks.Count; i++)
-        {
-            if (_cardBodies[i] is { } body && blocks[i] is ParticipantCard card)
-                SetMarkdown(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""), card.Streaming);
-        }
+            UpdateCard(_views[i], blocks[i], last: i == blocks.Count - 1);
 
-        _progress.Value = Transcript.Replying(blocks) switch
+        var replying = Transcript.Replying(blocks) ?? Transcript.Streaming(blocks);
+        _progress.Value = replying switch
         {
             null => "",
             "" => "replying …",
             var expert => $"{expert} is replying …",
         };
+        if (_tiles is not { } tiles) return;
+        _progressSpinner.Content = Spin(_progressSpinner, replying is not null, tiles.ProgressSpinner, _styles.SurfaceFill);
+        UpdateChips(tiles, replying is not null || TurnRunning);
     }
+
+    /// <summary>A card's text and motion. Live reply deltas (53.8) call this several times a second:
+    /// SetMarkdown assigns only a card whose text changed, and an unchanged card carries the same
+    /// string instance, so every other card costs one reference comparison and is never re-parsed.
+    /// A changed streaming card fades in what changed; the caret blinks while the card is pending
+    /// (the last card, no text yet) or streams.</summary>
+    private static void UpdateCard(BlockView view, TranscriptBlock block, bool last)
+    {
+        if (view.Card is not { } motion) return;
+        if (block is not ParticipantCard card)
+        {
+            motion.Caret.Active = true;     // the pending reply before any participant starts
+            return;
+        }
+        var changed = SetMarkdown(view.Body!, card.Text ?? "", card.Streaming);
+        if (changed && card.Streaming) motion.Fade.MarkDelta();
+        if (!card.Streaming) motion.Fade.Settle();
+        motion.Caret.Active = card.Streaming || (card.Text is null && last);
+    }
+
+    /// <summary>Running tool chips spin while a reply is in flight; otherwise they show their text
+    /// with its trailing ellipsis, as a finished chip shows its outcome.</summary>
+    private void UpdateChips(ScreenTiles tiles, bool inFlight)
+    {
+        foreach (var view in _views)
+        {
+            if (view.Chip is not { } chip) continue;
+            chip.Spinner.Content = Spin(chip.Spinner, inFlight, tiles.ToolSpinner, _styles.Tool.Fill);
+            chip.Spinning.Value = inFlight;
+        }
+    }
+
+    /// <summary>The spinner a slot shows: the one it has while it should spin, a new one when it
+    /// starts, none when it stops.</summary>
+    private Visual? Spin(Padder slot, bool spinning, SpinnerFrames frames, Style fill) =>
+        !spinning ? null : slot.Content as SpinnerCells ?? new SpinnerCells(frames, fill, _clock);
 
     /// <summary>How many shown blocks still hold the same place: a card keeps its place while
     /// its title does (its text is updated in place); any other block while it is equal.</summary>
@@ -161,37 +217,55 @@ internal sealed class ChatScreen
 
     // ── Blocks ──────────────────────────────────────────────────────────────────────────────
 
-    private MarkdownControl? AppendBlock(TranscriptBlock block)
+    private BlockView AppendBlock(TranscriptBlock block)
     {
         switch (block)
         {
             case YouBlock you:
                 _flow.Items.Add(YouItem(you.Text));
-                return null;
+                return BlockView.None;
             case PendingYouBlock pending:
                 _flow.Items.Add(YouItem(pending.Text));
-                return null;
+                return BlockView.None;
             case PendingReplyBlock:
-                var pendingBody = CardBody();
-                _flow.Items.Add(CardItem(null, pendingBody));
-                SetMarkdown(pendingBody, PendingBody, streaming: false);
-                return null;
+                return AppendCard(null);
             case ParticipantCard card:
-                var body = CardBody();
-                _flow.Items.Add(CardItem(card.Title, body));
-                return body;
+                return AppendCard(card.Title);
             case NoticeLine notice:
                 _flow.Items.Add(LineItem(notice.Text, _styles.Notice));
-                return null;
+                return BlockView.None;
             case ErrorLine error:
                 _flow.Items.Add(LineItem(error.Text, _styles.ErrorNotice));
-                return null;
+                return BlockView.None;
+            case HandsLine { Outcome: null } running:
+                return AppendRunningTool(running);
             case HandsLine hands:
-                _flow.Items.Add(ToolItem(Transcript.HandsText(hands)));
-                return null;
+                _flow.Items.Add(ToolItem(PillOf(Transcript.HandsText(hands), _styles.Tool, _tiles!.Tool)));
+                return BlockView.None;
             default:
                 throw new InvalidOperationException($"No view for {block.GetType().Name}.");
         }
+    }
+
+    /// <summary>A reply card (<paramref name="title"/> null while pending) with its body's overlays.</summary>
+    private BlockView AppendCard(string? title)
+    {
+        var body = CardBody();
+        var motion = new CardMotion(new FadeIn(_clock), new StreamCaret(_styles.StreamCaret, _clock), Links.NewProbe());
+        var layers = new ZStack(body, motion.Fade, motion.Probe, motion.Caret).HorizontalAlignment(Align.Stretch);
+        _flow.Items.Add(CardItem(title, layers));
+        return new BlockView(body, motion, null);
+    }
+
+    /// <summary>A running tool chip: its spinner slot, then its label (with the ellipsis when it
+    /// does not spin; TUI only — the line mode keeps HandsText).</summary>
+    private BlockView AppendRunningTool(HandsLine line)
+    {
+        var chip = new ChipMotion(new Padder(), new State<bool>(false));
+        var label = new TextBlock(() => chip.Spinning.Value ? line.Label : Transcript.HandsText(line))
+            { Trimming = TextTrimming.EndEllipsis }.Style(_styles.Tool.Text);
+        _flow.Items.Add(ToolItem(new TileFrame(new HStack(chip.Spinner, label), _tiles!.Tool, _styles.Tool.Fill, Align.Start)));
+        return new BlockView(null, null, chip);
     }
 
     /// <summary>A message that fits one row is a capped pill; one that wraps or has line breaks is
@@ -234,25 +308,27 @@ internal sealed class ChatScreen
 
     /// <summary>Sets a body's text, and the pipeline for it: a streaming reply's last heading may
     /// still be incomplete (ForgeMarkdown.For). A changed pipeline re-renders the body.</summary>
-    private static void SetMarkdown(MarkdownControl body, string markdown, bool streaming)
+    private static bool SetMarkdown(MarkdownControl body, string markdown, bool streaming)
     {
         var pipeline = ForgeMarkdown.For(streaming, markdown);
         if (body.Pipeline != pipeline) body.Pipeline = pipeline;
-        if (body.Markdown != markdown) body.Markdown = markdown;
+        if (body.Markdown == markdown) return false;
+        body.Markdown = markdown;
+        return true;
     }
 
     /// <summary>A reply card; <paramref name="title"/> is null while no participant has started.
-    /// The whole card is one block (its frame), after a blank gap row, inset by the gutter so the
-    /// frame's border falls in the transcript's gutter column.</summary>
-    private DocumentFlowItem CardItem(string? title, MarkdownControl body) => new()
+    /// The whole card is one block (its frame, with the hover edge), after a blank gap row, inset
+    /// by the gutter so the frame's border falls in the transcript's gutter column.</summary>
+    private DocumentFlowItem CardItem(string? title, Visual body) => new()
     {
-        Content = new FlowDocument().Add(new TileFrame(CardContent(title, body), _tiles!.Card, _styles.CardFill, Align.Stretch)),
+        Content = new FlowDocument().Add(TileFrame.WithHover(CardContent(title, body), _tiles!.Card, _tiles.CardHover, _styles.CardFill, Align.Stretch)),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         Padding = new Thickness(Gutter(_tiles.Card), _styles.CardGapRows, Gutter(_tiles.Card), 0),
     };
 
-    private Visual CardContent(string? title, MarkdownControl body) => title is null
+    private Visual CardContent(string? title, Visual body) => title is null
         ? body
         : new VStack(CardHead(title), body).HorizontalAlignment(Align.Stretch);
 
@@ -272,9 +348,9 @@ internal sealed class ChatScreen
 
     /// <summary>A tool (hands) line: a one-row chip on the gutter, cut short with an ellipsis when
     /// it is wider than the transcript.</summary>
-    private DocumentFlowItem ToolItem(string text) => new()
+    private DocumentFlowItem ToolItem(TileFrame chip) => new()
     {
-        Content = new FlowDocument().Add(PillOf(text, _styles.Tool, _tiles!.Tool)),
+        Content = new FlowDocument().Add(chip),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         Padding = new Thickness(_styles.TranscriptGutterCols, 0, 1, 0),
@@ -376,3 +452,15 @@ internal sealed class ChatScreen
         return TextArt.Allows(first) && char.IsLetterOrDigit(first[0]) ? first : "";
     }
 }
+
+/// <summary>What one shown block changes in place: a card's body and overlays, a running chip's spinner.</summary>
+internal sealed record BlockView(MarkdownControl? Body, CardMotion? Card, ChipMotion? Chip)
+{
+    public static readonly BlockView None = new(null, null, null);
+}
+
+/// <summary>A reply body's overlays (Task 5).</summary>
+internal sealed record CardMotion(FadeIn Fade, StreamCaret Caret, Visual Probe);
+
+/// <summary>A running tool chip's spinner slot, and whether it spins.</summary>
+internal sealed record ChipMotion(Padder Spinner, State<bool> Spinning);

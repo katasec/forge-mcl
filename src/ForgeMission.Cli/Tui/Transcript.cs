@@ -130,6 +130,15 @@ public static class Transcript
         _ => null,
     };
 
+    /// <summary>Who is streaming a reply (Phase 56 Task 5): the expert whose latest card live deltas
+    /// still grow, or null. With <see cref="Replying"/> it keeps the progress row and its spinner
+    /// until the reply ends; <see cref="Replying"/> alone stays the idle-sleep rule.</summary>
+    public static string? Streaming(IReadOnlyList<TranscriptBlock> blocks)
+    {
+        var index = LatestCardIndex(blocks);
+        return index >= 0 && blocks[index] is ParticipantCard { Streaming: true } card ? card.Title : null;
+    }
+
     /// <summary>Forge's echo of a sent message takes the place of its pending pill.</summary>
     private static IReadOnlyList<TranscriptBlock> AddUserMessage(IReadOnlyList<TranscriptBlock> blocks, Guid eventId, string text)
     {

@@ -132,6 +132,20 @@ public sealed class ChatTranscriptTests
         Assert.Null(Replying());
     }
 
+    /// <summary>Phase 56 Task 5: the progress row and its spinner stay while the reply streams;
+    /// Replying (the idle-sleep rule) is unchanged.</summary>
+    [Fact]
+    public void The_expert_is_streaming_while_deltas_grow_its_latest_card()
+    {
+        Assert.Null(Streaming(Started("Chat:Answerer")));
+        Assert.Equal("Answerer", Streaming(Started("Chat:Answerer"), Delta("Hel")));
+        Assert.Null(Replying(Started("Chat:Answerer"), Delta("Hel")));
+        Assert.Equal("Answerer", Streaming(Started("ChatHands:Answerer"), Delta("Reading"), HandsRequested("Read", "notes.txt")));
+        Assert.Null(Streaming(Started("Chat:Answerer"), Delta("Hel"), Step("Hello")));
+        Assert.Null(Streaming(Started("Chat:Answerer"), Delta("Hel"), Status(ConversationRunStatus.Interrupted)));
+        Assert.Null(Streaming());
+    }
+
     [Theory]
     [InlineData(false, false, true)]
     [InlineData(true, false, false)]
@@ -858,6 +872,10 @@ public sealed class ChatTranscriptTests
 
     private static List<string> Map(params ConversationEvent[] events) =>
         ((System.Collections.IEnumerable)Blocks(events)).Cast<object>().Select(block => block.ToString()!).ToList();
+
+    private static string? Streaming(params ConversationEvent[] events) =>
+        (string?)Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
+            .GetMethod("Streaming", BindingFlags.Static | BindingFlags.Public)!.Invoke(null, [Blocks(events)]);
 
     private static string? Replying(params ConversationEvent[] events) =>
         (string?)ReplyingMethod.Invoke(null, [Blocks(events)]);

@@ -94,6 +94,20 @@ public sealed partial class TuiColourLiteralTests
         Assert.Equal([Path.Combine("Tui", "Graphics", "GlyphText.cs")], users);
     }
 
+    /// <summary>Phase 56 Task 5, the XenoCells Type-2 exception: only XenoCells reaches into
+    /// XenoAtom's internals ([UnsafeAccessor]); anything else must use the public API.</summary>
+    [Fact]
+    public void Only_XenoCells_uses_UnsafeAccessor()
+    {
+        var users = Directory.EnumerateFiles(CliSource(), "*.cs", SearchOption.AllDirectories)
+            .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(file => File.ReadLines(file).Any(line => line.Split("//")[0].Contains("UnsafeAccessor", StringComparison.Ordinal)))
+            .Select(file => Path.GetRelativePath(CliSource(), file)).ToList();
+
+        Assert.Equal([Path.Combine("Tui", "XenoCells.cs")], users);
+    }
+
     [GeneratedRegex(@"\bStbTrueType|\bunsafe\b|\bfixed\s*\(")]
     private static partial Regex StbOrUnsafe();
 
