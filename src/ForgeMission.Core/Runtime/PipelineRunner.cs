@@ -179,6 +179,8 @@ public class PipelineRunner
                 await sw.WriteLineAsync($"(attempt {attempt}/{maxLoops})");
 
             var context = ContextBuilder.Seed(ast, options.Vars, options.ContextObjects);
+            if (options.ChatHistory is not null)
+                context[ChatHistory.ContextKey] = options.ChatHistory;
             context["attempt"]   = attempt.ToString();
             context["max_loops"] = maxLoops.ToString();
             if (loopFeedback is not null)
@@ -826,7 +828,7 @@ public class PipelineRunner
         {
             if (!parallel.Steps.Any(CanReachRootToolAgent))
             {
-                var snapshot = parent.Context.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal);
+                var snapshot = StepContext(parent);
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(_ct);
                 var results = await Task.WhenAll(parallel.Steps.Select(step => _owner.ExecuteParallelStepAsync(
                     step, _ast, _experts, snapshot, _options, Path(), parent.Attempt, linked)));
@@ -884,7 +886,7 @@ public class PipelineRunner
 
             foreach (var (key, value) in Bindings(step, frame.Context)) frame.Context[key] = value;
             RecordEnvironmentBindings(frame, step);
-            var context = frame.Context.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal);
+            var context = StepContext(frame);
             if (expert.IsAgent) context["tools"] = _tools;
             if (frame.ResumePausedAgent)
             {
@@ -898,7 +900,6 @@ public class PipelineRunner
             try { envelope = await InvokeExpertAsync(RunnerFor(expert, step), expert, context, _options, Path(), step.ExpertName, frame.Attempt, _ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { return Failure(PipelineFailure.ProviderFailed); }
             await Trace(new PipelineStepCompleted(_options.MissionName, Path(), step.ExpertName, expert.Kind, frame.Attempt, envelope));
-            frame.Context["output"] = envelope.Text;
 
             if (envelope.Status == "fail")
             {
@@ -930,8 +931,21 @@ public class PipelineRunner
                 return Pause(frame, step.ExpertName, call, context);
             }
 
+            // Set only once the step did not pause: a paused step's checkpoint keeps its original
+            // input, so the resumed provider call repeats the same user message (Phase 58).
+            frame.Context["output"] = envelope.Text;
             if (!parallelDirect) frame.ElementIndex++;
             return null;
+        }
+
+        // The object view of a frame's context for one step. Only the root frame carries the
+        // durable chat history; child mission frames inherit nothing (Phase 58).
+        private Dictionary<string, object> StepContext(Frame frame)
+        {
+            var context = frame.Context.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal);
+            if (_options.ChatHistory is not null && ReferenceEquals(frame, _frames[0]))
+                context[ChatHistory.ContextKey] = _options.ChatHistory;
+            return context;
         }
 
         private MissionResult Pause(Frame frame, string expertName, PipelineToolCall call, Dictionary<string, object> context)

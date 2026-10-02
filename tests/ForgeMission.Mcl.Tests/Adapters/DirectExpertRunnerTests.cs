@@ -175,4 +175,147 @@ public class DirectExpertRunnerTests
         Assert.StartsWith("You are a judge.", system.Text);
         Assert.Contains("\"status\": \"fail\"", system.Text);
     }
+
+    // ── Phase 58: durable chat history ───────────────────────────────────────────────────────
+
+    private static ChatHistory TwoEarlierTurns() => new(
+    [
+        new ChatMessage(ChatRole.User, "first question"),
+        new ChatMessage(ChatRole.Assistant, "first answer"),
+        new ChatMessage(ChatRole.User, "second question"),
+        new ChatMessage(ChatRole.Assistant, "(no reply: run failed)"),
+    ]);
+
+    private static readonly ChatRole[] HistoryShape =
+        [ChatRole.System, ChatRole.User, ChatRole.Assistant, ChatRole.User, ChatRole.Assistant, ChatRole.User];
+
+    private static Dictionary<string, object> HistoryContext()
+    {
+        var context = EmptyContext();
+        context[ChatHistory.ContextKey] = TwoEarlierTurns();
+        return context;
+    }
+
+    [Fact]
+    public async Task ChatHistory_PrecedesStepInput()
+    {
+        var client = new StubChatClient("pass");
+
+        await new DirectExpertRunner(client).RunAsync(CriticExpert(), HistoryContext());
+
+        var messages = Assert.Single(client.Requests);
+        Assert.Equal(HistoryShape, messages.Select(m => m.Role));
+        Assert.Equal("You are a critic.", messages[0].Text);
+        Assert.Equal("(no reply: run failed)", messages[4].Text);
+        Assert.Equal("some input", messages[^1].Text);
+    }
+
+    [Fact]
+    public async Task StreamingChatHistory_PrecedesStepInput()
+    {
+        var client = new StubChatClient("pass");
+
+        await foreach (var _ in new DirectExpertRunner(client).StreamAsync(CriticExpert(), HistoryContext()))
+        {
+        }
+
+        var messages = Assert.Single(client.Requests);
+        Assert.Equal(HistoryShape, messages.Select(m => m.Role));
+        Assert.Equal("some input", messages[^1].Text);
+    }
+
+    [Fact]
+    public async Task ChatHistory_ToolStepWithoutConversation_UsesSameShape()
+    {
+        var context = HistoryContext();
+        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "x", "Read") };
+        var client = new StubChatClient("pass");
+
+        await new DirectExpertRunner(client).RunAsync(CriticExpert(), context);
+
+        Assert.Equal(HistoryShape, Assert.Single(client.Requests).Select(m => m.Role));
+    }
+
+    [Fact]
+    public async Task StreamingJudge_WithChatHistory_KeepsInstructionInSystemMessage()
+    {
+        var client = new StubChatClient("pass");
+
+        await foreach (var _ in new DirectExpertRunner(client).StreamAsync(JudgeExpert(), HistoryContext()))
+        {
+        }
+
+        var messages = Assert.Single(client.Requests);
+        Assert.Equal(HistoryShape, messages.Select(m => m.Role));
+        Assert.Contains("\"status\": \"fail\"", messages[0].Text);
+    }
+
+    [Fact]
+    public async Task ChatHistory_WithSpeakerTranscript_PrecedesTranscript()
+    {
+        var transcript = new SpeakerTranscript();
+        transcript.Add("QualityJudge", "add concrete verification");
+        var context = HistoryContext();
+        context["history"] = transcript;
+        var client = new StubChatClient("pass");
+
+        await new DirectExpertRunner(client).RunAsync(CriticExpert(), context);
+
+        var messages = Assert.Single(client.Requests);
+        Assert.Equal(HistoryShape, messages.Select(m => m.Role));
+        Assert.Equal("add concrete verification", messages[^1].Text);
+    }
+
+    [Fact]
+    public async Task ToolStep_WithConversationAndChatHistory_Throws()
+    {
+        var context = HistoryContext();
+        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "x", "Read") };
+        context["conversation"] = new Conversation([new ChatMessage(ChatRole.User, "client turn")]);
+        var client = new StubChatClient("pass");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new DirectExpertRunner(client).RunAsync(CriticExpert(), context));
+        Assert.Empty(client.Requests);
+    }
+
+    [Fact]
+    public async Task StreamingToolStep_WithConversationAndChatHistory_Throws()
+    {
+        var context = HistoryContext();
+        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "x", "Read") };
+        context["conversation"] = new Conversation([new ChatMessage(ChatRole.User, "client turn")]);
+        var client = new StubChatClient("pass");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var _ in new DirectExpertRunner(client).StreamAsync(CriticExpert(), context))
+            {
+            }
+        });
+    }
+
+    [Fact]
+    public async Task ToolStep_WithConversationOnly_SendsSystemPlusConversationUnchanged()
+    {
+        var context = EmptyContext();
+        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "x", "Read") };
+        context["conversation"] = new Conversation(
+        [
+            new ChatMessage(ChatRole.System, "client system"),
+            new ChatMessage(ChatRole.User, "client turn"),
+        ]);
+        var client = new StubChatClient("pass");
+
+        await new DirectExpertRunner(client).RunAsync(CriticExpert(), context);
+
+        var messages = Assert.Single(client.Requests);
+        Assert.Equal([ChatRole.System, ChatRole.User], messages.Select(m => m.Role));
+        Assert.Equal("You are a critic.", messages[0].Text);
+        Assert.Equal("client turn", messages[1].Text);
+    }
+
+    [Fact]
+    public void ChatHistory_RejectsSystemOrToolMessages()
+        => Assert.Throws<ArgumentException>(() => new ChatHistory([new ChatMessage(ChatRole.System, "x")]));
 }
