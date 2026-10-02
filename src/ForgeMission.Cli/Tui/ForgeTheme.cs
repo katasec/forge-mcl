@@ -156,6 +156,7 @@ internal sealed record ForgeTheme
         CodeBlockFill = Color.Rgb(0xf7, 0xf8, 0xfe),
         CodeBlockBorder = Color.Rgb(0xe7, 0xec, 0xf4),
         CodeBlockText = Color.Rgb(0x10, 0x1d, 0x34),
+        CodeIsLight = true,
         InlineCode = Color.Rgb(0x0f, 0x6f, 0xeb),
         Link = Color.Rgb(0x0f, 0x6f, 0xeb),
         ToolFill = Color.Rgb(0xec, 0xef, 0xf6),
@@ -207,6 +208,7 @@ internal sealed record ForgeTheme
         CodeBlockFill = Color.Rgb(0x0f, 0x16, 0x22),
         CodeBlockBorder = Color.Rgb(0x2a, 0x38, 0x50),
         CodeBlockText = Color.Rgb(0xe8, 0xee, 0xf7),
+        CodeIsLight = false,
         InlineCode = Color.Rgb(0x4f, 0x9b, 0xff),
         Link = Color.Rgb(0x4f, 0x9b, 0xff),
         ToolFill = Color.Rgb(0x1a, 0x23, 0x33),
@@ -257,6 +259,9 @@ internal sealed record ForgeTheme
     public required Color CodeBlockFill { get; init; }
     public required Color CodeBlockBorder { get; init; }
     public required Color CodeBlockText { get; init; }
+
+    /// <summary>G12: code is coloured with VS Code's Light+ (true) or Dark+ (false) syntax theme.</summary>
+    public required bool CodeIsLight { get; init; }
     public required Color InlineCode { get; init; }
     public required Color Link { get; init; }
 
