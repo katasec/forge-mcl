@@ -13,8 +13,9 @@ namespace ForgeMission.Tests.Cli;
 //   seam     — each ring edge tile matches the template cells next to both of its corners;
 //   edge     — a shadowed ring has faded into the surface at the template's outer pixels; every
 //              other shape leaves the template's outer corner pixel on the surface;
-//   interior — the interior's corner cells are plain fill (they hold text);
-//   join     — a cap's inner pixel column is the pill fill, so it meets its text cells with no step.
+//   interior — the interior's corner cells are exactly the fill token (they hold text on it);
+//   join     — a cap's inner pixel column is exactly the pill fill token, so it meets its text
+//              cells with no step.
 // Image ids derive from (theme, set, cell size) and never repeat across inputs. Read from forge.dll
 // through reflection like the other CLI tests.
 [Collection(CpuBoundCollection.Name)]
@@ -22,6 +23,10 @@ public sealed class TileSetTests
 {
     /// <summary>Largest max-channel difference (0..255 levels) treated as invisible.</summary>
     private const double CleanLevels = 1.0;
+
+    /// <summary>A fill drawn in a tile must be its token exactly: the text cells beside it carry the
+    /// token as their background, so any difference shows as a band.</summary>
+    private const double ExactLevels = 0;
 
     private const int CapCols = 2;
 
@@ -55,7 +60,7 @@ public sealed class TileSetTests
         {
             var ring = Ring(size.theme, size.set, size.width, size.height);
             var (seam, edge, interior) = (SeamLevels(ring), EdgeLevels(ring), InteriorLevels(ring));
-            if (seam > CleanLevels || edge > CleanLevels || interior > CleanLevels)
+            if (seam > CleanLevels || edge > CleanLevels || interior > ExactLevels)
                 failures.Add($"{size.theme} {size.set} {size.width}x{size.height}: seam={seam} edge={edge} interior={interior}");
         });
 
@@ -76,7 +81,7 @@ public sealed class TileSetTests
         {
             var caps = Caps(size.theme, size.set, size.width, size.height);
             var (join, edge, interior, shape) = (JoinLevels(caps), CapEdgeLevels(caps), CapInteriorLevels(caps), CapShapeErrors(caps));
-            if (join > CleanLevels || edge > CleanLevels || interior > CleanLevels || shape is not null)
+            if (join > ExactLevels || edge > CleanLevels || interior > ExactLevels || shape is not null)
                 failures.Add($"{size.theme} {size.set} {size.width}x{size.height}: join={join} edge={edge} interior={interior} {shape}");
         });
 

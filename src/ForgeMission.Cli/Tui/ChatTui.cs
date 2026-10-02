@@ -80,6 +80,7 @@ internal sealed class ChatTui
     {
         using var session = new CancellationTokenSource();
         var tui = new ChatTui(conversations, conversationId, header, theme, hands, session);
+        TypeAhead.Discard();
         await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture });
         return tui._noCellSize ? TuiExit.NoCellSize : TuiExit.Quit;
     }
