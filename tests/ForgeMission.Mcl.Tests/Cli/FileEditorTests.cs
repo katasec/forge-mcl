@@ -17,6 +17,8 @@ public sealed class FileEditorTests : IDisposable
     private static readonly Assembly Forge = LoadForge();
     private static readonly Type EditFileType = Type("ForgeMission.Cli.Tui.EditFile");
     private static readonly Type FileEditorType = Type("ForgeMission.Cli.Tui.FileEditor");
+    // VS Code Dark+ keyword blue (#569CD6) as a truecolor foreground: the screen theme is Dark.
+    private const string DarkPlusKeyword = "38;2;86;156;214";
 
     private readonly string _dir = Directory.CreateTempSubdirectory("forge-edit-").FullName;
 
@@ -162,6 +164,27 @@ public sealed class FileEditorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_go_file_is_coloured_on_first_paint_without_input()
+    {
+        File.WriteAllText(Path.Combine(_dir, "main.go"), "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n");
+        var output = new StringWriter();
+        await RunKeys(NewEditor(Open("main.go"), () => { }), () => false, [], output: output);
+        Assert.Contains(DarkPlusKeyword, output.ToString());
+    }
+
+    [Fact]
+    public void A_long_header_keeps_its_end_and_starts_with_an_ellipsis()
+    {
+        var path = "/private/tmp/some/deeply/nested/folder/with/a/long/name/notes.txt";
+        var editor = NewEditor(Open(path), () => { });
+        var view = (Visual)FileEditorType.GetProperty("View")!.GetValue(editor)!;
+        var header = Plain(VisualSnapshotRenderer.Render(view, 30, 6).ToMarkupLines()[0]).TrimEnd();
+        Assert.StartsWith("…", header);
+        Assert.EndsWith("notes.txt · new", header);
+        Assert.True(header.Length <= 30);
+    }
+
+    [Fact]
     public async Task Ctrl_s_saves_and_esc_closes_through_the_app()
     {
         var closed = false;
@@ -252,18 +275,26 @@ public sealed class FileEditorTests : IDisposable
         return (screen, screenType, (Visual)screenType.GetProperty("Root")!.GetValue(screen)!);
     }
 
+    /// <summary>A snapshot markup line without its style tags.</summary>
+    private static string Plain(string markup) =>
+        System.Text.RegularExpressions.Regex.Replace(markup, @"\[(?!\[)[^\]]*\]", "").Replace("[[", "[").Replace("]]", "]");
+
     private static string RenderText(Visual root) => string.Join("\n", VisualSnapshotRenderer.Render(root, 100, 30).ToMarkupLines());
 
     /// <summary>Runs the editor's view in a virtual terminal with the editor focused and sends each
     /// phase of events ten ticks after the last (calling <paramref name="betweenPhases"/> first);
     /// stops once <paramref name="done"/> holds or the ticks run out.</summary>
-    private static async Task RunKeys(object editor, Func<bool> done, TerminalEvent[][] phases, Action? betweenPhases = null)
+    private static async Task RunKeys(object editor, Func<bool> done, TerminalEvent[][] phases, Action? betweenPhases = null,
+        TextWriter? output = null)
     {
         const int TicksPerPhase = 10;
         var view = (Visual)FileEditorType.GetProperty("View")!.GetValue(editor)!;
         var control = (Visual)FileEditorType.GetProperty("Editor")!.GetValue(editor)!;
-        var backend = new VirtualTerminalBackend(initialSize: new TerminalSize(60, 12));
+        var backend = output is null
+            ? new VirtualTerminalBackend(initialSize: new TerminalSize(60, 12))
+            : new VirtualTerminalBackend(output, new StringWriter(), new TerminalSize(60, 12), null, false);
         using var terminal = Terminal.Open(backend, force: true);
+        var root = new Padder(view).Style((XenoAtom.Terminal.UI.Styling.Theme)Styles().GetType().GetProperty("Screen")!.GetValue(Styles())!);
         var ticks = 0;
 
         ValueTask<TerminalLoopResult> Update(TerminalRunningContext context)
@@ -278,7 +309,7 @@ public sealed class FileEditorTests : IDisposable
             return ValueTask.FromResult(done() || ticks > TicksPerPhase * (phases.Length + 1) ? TerminalLoopResult.Stop : TerminalLoopResult.Continue);
         }
 
-        await Task.Run(async () => await Terminal.RunAsync(view, Update, new TerminalRunOptions())).WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Run(async () => await Terminal.RunAsync(root, Update, new TerminalRunOptions())).WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     private static TerminalTextEvent Text(string text) => new() { Text = text };

@@ -9,7 +9,8 @@ using XenoAtom.Terminal.UI.Text;
 namespace ForgeMission.Cli.Tui;
 
 // forge chat TUI (/edit spike): the full-screen file editor that ChatScreen shows in place of the
-// transcript. One row with the path (and "· new" until the first save), XenoAtom's CodeEditor with
+// transcript. One row with the path (and "· new" until the first save; a long one loses its start
+// to a leading "…", so the end stays visible), XenoAtom's CodeEditor with
 // line numbers and the file's syntax colours (CodeColours), and one message row (saved, a save
 // error, the unsaved-changes warning). Ctrl+S saves and Esc closes, by EditFile's rules; the
 // commands sit on this view, so they act only while the editor has focus. The editor scrolls inside
@@ -70,20 +71,20 @@ internal sealed class FileEditor
 
     // ── Views ───────────────────────────────────────────────────────────────────────────────
 
+    /// <summary>The editor over <paramref name="document"/>. The document goes in before the
+    /// highlighter: setting a highlighter builds its colours at once for the editor's current
+    /// document, and the editor's own empty document has the same snapshot version (0) as a freshly
+    /// loaded one, so colours built for it would be kept for the file until the first edit.</summary>
     private static CodeEditor BuildEditor(string fullPath, TextDocument document)
     {
-        var editor = new CodeEditor
-        {
-            ShowLineNumbers = true,
-            HighlightCurrentLine = true,
-            SyntaxHighlighter = CodeColours.EditorHighlighter(fullPath),
-        };
+        var editor = new CodeEditor { ShowLineNumbers = true, HighlightCurrentLine = true };
         editor.TextDocument = document;
+        editor.SyntaxHighlighter = CodeColours.EditorHighlighter(fullPath);
         return editor;
     }
 
     private Visual BuildView(ForgeStyles styles, CodeEditor editor) => new DockLayout()
-        .Top(new TextBlock(() => _header.Value).Style(styles.Label))
+        .Top(new TextBlock(() => _header.Value) { Trimming = TextTrimming.StartEllipsis }.Style(styles.Label))
         .Content(new ScrollViewer(editor.Stretch(), focusable: false)
             .IsTabStop(false)
             .HorizontalAlignment(Align.Stretch)
