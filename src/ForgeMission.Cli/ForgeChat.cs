@@ -65,6 +65,12 @@ public static class ForgeChat
             return 1;
         }
 
+        // The TUI's embedded fonts (Phase 56 Task 4), before any network call: one that is missing
+        // or unreadable stops here. The line mode draws no images and loads none.
+        TextFonts? fonts = null;
+        if (interactive && (fonts = LoadFonts(Console.Error)) is null)
+            return 1;
+
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
         {
@@ -84,7 +90,7 @@ public static class ForgeChat
 
         try
         {
-            return await ChatInDefaultProjectAsync(app, ModeFor(hands), interactive, theme);
+            return await ChatInDefaultProjectAsync(app, ModeFor(hands), interactive, theme, fonts);
         }
         catch (ChatStoppedException stopped)
         {
@@ -105,6 +111,18 @@ public static class ForgeChat
         }
     }
 
+    /// <summary>Loads the TUI's embedded fonts; a missing or unreadable one is reported on
+    /// <paramref name="error"/> as <c>forge chat: …</c> and gives null (exit 1).</summary>
+    internal static TextFonts? LoadFonts(TextWriter error, Func<TextFonts>? load = null)
+    {
+        try { return (load ?? TextFonts.LoadEmbedded)(); }
+        catch (Exception bad) when (bad is FontMissingException or InvalidDataException)
+        {
+            error.WriteLine($"forge chat: {bad.Message}");
+            return null;
+        }
+    }
+
     /// <summary>The line mode's lost connection (S2b): one error line, exit 1.</summary>
     internal static int ReportConnectionLost(Exception failure, TextWriter error)
     {
@@ -116,7 +134,7 @@ public static class ForgeChat
     /// mode's mission is published, opens its conversation, attaches hands, and runs the chat:
     /// the TUI on a terminal, otherwise the line mode.</summary>
     private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, bool interactive,
-        ForgeTheme theme)
+        ForgeTheme theme, TextFonts? fonts)
     {
         var session = await OpenDefaultProjectAsync(app.Projects);
         if (mode.HasHands && !await HandsAllowedAsync(app.MissionConversations, session, interactive))
@@ -127,11 +145,12 @@ public static class ForgeChat
         await using var hands = mode.HasHands
             ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversationId, mission)
             : null;
-        if (!interactive)
+        if (!interactive || fonts is null)
             return await ChatAsync(app.MissionConversations, conversationId, hands);
 
-        var header = new ChatHeader(Path.GetFileName(session.Project.Home), mode.MissionName, version, ChatProfile(mode));
-        if (await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, hands) == TuiExit.Quit)
+        var header = new ChatHeader(Path.GetFileName(session.Project.Home), mode.MissionName, version, ChatProfile(mode),
+            Environment.UserName);
+        if (await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, fonts, hands) == TuiExit.Quit)
             return 0;
         Console.Error.WriteLine(NeedsImagesMessage);
         return 1;

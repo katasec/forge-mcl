@@ -8,23 +8,28 @@ using XenoAtom.Terminal.UI.Text;
 namespace ForgeMission.Cli.Tui;
 
 /// <summary>What the header shows: the Project, the mission and its version, and the provider
-/// profile the mission's definition pins.</summary>
-internal sealed record ChatHeader(string Project, string Mission, int Version, string Profile);
+/// profile the mission's definition pins; and the local account name the user's avatar initial
+/// comes from.</summary>
+internal sealed record ChatHeader(string Project, string Mission, int Version, string Profile, string User);
 
 // forge chat TUI (53.5, 53.6): every visual on the screen — header, transcript, progress line,
 // composer, key bar — laid out as the accepted mockups. It renders transcript blocks; it decides
 // nothing about events (Transcript) or turns (ChatTui), and takes every style from ForgeStyles.
 // Shapes (Phase 56) — cards, code blocks, user messages, the APPROVED pill, tool chips, the
 // composer — are framed by image tiles (TileFrame); this file only places them, with the mockup's
-// gutter and gap, and never builds pixels. It holds the tile-set registry (ScreenTiles), which
-// arrives on the TUI's first tick (UseTiles), before any block is shown: ChatTui opens the
-// conversation only after it, and Enter does nothing until HasTiles. The header pill and the
-// composer frame are placed into their slots then, and the code-block renderer is created then.
+// gutter and gap, and never builds pixels. It holds the tile-set registry (ScreenTiles) and the
+// session's text images (TextImages: brand, breadcrumb, card names, avatars, headings, key chips,
+// the send button, Task 4), which arrive on the TUI's first tick (UseImages), before any block is
+// shown: ChatTui opens the conversation only after it, and Enter does nothing until HasTiles. The
+// header images and pill, the composer frame and the key bar are placed into their slots then, and
+// the code-block renderer is created then. Text an image cannot carry (G9) stays terminal text.
 internal sealed class ChatScreen
 {
     private const string PendingBody = "▌";
     private const string YouLabel = "You";
-    private const string Keys = "enter send · shift+enter newline · pgup/pgdn scroll · ctrl-c stop · ctrl-d quit";
+    private const string SendGlyph = "↵";
+    private static readonly (string Chip, string Label)[] Keys =
+        [("enter", "send"), ("⇧ enter", "newline"), ("pgup/pgdn", "scroll"), ("ctrl c", "stop"), ("ctrl d", "quit")];
 
     private readonly DocumentFlow _flow = new DocumentFlow().ItemSpacing(0);
     private readonly State<string> _progress = new("");
@@ -32,15 +37,20 @@ internal sealed class ChatScreen
     private readonly List<TranscriptBlock> _shown = [];
     private readonly List<MarkdownControl?> _cardBodies = [];
     private readonly ForgeStyles _styles;
-    // Filled by UseTiles: the APPROVED pill in the header, the composer's frame.
+    private readonly ChatHeader _header;
+    // Filled by UseImages: the brand and breadcrumb, the APPROVED pill, the composer's frame, the key bar.
+    private readonly Padder _brandSlot = new();
     private readonly Padder _approvedSlot = new();
     private readonly Padder _composerSlot = new() { HorizontalAlignment = Align.Stretch };
+    private readonly Padder _keysSlot = new();
     private ForgeCodeBlockRenderer? _codeBlocks;
     private ScreenTiles? _tiles;
+    private TextImages? _text;
 
     public ChatScreen(ChatHeader header, ForgeStyles styles)
     {
         _styles = styles;
+        _header = header;
         Composer = BuildComposer(header);
         // Progress row, composer ring, one blank row, key bar; all on the transcript's gutter.
         var gutter = styles.TranscriptGutterCols;
@@ -50,7 +60,7 @@ internal sealed class ChatScreen
             .Bottom(new VStack(
                 new TextBlock(() => _progress.Value).Style(styles.Progress).Margin(new Thickness(gutter, 0, 1, 0)),
                 _composerSlot,
-                new TextBlock(Keys).Style(styles.KeyBar).Margin(new Thickness(gutter, styles.KeyBarGapRows, 1, 0))));
+                _keysSlot.Margin(new Thickness(gutter, styles.KeyBarGapRows, 1, 0))));
         Root.Style(styles.Screen);
         Root.Style(styles.Markdown);
     }
@@ -60,14 +70,20 @@ internal sealed class ChatScreen
     public PromptEditor Composer { get; }
 
     /// <summary>The tile sets every shape is framed with, sent to the terminal before the first
-    /// block. Places the header pill and the composer frame, and creates the code-block renderer.</summary>
-    public void UseTiles(ScreenTiles tiles)
+    /// block, and the session's text images. Places the brand and breadcrumb, the header pill, the
+    /// composer frame with its send button and the key bar, and creates the code-block renderer.</summary>
+    public void UseImages(ScreenTiles tiles, TextImages text)
     {
         _tiles = tiles;
-        _codeBlocks = new ForgeCodeBlockRenderer(_styles.CodeBlock, tiles.CodeBlock);
+        _text = text;
+        _codeBlocks = new ForgeCodeBlockRenderer(_styles.CodeBlock, tiles.CodeBlock, text, _styles.Heading);
+        _brandSlot.Content = new HStack(
+            Image(TextKind.Brand, "forge", _styles.HeaderFill),
+            Crumb(_header.Project, _header.Mission)).Spacing(_styles.BrandGapCols);
         _approvedSlot.Content = PillOf("APPROVED", _styles.Approved, tiles.Approved);
         _composerSlot.Padding = new Thickness(Gutter(tiles.Composer), 0, Gutter(tiles.Composer), 0);
-        _composerSlot.Content = new TileFrame(Composer, tiles.Composer, _styles.ComposerFill, Align.Stretch);
+        _composerSlot.Content = new TileFrame(ComposerWithSend(), tiles.Composer, _styles.ComposerFill, Align.Stretch);
+        _keysSlot.Content = KeyBar();
     }
 
     /// <summary>Whether the tile sets have arrived; no block is shown before them (ChatTui).</summary>
@@ -98,7 +114,7 @@ internal sealed class ChatScreen
         for (var i = 0; i < blocks.Count; i++)
         {
             if (_cardBodies[i] is { } body && blocks[i] is ParticipantCard card)
-                SetMarkdown(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""));
+                SetMarkdown(body, card.Text ?? (i == blocks.Count - 1 ? PendingBody : ""), card.Streaming);
         }
 
         _progress.Value = Transcript.Replying(blocks) switch
@@ -157,7 +173,7 @@ internal sealed class ChatScreen
             case PendingReplyBlock:
                 var pendingBody = CardBody();
                 _flow.Items.Add(CardItem(null, pendingBody));
-                SetMarkdown(pendingBody, PendingBody);
+                SetMarkdown(pendingBody, PendingBody, streaming: false);
                 return null;
             case ParticipantCard card:
                 var body = CardBody();
@@ -178,28 +194,36 @@ internal sealed class ChatScreen
     }
 
     /// <summary>A message that fits one row is a capped pill; one that wraps or has line breaks is
-    /// the user ring. The frame chooses at layout, so a window resize can switch it. The label sits
-    /// in a column kept free beside the frame, centred on it, so a wrapping message never covers it.
-    /// The message is at most UserMaxWidthPercent of the transcript wide and never left of the gutter.</summary>
-    private DocumentFlowItem YouItem(string text) => new()
+    /// the user ring. The frame chooses at layout, so a window resize can switch it. The label and
+    /// the user's avatar sit in a column kept free beside the frame, centred on it, so a wrapping
+    /// message never covers them. The message is at most UserMaxWidthPercent of the transcript wide
+    /// and never left of the gutter.</summary>
+    private DocumentFlowItem YouItem(string text)
     {
-        Content = new FlowDocument().Add(new ZStack(
-                new Padder(TileFrame.OneLineOr(Text(text, _styles.UserText), _tiles!.UserCaps, _tiles.UserRing, _styles.UserFill, Align.End))
-                {
-                    Padding = new Thickness(0, 0, YouLabel.Length + 1, 0),
-                    HorizontalAlignment = Align.End,
-                },
-                new TextBlock(YouLabel).Style(_styles.YouLabel).HorizontalAlignment(Align.End).VerticalAlignment(Align.Center))
-            .HorizontalAlignment(Align.End)),
-        Alignment = DocumentFlowAlignment.Right,
-        MaxWidthPercent = _styles.UserMaxWidthPercent,
-        Padding = new Thickness(_styles.TranscriptGutterCols, 0, 1, 0),
-    };
+        var avatar = Image(TextKind.UserAvatar, Initial(_header.User), _styles.SurfaceFill);
+        var side = new HStack(new TextBlock(YouLabel).Style(_styles.YouLabel), avatar).Spacing(_styles.AvatarGapCols);
+        return new DocumentFlowItem
+        {
+            Content = new FlowDocument().Add(new ZStack(
+                    new Padder(TileFrame.OneLineOr(Text(text, _styles.UserText), _tiles!.UserCaps, _tiles.UserRing, _styles.UserFill, Align.End))
+                    {
+                        Padding = new Thickness(0, 0, YouLabel.Length + _styles.AvatarGapCols + avatar.Image.Cols + 1, 0),
+                        HorizontalAlignment = Align.End,
+                    },
+                    side.HorizontalAlignment(Align.End).VerticalAlignment(Align.Center))
+                .HorizontalAlignment(Align.End)),
+            Alignment = DocumentFlowAlignment.Right,
+            MaxWidthPercent = _styles.UserMaxWidthPercent,
+            Padding = new Thickness(_styles.TranscriptGutterCols, 0, 1, 0),
+        };
+    }
 
-    /// <summary>A reply body: Markdown in the theme's styles (set on the root), code blocks
-    /// through the forge renderer, no scrolling of its own (the transcript scrolls).</summary>
+    /// <summary>A reply body: Markdown in the theme's styles (set on the root), parsed by forge's
+    /// pipeline (headings to images), code blocks and headings through the forge renderer, no
+    /// scrolling of its own (the transcript scrolls).</summary>
     private MarkdownControl CardBody() => new("")
     {
+        Pipeline = ForgeMarkdown.Complete,
         HorizontalAlignment = Align.Stretch,
         VerticalAlignment = Align.Start,
         HorizontalScrollEnabled = false,
@@ -207,8 +231,12 @@ internal sealed class ChatScreen
         Options = MarkdownRenderOptions.Default with { WrapCodeBlocks = true, CodeBlockRenderer = _codeBlocks! },
     };
 
-    private static void SetMarkdown(MarkdownControl body, string markdown)
+    /// <summary>Sets a body's text, and the pipeline for it: a streaming reply's last heading may
+    /// still be incomplete (ForgeMarkdown.For). A changed pipeline re-renders the body.</summary>
+    private static void SetMarkdown(MarkdownControl body, string markdown, bool streaming)
     {
+        var pipeline = ForgeMarkdown.For(streaming, markdown);
+        if (body.Pipeline != pipeline) body.Pipeline = pipeline;
         if (body.Markdown != markdown) body.Markdown = markdown;
     }
 
@@ -225,7 +253,17 @@ internal sealed class ChatScreen
 
     private Visual CardContent(string? title, MarkdownControl body) => title is null
         ? body
-        : new VStack(new TextBlock(title).Style(_styles.CardTitle), body).HorizontalAlignment(Align.Stretch);
+        : new VStack(CardHead(title), body).HorizontalAlignment(Align.Stretch);
+
+    /// <summary>The participant's avatar and name, as images; a name an image cannot carry stays
+    /// bold terminal text (G9).</summary>
+    private HStack CardHead(string title)
+    {
+        Visual name = TextArt.Allows(title)
+            ? Image(TextKind.Name, title, _styles.CardImageFill)
+            : new TextBlock(title).Style(_styles.FallbackStrong);
+        return new HStack(Image(TextKind.Avatar, Initial(title), _styles.CardImageFill), name).Spacing(_styles.AvatarGapCols);
+    }
 
     /// <summary>Columns between the screen edge and a frame's outer edge, so its border falls in
     /// the transcript's gutter column.</summary>
@@ -271,11 +309,7 @@ internal sealed class ChatScreen
     // ── Chrome ──────────────────────────────────────────────────────────────────────────────
 
     private Visual BuildHeader(ChatHeader header) => new Header()
-        .Left(new Padder(new HStack(
-                new TextBlock("forge").Style(_styles.Brand),
-                new TextBlock("│ PROJECT").Style(_styles.Label),
-                new TextBlock(header.Project).Style(_styles.Project))
-            .Spacing(1)).Padding(new Thickness(1, 0, 0, 0)))
+        .Left(new Padder(_brandSlot).Padding(new Thickness(1, 0, 0, 0)))
         .Right(new Padder(new HStack(
                 new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · ").Style(_styles.Label),
                 _approvedSlot,
@@ -299,4 +333,45 @@ internal sealed class ChatScreen
     }
 
     private Rule Divider() => new Rule().Style(_styles.Divider);
+
+    // ── Text images (Phase 56 Task 4) ───────────────────────────────────────────────────────
+
+    /// <summary>The cells of one text image, sent the first time it is asked for.</summary>
+    private ImageCells Image(TextKind kind, string text, Style fill, int split = 0) =>
+        new(_text!.Get(new TextImageRequest(kind, text, split)), fill);
+
+    /// <summary>"project / Mission": one image with the mission strong, or terminal text when an
+    /// image cannot carry it.</summary>
+    private Visual Crumb(string project, string mission)
+    {
+        var prefix = $"{project} / ";
+        return TextArt.Allows(prefix + mission)
+            ? Image(TextKind.Crumb, prefix + mission, _styles.HeaderFill, prefix.Length)
+            : new HStack(new TextBlock(prefix).Style(_styles.FallbackMuted), new TextBlock(mission).Style(_styles.FallbackStrong));
+    }
+
+    /// <summary>The composer with the send button on its bottom row, right of the text, which keeps
+    /// the button's columns and a gap free.</summary>
+    private ZStack ComposerWithSend()
+    {
+        var send = Image(TextKind.Send, SendGlyph, _styles.CardImageFill);
+        return new ZStack(
+                new Padder(Composer) { Padding = new Thickness(0, 0, send.Image.Cols + _styles.AvatarGapCols, 0), HorizontalAlignment = Align.Stretch },
+                send.HorizontalAlignment(Align.End).VerticalAlignment(Align.End))
+            .HorizontalAlignment(Align.Stretch);
+    }
+
+    /// <summary>Each key's chip and muted label; clipped at the right in a narrow window.</summary>
+    private HStack KeyBar() => new HStack([.. Keys.Select(key => (Visual)new HStack(
+            Image(TextKind.Chip, key.Chip, _styles.SurfaceFill),
+            new TextBlock(key.Label).Style(_styles.KeyLabel)).Spacing(_styles.ChipGapCols))])
+        .Spacing(_styles.KeyGroupGapCols);
+
+    /// <summary>An avatar's initial (Ameer's ruling): the first letter, uppercased; none (an empty
+    /// circle) when an image cannot carry it.</summary>
+    internal static string Initial(string name)
+    {
+        var first = name.Length == 0 ? "" : char.ToUpperInvariant(name[0]).ToString();
+        return TextArt.Allows(first) && char.IsLetterOrDigit(first[0]) ? first : "";
+    }
 }

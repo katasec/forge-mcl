@@ -4,7 +4,8 @@ namespace ForgeMission.Cli.Tui.Graphics;
 
 // Phase 56 (G1): pure-C# shape rendering for the card edge tiles. Coverage masks for rounded
 // rectangles (signed distance, anti-aliased), Gaussian blur as three box passes, and compositing
-// in linear light onto an opaque canvas. Every colour arrives as a ForgeTheme token.
+// in linear light onto an opaque canvas, and (Task 4) text coverage blended onto a finished image in
+// either sRGB or linear light. Every colour arrives as a ForgeTheme token.
 
 /// <summary>An opaque 8-bit sRGB colour, made only from a theme token.</summary>
 internal readonly record struct Rgb
@@ -149,6 +150,26 @@ internal static class Srgb
     public static (float R, float G, float B) ToLinear(Rgb c) => (Linear[c.R], Linear[c.G], Linear[c.B]);
 
     public static byte FromLinear(float v) => (byte)Math.Round(Levels(v));
+
+    /// <summary>Paints <paramref name="color"/> at <paramref name="coverage"/> onto <paramref name="image"/>
+    /// (Phase 56 Task 4, text): blended on the sRGB values (naive, heavier: dark text on light) or
+    /// in linear light (light text on dark), as the theme's TextBlend says.</summary>
+    public static void BlendText(RgbImage image, float[] coverage, Rgb color, TextBlend blend)
+    {
+        byte[] target = [color.R, color.G, color.B];
+        for (var p = 0; p < coverage.Length; p++)
+        {
+            var a = coverage[p];
+            if (a <= 0) continue;
+            for (var c = 0; c < 3; c++)
+            {
+                var i = p * 3 + c;
+                image.Pixels[i] = blend == TextBlend.Srgb
+                    ? (byte)Math.Round(image.Pixels[i] + (target[c] - image.Pixels[i]) * a)
+                    : FromLinear(Linear[image.Pixels[i]] + (Linear[target[c]] - Linear[image.Pixels[i]]) * a);
+            }
+        }
+    }
 
     /// <summary>The sRGB value of linear <paramref name="v"/> in 0..255 levels, unrounded.</summary>
     public static double Levels(double v) => Math.Clamp(Encode(Math.Clamp(v, 0, 1)) * 255, 0, 255);

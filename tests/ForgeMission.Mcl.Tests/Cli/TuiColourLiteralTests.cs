@@ -80,6 +80,23 @@ public sealed partial class TuiColourLiteralTests
         Assert.Matches(StdoutWriter(), line);
     }
 
+    /// <summary>Phase 56 G2: StbTrueTypeSharp, and the unsafe code its API needs, stay in GlyphText.</summary>
+    [Fact]
+    public void Only_GlyphText_uses_StbTrueTypeSharp_or_unsafe_code()
+    {
+        var cli = Directory.EnumerateFiles(CliSource(), "*.cs", SearchOption.AllDirectories)
+            .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
+        // Code only: comments may name the package.
+        var users = cli.Where(file => File.ReadLines(file).Any(line => StbOrUnsafe().IsMatch(line.Split("//")[0])))
+            .Select(file => Path.GetRelativePath(CliSource(), file)).ToList();
+
+        Assert.Equal([Path.Combine("Tui", "Graphics", "GlyphText.cs")], users);
+    }
+
+    [GeneratedRegex(@"\bStbTrueType|\bunsafe\b|\bfixed\s*\(")]
+    private static partial Regex StbOrUnsafe();
+
     private static bool IsColourLiteral(string fileName, string line) =>
         RawRgba().IsMatch(line) || (ColourLiteral().IsMatch(line) && fileName != ImageIdFile);
 

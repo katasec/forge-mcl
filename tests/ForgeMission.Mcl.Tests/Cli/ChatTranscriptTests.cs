@@ -25,14 +25,14 @@ public sealed class ChatTranscriptTests
 
         Assert.Equal([
             "YouBlock { Text = my name is Ameer }",
-            "ParticipantCard { Title = Answerer, Text = Nice to meet you, Ameer!, Mission = Chat }",
+            "ParticipantCard { Title = Answerer, Text = Nice to meet you, Ameer!, Mission = Chat, Streaming = False }",
         ], blocks);
     }
 
     [Fact]
     public void A_step_title_without_a_mission_is_the_card_title()
     {
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = , Mission = Answerer }"], Map(Started("Answerer")));
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = , Mission = Answerer, Streaming = False }"], Map(Started("Answerer")));
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public sealed class ChatTranscriptTests
     {
         var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Final("Hello"), Status(ConversationRunStatus.Completed));
 
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat }"], blocks);
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat, Streaming = False }"], blocks);
     }
 
     [Fact]
@@ -49,8 +49,8 @@ public sealed class ChatTranscriptTests
         var blocks = Map(Started("Chat:Answerer"), Step("Draft"), Final("Summary"));
 
         Assert.Equal([
-            "ParticipantCard { Title = Answerer, Text = Draft, Mission = Chat }",
-            "ParticipantCard { Title = Chat, Text = Summary, Mission = Chat }",
+            "ParticipantCard { Title = Answerer, Text = Draft, Mission = Chat, Streaming = False }",
+            "ParticipantCard { Title = Chat, Text = Summary, Mission = Chat, Streaming = False }",
         ], blocks);
     }
 
@@ -60,8 +60,8 @@ public sealed class ChatTranscriptTests
         var blocks = Map(Started("Plan:Planner"), Step("plan"), Started("Plan:Writer"), Step("text"));
 
         Assert.Equal([
-            "ParticipantCard { Title = Planner, Text = plan, Mission = Plan }",
-            "ParticipantCard { Title = Writer, Text = text, Mission = Plan }",
+            "ParticipantCard { Title = Planner, Text = plan, Mission = Plan, Streaming = False }",
+            "ParticipantCard { Title = Writer, Text = text, Mission = Plan, Streaming = False }",
         ], blocks);
     }
 
@@ -82,7 +82,7 @@ public sealed class ChatTranscriptTests
     {
         Assert.Equal([
             "YouBlock { Text = hi }",
-            "ParticipantCard { Title = Answerer, Text = , Mission = Chat }",
+            "ParticipantCard { Title = Answerer, Text = , Mission = Chat, Streaming = False }",
         ], Map(User("hi"), Started("Chat:Answerer")));
 
         Assert.Equal([
@@ -96,7 +96,7 @@ public sealed class ChatTranscriptTests
     {
         var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Status(ConversationRunStatus.Completed));
 
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat }"], blocks);
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat, Streaming = False }"], blocks);
     }
 
     [Theory]
@@ -161,7 +161,7 @@ public sealed class ChatTranscriptTests
         Assert.Equal([
             "YouBlock { Text = read it }",
             "HandsLine { Label = Read notes.txt, Outcome = succeeded }",
-            "ParticipantCard { Title = Answerer, Text = The codeword is kiwi., Mission = ChatHands }",
+            "ParticipantCard { Title = Answerer, Text = The codeword is kiwi., Mission = ChatHands, Streaming = False }",
         ], blocks);
         Assert.Equal("Answerer", Replying(Started("ChatHands:Answerer"), HandsRequested("Read", "notes.txt")));
     }
@@ -243,7 +243,7 @@ public sealed class ChatTranscriptTests
         Assert.Equal(["YouBlock { Text = hi }", $"PendingReplyBlock {{ CommandId = {Sent} }}"], Strings(echoed));
 
         var started = ApplyAll(echoed, Started("Chat:Answerer"));
-        Assert.Equal(["YouBlock { Text = hi }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat }"], Strings(started));
+        Assert.Equal(["YouBlock { Text = hi }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat, Streaming = False }"], Strings(started));
         Assert.Equal("Answerer", (string?)ReplyingMethod.Invoke(null, [started]));
     }
 
@@ -290,10 +290,18 @@ public sealed class ChatTranscriptTests
     public void Deltas_grow_the_started_card_and_the_step_message_replaces_it()
     {
         var growing = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"));
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat }"], growing);
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat, Streaming = True }"], growing);
 
         var final = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"), Step("Hello!"));
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello!, Mission = Chat }"], final);
+        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello!, Mission = Chat, Streaming = False }"], final);
+    }
+
+    [Fact]
+    public void A_card_cut_off_mid_stream_stops_streaming_when_its_turn_ends()
+    {
+        var ended = Map(Started("Chat:Answerer"), Delta("## Hel"), Status(ConversationRunStatus.Interrupted));
+
+        Assert.Equal("ParticipantCard { Title = Answerer, Text = ## Hel, Mission = Chat, Streaming = False }", ended[0]);
     }
 
     [Fact]
@@ -335,7 +343,7 @@ public sealed class ChatTranscriptTests
         Assert.Equal("", (string?)ReplyingMethod.Invoke(null, [waiting]));
 
         var started = ApplyLive(waiting, Started("Chat:Answerer"));
-        Assert.Equal(["YouBlock { Text = from elsewhere }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat }"], Strings(started));
+        Assert.Equal(["YouBlock { Text = from elsewhere }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat, Streaming = False }"], Strings(started));
 
         var ended = ApplyLive(waiting, Status(ConversationRunStatus.Failed));
         Assert.Equal(["YouBlock { Text = from elsewhere }", "NoticeLine { Text = (run failed) }"], Strings(ended));

@@ -25,7 +25,8 @@ namespace ForgeMission.Cli.Tui;
 // resumes after the app has stopped.
 // Shape tiles (Phase 56): on the first tick (on the alternate screen, with XenoAtom owning input) the
 // TUI asks for the cell size, draws every tile set at that size and sends it once; every shape names
-// those images. Without a cell size the app stops before opening the conversation (G8).
+// those images. Text images (Task 4) are drawn at the same cell size and sent when first needed, on
+// the UI thread. Without a cell size the app stops before opening the conversation (G8).
 internal sealed class ChatTui
 {
     private static readonly KeyGesture QuitGesture = new(TerminalChar.CtrlD, TerminalModifiers.Ctrl);
@@ -37,6 +38,7 @@ internal sealed class ChatTui
     private readonly CancellationToken _session;
     private readonly ChatHandsAttachment? _hands;
     private readonly ForgeStyles _styles;
+    private readonly TextFonts _fonts;
     private bool _noCellSize;
     private IReadOnlyList<TranscriptBlock> _blocks = [];
     private bool _opened;
@@ -54,8 +56,9 @@ internal sealed class ChatTui
     private readonly ChatLink _link;
 
     private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
-        ChatHandsAttachment? hands, CancellationTokenSource session)
+        TextFonts fonts, ChatHandsAttachment? hands, CancellationTokenSource session)
     {
+        _fonts = fonts;
         _conversations = conversations;
         _conversationId = conversationId;
         _hands = hands;
@@ -76,10 +79,10 @@ internal sealed class ChatTui
     /// keeps running on Forge; only this process stops following it. A file operation still
     /// running is cancelled.</summary>
     public static async Task<TuiExit> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
-        ForgeTheme theme, ChatHandsAttachment? hands)
+        ForgeTheme theme, TextFonts fonts, ChatHandsAttachment? hands)
     {
         using var session = new CancellationTokenSource();
-        var tui = new ChatTui(conversations, conversationId, header, theme, hands, session);
+        var tui = new ChatTui(conversations, conversationId, header, theme, fonts, hands, session);
         TypeAhead.Discard();
         await TerminalCaret.WhileRunning(tui._styles.Caret, () =>
             Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture }).AsTask());
@@ -100,7 +103,7 @@ internal sealed class ChatTui
         {
             _opened = true;
             context.App.AddGlobalCommand(QuitCommand());
-            if (!await ShowTilesAsync())
+            if (!await ShowImagesAsync())
                 return TerminalLoopResult.Stop;
             // The composer joins the screen inside its frame once the tiles have arrived.
             context.App.Focus(_screen.Composer);
@@ -128,8 +131,9 @@ internal sealed class ChatTui
     // ── Tile images ──────────────────────────────────────────────────────────────────────────
 
     /// <summary>Asks the terminal for its cell size; with one, draws every tile set at that size,
-    /// sends them, and lets the screen show its shapes. Without one (G8), nothing is drawn.</summary>
-    private async Task<bool> ShowTilesAsync()
+    /// sends them, and lets the screen show its shapes and text images (the start-up ones are sent
+    /// now). Without one (G8), nothing is drawn.</summary>
+    private async Task<bool> ShowImagesAsync()
     {
         if (TerminalFacts.ImageCell(await TerminalFacts.QueryCellAsync()) is not { } cell)
         {
@@ -138,7 +142,8 @@ internal sealed class ChatTui
         }
         var tiles = ScreenTiles.Create(_styles, cell);
         tiles.Transmit();
-        _screen.UseTiles(tiles);
+        var text = new TextImages(new TextArt(_styles.TextArt, _fonts, cell), _styles.ImageIdSlot, cell, KittyImages.Transmit);
+        _screen.UseImages(tiles, text);
         return true;
     }
 
