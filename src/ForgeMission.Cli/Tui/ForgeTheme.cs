@@ -51,6 +51,11 @@ internal sealed record ForgeTheme
     /// <summary>.keys margin-top: calc(var(--cell-h) * .6). One blank row above the key bar.</summary>
     public const int KeyBarGapRows = 1;
 
+    // Accent values that other light/dark tokens reuse (caret, composer glow). Declared before the
+    // themes: static initialisers run in source order.
+    private static readonly Color LightAccent = Color.Rgb(0x0f, 0x6f, 0xeb);
+    private static readonly Color DarkAccent = Color.Rgb(0x4f, 0x9b, 0xff);
+
     public static ForgeTheme Light { get; } = new()
     {
         Surface = Color.Rgb(0xf7, 0xf8, 0xfe),
@@ -61,9 +66,9 @@ internal sealed record ForgeTheme
         TextStrong = Color.Rgb(0x10, 0x1d, 0x34),
         TextMuted = Color.Rgb(0x63, 0x74, 0x8c),
         CardTitle = Color.Rgb(0x5b, 0x6b, 0x83),
-        Accent = Color.Rgb(0x0f, 0x6f, 0xeb),
+        Accent = LightAccent,
         Prompt = Color.Rgb(0x68, 0x9d, 0xf1),
-        Caret = Color.Rgb(0x0f, 0x6f, 0xeb),
+        Caret = LightAccent,
         Border = Color.Rgb(0xd5, 0xda, 0xe5),
         CardBorder = Color.Rgb(0xe7, 0xec, 0xf4),
         Selection = Color.Rgb(0xdb, 0xe7, 0xfb),
@@ -92,7 +97,7 @@ internal sealed record ForgeTheme
         // box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent) (no drop shadow, Ameer)
         ComposerRadius = 14,
         ComposerHairline = 1,
-        ComposerGlow = new(Color.Rgb(0x0f, 0x6f, 0xeb), Alpha: 0.14, Spread: 4),
+        ComposerGlow = new(LightAccent, Alpha: 0.14, Spread: 4),
         // .pill-ok::before width: 6px; height: 6px
         PillDotDiameter = 6,
         ImageIdSlot = 0,
@@ -108,7 +113,7 @@ internal sealed record ForgeTheme
         TextStrong = Color.Rgb(0xe8, 0xee, 0xf7),
         TextMuted = Color.Rgb(0x6b, 0x7a, 0x91),
         CardTitle = Color.Rgb(0x6b, 0x7a, 0x91),
-        Accent = Color.Rgb(0x4f, 0x9b, 0xff),
+        Accent = DarkAccent,
         Prompt = Color.Rgb(0x24, 0xd5, 0xee),
         Caret = Color.Rgb(0x24, 0xd5, 0xee),
         Border = Color.Rgb(0x24, 0x30, 0x44),
@@ -136,7 +141,7 @@ internal sealed record ForgeTheme
         UserRadius = 14,
         ComposerRadius = 14,
         ComposerHairline = 1,
-        ComposerGlow = new(Color.Rgb(0x4f, 0x9b, 0xff), Alpha: 0.14, Spread: 4),
+        ComposerGlow = new(DarkAccent, Alpha: 0.14, Spread: 4),
         PillDotDiameter = 6,
         ImageIdSlot = 1,
     };

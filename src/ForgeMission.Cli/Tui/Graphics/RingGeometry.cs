@@ -26,7 +26,15 @@ internal sealed record RingLayout(
     CellSize Cell, int SideCols, int TopRows, int BottomRows,
     double Radius, int Hairline, DeviceShadow[] Shadows, int Glow,
     int SideInset, int TopInset, int BottomInset,
-    int PadCols, int PadTop, int PadBottom);
+    int PadCols, int PadTop, int PadBottom)
+{
+    /// <summary>A cap set's layout: a ring with no top or bottom rows, ForgeTheme.PillCapCols
+    /// columns at each side, and no shadow, glow, inset or padding (CapTiles).</summary>
+    public static RingLayout Caps(CellSize cell) => new(
+        cell, SideCols: ForgeTheme.PillCapCols, TopRows: 0, BottomRows: 0,
+        Radius: cell.Height / 2.0, Hairline: 0, Shadows: [], Glow: 0,
+        SideInset: 0, TopInset: 0, BottomInset: 0, PadCols: 0, PadTop: 0, PadBottom: 0);
+}
 
 internal static class RingGeometry
 {

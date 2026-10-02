@@ -15,7 +15,9 @@ internal sealed class TileSet
 
     public RingLayout Layout { get; }
 
-    /// <summary>The tile in each slot (<see cref="RingTiles.All"/> order); null where a cap set has none.</summary>
+    /// <summary>The tile in each slot (<see cref="RingTiles.All"/> order); null where a cap set has
+    /// none. A cap layout has no top or bottom rows, so TileFrame only ever names the Left and Right
+    /// slots of a cap set.</summary>
     public IReadOnlyList<Tile?> Tiles { get; }
 
     /// <summary>The image id of each slot.</summary>
@@ -33,10 +35,9 @@ internal sealed class TileSet
     public static TileSet Caps(CapShape shape, int themeSlot, int set, CellSize cell)
     {
         var caps = CapTiles.Render(shape, cell);
-        var layout = new RingLayout(cell, ForgeTheme.PillCapCols, 0, 0, cell.Height / 2.0, 0, [], 0, 0, 0, 0, 0, 0, 0);
         var tiles = new Tile?[1 << SlotBits];
         (tiles[LeftSlot], tiles[RightSlot]) = (caps.Left, caps.Right);
-        return new TileSet(layout, tiles, ImageIds(themeSlot, set, cell.Width, cell.Height));
+        return new TileSet(RingLayout.Caps(cell), tiles, ImageIds(themeSlot, set, cell.Width, cell.Height));
     }
 
     /// <summary>Sends the set's tiles. Must run after the TUI has entered the alternate screen.</summary>

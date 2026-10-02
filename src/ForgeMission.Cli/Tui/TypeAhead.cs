@@ -12,28 +12,24 @@ internal static class TypeAhead
 {
     private const int StandardInput = 0;
 
+    // TCIFLUSH: 1 on macOS (sys/termios.h), 0 on Linux (asm-generic/termbits.h).
+    private const int MacOSInputQueue = 1;
+    private const int LinuxInputQueue = 0;
+
     /// <summary>Drops every byte typed but not yet read from the terminal. Call just before the
     /// TUI starts; stdin is a terminal there (ForgeChat.UsesTui). Windows has no tty queue here and
     /// is left as is.</summary>
     public static void Discard()
     {
         if (OperatingSystem.IsWindows()) return;
-        var result = OperatingSystem.IsMacOS()
-            ? FlushMacOS(StandardInput, MacOSInputQueue)
-            : FlushLinux(StandardInput, LinuxInputQueue);
-        if (result != 0)
+        var queue = OperatingSystem.IsMacOS() ? MacOSInputQueue : LinuxInputQueue;
+        if (Flush(StandardInput, queue) != 0)
             throw new IOException($"Could not discard keys typed before forge chat started (errno {Marshal.GetLastPInvokeError()}).");
     }
 
-    // TCIFLUSH: 1 on macOS (sys/termios.h), 0 on Linux (asm-generic/termbits.h).
-    private const int MacOSInputQueue = 1;
-    private const int LinuxInputQueue = 0;
-
-    // DllImport, not LibraryImport: both arguments are blittable, so no marshalling code (and no
-    // unsafe code in the project) is needed; Native AOT binds these directly.
-    [DllImport("libSystem.dylib", EntryPoint = "tcflush", SetLastError = true)]
-    private static extern int FlushMacOS(int fd, int queue);
-
-    [DllImport("libc.so.6", EntryPoint = "tcflush", SetLastError = true)]
-    private static extern int FlushLinux(int fd, int queue);
+    // "libc" is resolved by the runtime's library probing on each platform (libSystem on macOS,
+    // glibc or musl on Linux). DllImport, not LibraryImport: both arguments are blittable, so no
+    // marshalling code (and no unsafe code in the project) is needed.
+    [DllImport("libc", EntryPoint = "tcflush", SetLastError = true)]
+    private static extern int Flush(int fd, int queue);
 }

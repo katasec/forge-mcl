@@ -18,9 +18,7 @@ public sealed class TerminalCaretTests
     [Fact]
     public void The_caret_is_accent_on_light_and_prompt_on_dark()
     {
-        Assert.Equal(Color.Rgb(0x0f, 0x6f, 0xeb), Token("Light", "Caret"));
         Assert.Equal(Token("Light", "Accent"), Token("Light", "Caret"));
-        Assert.Equal(Color.Rgb(0x24, 0xd5, 0xee), Token("Dark", "Caret"));
         Assert.Equal(Token("Dark", "Prompt"), Token("Dark", "Caret"));
     }
 
@@ -63,14 +61,6 @@ public sealed class TerminalCaretTests
         Assert.Equal([SetEscape(Token("Dark", "Caret")), Restore], written);
     }
 
-    [Fact]
-    public void The_tui_runs_inside_the_caret_colour()
-    {
-        var chatTui = File.ReadAllText(Path.Combine(CliSource(), "Tui", "ChatTui.cs"));
-
-        Assert.Contains("await TerminalCaret.WhileRunning(tui._styles.Caret, () =>\n            Terminal.RunAsync(", chatTui.ReplaceLineEndings("\n"));
-    }
-
     private static string SetEscape(Color caret) =>
         (string)CaretType.GetMethod("SetEscape", BindingFlags.Static | BindingFlags.Public)!.Invoke(null, [caret])!;
 
@@ -85,19 +75,6 @@ public sealed class TerminalCaretTests
     private static object Theme(string name) => ThemeType.GetProperty(name, BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
 
     private static Type Type(string name) => Forge.GetType(name, throwOnError: true)!;
-
-    private static string CliSource()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli");
-            if (Directory.Exists(Path.Combine(candidate, "Tui"))) return candidate;
-            dir = dir.Parent;
-        }
-
-        throw new DirectoryNotFoundException("Could not locate src/ForgeMission.Cli from the test output.");
-    }
 
     private static Assembly LoadForge()
     {

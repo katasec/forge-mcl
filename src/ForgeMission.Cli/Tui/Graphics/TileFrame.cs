@@ -81,7 +81,7 @@ internal sealed class TileFrame : Padder
     private void PaintCell(CellBuffer buffer, Rectangle bounds, int x, int y)
     {
         var (index, row, col) = TileAt(_active.Layout, bounds, x, y);
-        if (index == Inside || _active.Tiles[index] is null)
+        if (index == Inside)
             buffer.SetCell(x, y, new System.Text.Rune(' '), _fill);
         else
             buffer.WriteText(x, y, KittyImages.Cell(row, col), _fill.WithForeground(KittyImages.IdColor(_active.Ids[index])));
