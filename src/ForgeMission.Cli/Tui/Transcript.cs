@@ -10,8 +10,10 @@ public abstract record TranscriptBlock;
 public sealed record YouBlock(string Text) : TranscriptBlock;
 
 /// <summary>A participant's reply card. <paramref name="Text"/> is null while the reply is pending;
-/// <paramref name="Mission"/> titles a final result that differs from the last step's text.</summary>
-public sealed record ParticipantCard(string Title, string? Text, string Mission) : TranscriptBlock;
+/// <paramref name="Mission"/> titles a final result that differs from the last step's text.
+/// <paramref name="Streaming"/> is true while live deltas grow the text, until the step's own
+/// message or the turn's end (Phase 56 Task 4: a heading at its end may still be incomplete).</summary>
+public sealed record ParticipantCard(string Title, string? Text, string Mission, bool Streaming = false) : TranscriptBlock;
 
 /// <summary>A message shown the moment it is sent, before Forge echoes it back as a
 /// <c>UserMessage</c> whose event id is <paramref name="CommandId"/>.</summary>
@@ -160,7 +162,7 @@ public static class Transcript
         if (index < 0) return blocks;
 
         var card = (ParticipantCard)blocks[index];
-        return ReplaceAt(blocks, index, card with { Text = (card.Text ?? "") + text });
+        return ReplaceAt(blocks, index, card with { Text = (card.Text ?? "") + text, Streaming = true });
     }
 
     private static IReadOnlyList<TranscriptBlock> FillLatestCard(IReadOnlyList<TranscriptBlock> blocks, string text)
@@ -169,7 +171,7 @@ public static class Transcript
         if (index < 0) return Append(blocks, new ParticipantCard("Forge", text, "Forge"));
 
         var updated = blocks.ToList();
-        updated[index] = ((ParticipantCard)blocks[index]) with { Text = text };
+        updated[index] = ((ParticipantCard)blocks[index]) with { Text = text, Streaming = false };
         return updated;
     }
 
@@ -195,12 +197,18 @@ public static class Transcript
     }
 
     /// <summary>A turn has ended: a card that never received text is dropped (its pending body is
-    /// shown only while the turn runs), and a run that did not complete adds a notice.</summary>
+    /// shown only while the turn runs), a card cut off mid-stream stops streaming, and a run that
+    /// did not complete adds a notice.</summary>
     private static IReadOnlyList<TranscriptBlock> EndTurn(IReadOnlyList<TranscriptBlock> blocks, ConversationRunStatus status)
     {
         IReadOnlyList<TranscriptBlock> ended = blocks
             .Where(block => block is not (ParticipantCard { Text: null } or PendingReplyBlock))
-            .Select(block => block is PendingYouBlock you ? new YouBlock(you.Text) : block)
+            .Select(block => block switch
+            {
+                PendingYouBlock you => new YouBlock(you.Text),
+                ParticipantCard { Streaming: true } card => card with { Streaming = false },
+                _ => block,
+            })
             .ToList();
         return status == ConversationRunStatus.Completed
             ? ended

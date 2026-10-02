@@ -40,11 +40,7 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public HeaderStyle Header { get; } = HeaderStyle.Default with { Background = theme.SurfaceHeader, Foreground = theme.Text };
 
-    public TextBlockStyle Brand { get; } = Foreground(theme.Accent);
-
     public TextBlockStyle Label { get; } = Foreground(theme.TextMuted);
-
-    public TextBlockStyle Project { get; } = Foreground(theme.TextStrong);
 
     /// <summary>The APPROVED pill: Success text on SuccessFill between caps with the status dot.</summary>
     public Pill Approved { get; } = new(
@@ -80,7 +76,8 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public TextBlockStyle YouLabel { get; } = Foreground(theme.TextMuted);
 
-    /// <summary>The card's text cells (and the ring's plain cells): the card surface.</summary>
+    /// <summary>The card's text cells (and the ring's plain cells), and the cells under images on a
+    /// card or the composer (names, avatars, headings, the send button): the card surface.</summary>
     public Style CardFill { get; } = Style.None.WithBackground(theme.CardSurface);
 
     /// <summary>What the card edge tiles are drawn from (Phase 56). The card's downward shadow puts
@@ -98,8 +95,6 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     /// <summary>Blank rows above each card.</summary>
     public int CardGapRows => ForgeTheme.CardGapRows;
-
-    public TextBlockStyle CardTitle { get; } = Foreground(theme.CardTitle);
 
     /// <summary>Participant replies (53.7). Every slot carries an explicit token: a slot left at
     /// the package default would fall back to the package's theme-derived colours.</summary>
@@ -169,11 +164,64 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         theme.ComposerRadius, theme.ComposerHairline, [], theme.ComposerGlow, ForgeTheme.ComposerPaddingCols,
         ForgeTheme.ShapePaddingRows, 0);
 
-    /// <summary>The key bar: muted text on the screen surface, no fill of its own.</summary>
-    public TextBlockStyle KeyBar { get; } = Foreground(theme.TextMuted);
-
     /// <summary>Blank rows above the key bar.</summary>
     public int KeyBarGapRows => ForgeTheme.KeyBarGapRows;
+
+    // ── Proportional text (Phase 56 Task 4) ─────────────────────────────────────────────────
+
+    /// <summary>Every look the text images are drawn with (TextArt).</summary>
+    public TextArtStyle TextArt { get; } = BuildTextArt(theme);
+
+    /// <summary>Cells under the header's images (brand, breadcrumb).</summary>
+    public Style HeaderFill { get; } = Style.None.WithBackground(theme.SurfaceHeader);
+
+    /// <summary>Cells under images on the screen surface (key chips, the user's avatar).</summary>
+    public Style SurfaceFill { get; } = Style.None.WithBackground(theme.Surface);
+
+    /// <summary>A heading's pending text while it streams: bold TextStrong on the card (its cells
+    /// use CardFill).</summary>
+    public Style HeadingPending { get; } = Style.None.WithForeground(theme.TextStrong).WithBackground(theme.CardSurface) | TextStyle.Bold;
+
+    /// <summary>Text that stays terminal text where an image would show (G9): a card name or
+    /// breadcrumb in another script, bold TextStrong; the breadcrumb's prefix muted.</summary>
+    public TextBlockStyle FallbackStrong { get; } = TextBlockStyle.Default with { Foreground = theme.TextStrong, TextStyle = TextStyle.Bold };
+
+    public TextBlockStyle FallbackMuted { get; } = Foreground(theme.TextMuted);
+
+    /// <summary>Columns between an avatar and its name or label; the brand and the breadcrumb; a
+    /// chip and its label; two key groups.</summary>
+    public int AvatarGapCols => ForgeTheme.AvatarGapCols;
+
+    public int BrandGapCols => ForgeTheme.BrandGapCols;
+
+    public int ChipGapCols => ForgeTheme.ChipGapCols;
+
+    public int KeyGroupGapCols => ForgeTheme.KeyGroupGapCols;
+
+    /// <summary>A key-hint label beside its chip: muted, on the screen surface.</summary>
+    public TextBlockStyle KeyLabel { get; } = Foreground(theme.TextMuted);
+
+    private static TextArtStyle BuildTextArt(ForgeTheme t)
+    {
+        LineLook Line(bool bold, double size, double tracking, Color text, Color background) => new(bold, size, tracking, text, background);
+        ShapeLook Badge(double size, double radius, Color fill, bool bold, double glyph, Color background) =>
+            new(size, radius, fill, Line(bold, glyph, 0, t.OnAccent, background));
+        return new TextArtStyle(
+            t.TextBlend,
+            Line(true, ForgeTheme.BrandSize, ForgeTheme.BrandTrackingEm, t.TextStrong, t.SurfaceHeader),
+            Badge(ForgeTheme.LogoSize, ForgeTheme.LogoRadius, t.AvatarFill, true, ForgeTheme.LogoGlyphSize, t.SurfaceHeader),
+            ForgeTheme.LogoGap, ForgeTheme.LogoGlyph,
+            Line(false, ForgeTheme.CrumbSize, 0, t.TextMuted, t.SurfaceHeader), t.TextStrong,
+            Line(false, ForgeTheme.NameSize, 0, t.TextStrong, t.CardSurface),
+            Line(false, ForgeTheme.Heading1Size, ForgeTheme.HeadingTrackingEm, t.TextStrong, t.CardSurface),
+            Line(false, ForgeTheme.Heading2Size, ForgeTheme.HeadingTrackingEm, t.TextStrong, t.CardSurface),
+            Line(false, ForgeTheme.Heading3Size, ForgeTheme.HeadingTrackingEm, t.TextStrong, t.CardSurface),
+            Badge(ForgeTheme.AvatarDiameter, ForgeTheme.AvatarDiameter / 2, t.AvatarFill, false, ForgeTheme.AvatarTextSize, t.CardSurface),
+            Badge(ForgeTheme.AvatarDiameter, ForgeTheme.AvatarDiameter / 2, t.UserAvatarFill, false, ForgeTheme.AvatarTextSize, t.Surface),
+            new ChipLook(Line(false, ForgeTheme.ChipTextSize, 0, t.Text, t.Surface), ForgeTheme.ChipPadX, ForgeTheme.ChipRadius,
+                ForgeTheme.ChipHairline, ForgeTheme.ChipBottomHairline, t.CardSurface, t.Border),
+            Badge(ForgeTheme.SendSize, ForgeTheme.SendRadius, t.AvatarFill, true, ForgeTheme.SendGlyphSize, t.CardSurface));
+    }
 
     private static TextBlockStyle Foreground(Color color) => TextBlockStyle.Default with { Foreground = color };
 
@@ -187,6 +235,9 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
 /// <summary>A reply code block: fill and text (its ring is <see cref="ForgeStyles.CodeBlockShape"/>).</summary>
 internal sealed record CodeBlockStyle(Style Fill, Style Text);
+
+/// <summary>A Markdown heading drawn as an image: its cells' fill, and its pending text style.</summary>
+internal sealed record HeadingStyle(Style Fill, Style Pending);
 
 /// <summary>A one-row pill: the text on its fill, between cap tiles drawn in the fill colour.</summary>
 internal sealed record Pill(TextBlockStyle Text, Style Fill);

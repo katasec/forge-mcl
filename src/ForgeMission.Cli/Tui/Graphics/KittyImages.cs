@@ -1,5 +1,6 @@
 using System.Text;
 using XenoAtom.Terminal.UI;
+using XenoAtom.Terminal.UI.Threading;
 
 namespace ForgeMission.Cli.Tui.Graphics;
 
@@ -7,16 +8,22 @@ namespace ForgeMission.Cli.Tui.Graphics;
 // transmitted once as a virtual placement; a cell shows part of it by holding U+10EEEE plus row
 // and column diacritics, with the image id as its 24-bit foreground colour. This class is the
 // only builder of image escapes; RawStdout writes them. Its one RGB colour carries an image id, not
-// a visual colour (the one colour exception in TuiColourLiteralTests).
+// a visual colour (the one colour exception in TuiColourLiteralTests). A transmit runs on the UI
+// thread only (Phase 56 Task 4): XenoAtom runs UI-thread code between frames, each frame one write,
+// so an image escape never lands inside a frame.
 internal static class KittyImages
 {
     private const int Placeholder = 0x10EEEE;
     private const int ChunkChars = 4096;
 
     /// <summary>Sends <paramref name="png"/> as image <paramref name="id"/>, shown over
-    /// cols x rows cells. Must run after the TUI has entered the alternate screen.</summary>
-    public static void Transmit(uint id, byte[] png, int cols, int rows) =>
+    /// cols x rows cells. Must run after the TUI has entered the alternate screen, on its UI thread
+    /// (throws, before writing anything, on any other thread while the TUI runs).</summary>
+    public static void Transmit(uint id, byte[] png, int cols, int rows)
+    {
+        Dispatcher.Current.VerifyAccess();
         RawStdout.Write(TransmitEscape(png, $"a=T,U=1,f=100,i={id},c={cols},r={rows},q=2"));
+    }
 
     /// <summary>One placeholder cell: image cell (row, col). Every cell carries both diacritics:
     /// bare placeholders count columns up, which blanks repeated one-column tiles.</summary>

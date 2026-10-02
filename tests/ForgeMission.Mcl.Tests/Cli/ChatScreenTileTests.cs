@@ -68,9 +68,9 @@ public sealed partial class ChatScreenTileTests
         // Never left of the gutter, at most 3/4 of the transcript wide.
         Assert.All(ring, row => Assert.True(row.FindIndex(c => c.Set == UserRingSet) >= Gutter, "ring starts left of the gutter"));
         Assert.All(ring, row => Assert.True(row.Count(c => c.Set == UserRingSet && c.Slot is 0 or 1 or 2) <= 40 * 3 / 4));
-        // Right-aligned, with " You" beside the ring on a middle row.
+        // Right-aligned, with " You" and the user's avatar (Task 4) beside the ring on a middle row.
         var middle = Assert.Single(ring, r => Text(r).Contains(" You"));
-        Assert.EndsWith("▒ You ", Text(middle));
+        Assert.EndsWith("▒ You ▓▓▓ ", Text(middle));
         var label = Text(middle).IndexOf(" You", StringComparison.Ordinal);
         Assert.Equal((UserRingSet, RightSlot), (middle[label - 1].Set, middle[label - 1].Slot));
     }
@@ -139,13 +139,94 @@ public sealed partial class ChatScreenTileTests
         Assert.Equal(Width - Gutter - 1, rows[composer[0]].FindLastIndex(c => c.Set == ComposerSet));
         // The prompt row: text cells on the card surface between the ring columns.
         Assert.All(rows[composer[1]][(Gutter + 2)..(Width - Gutter - 2)], c => Assert.Equal(Token("Light", "CardSurface"), c.Background));
-        // No rule above it, one blank row below it, then the keys on the gutter with no fill of their own.
+        // No rule above it, one blank row below it, then the keys on the gutter with no fill of their
+        // own: each key's chip image (Task 4), one column, its label.
         Assert.DoesNotContain("─", Text(rows[composer[0] - 1]));
         Assert.Equal("", Text(rows[composer[^1] + 1]).Trim());
         var keys = rows[composer[^1] + 2];
-        Assert.StartsWith(new string(' ', Gutter) + "enter send", Text(keys));
+        Assert.StartsWith(new string(' ', Gutter) + "▓▓▓▓▓ send  ▓▓▓▓▓▓▓ newline", Text(keys));
         Assert.DoesNotContain(keys, c => c.Background == Token("Light", "SurfaceAlt"));
     }
+
+    // ── Text images (Task 4) ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void The_header_shows_the_brand_and_breadcrumb_images()
+    {
+        var header = Text(new Screen().Render()[0]);
+
+        // Brand (logo + "forge") 8 columns, one column, breadcrumb "chat / Chat" 9 columns at 19×42.
+        Assert.StartsWith(" " + new string('▓', 8) + " " + new string('▓', 9) + " ", header);
+        Assert.DoesNotContain("PROJECT", header);
+    }
+
+    [Fact]
+    public void A_card_starts_with_the_avatar_and_name_images_at_the_text_column()
+    {
+        var rows = CardRows(new Screen().Show(Card("ok")).Render());
+        var head = Assert.Single(rows, r => r.Any(c => c.IsTextImage));
+
+        Assert.Equal(7, head.FindIndex(c => c.IsTextImage));
+        Assert.Contains("▓▓▓ ▓▓▓▓▓▓▓▓", Text(head));
+    }
+
+    [Fact]
+    public void A_name_in_another_script_stays_bold_text_beside_an_empty_avatar()
+    {
+        var rows = new Screen().Show(CardOf("Ответчик", "ok", false)).Render();
+        var head = Assert.Single(rows, r => Text(r).Contains("Ответчик"));
+
+        Assert.Contains("▓▓▓ Ответчик", Text(head));
+        var start = Text(head).IndexOf("Ответчик", StringComparison.Ordinal);
+        Assert.Equal(Token("Light", "TextStrong"), head[start].Foreground);
+    }
+
+    [Fact]
+    public void A_streamed_heading_switches_from_text_to_image_on_the_same_rows()
+    {
+        const string reply = "Intro\n\n## Hello World in Pascal";
+        var screen = new Screen();
+        var pending = CardRows(screen.Show(CardOf("Answerer", reply, true)).Render());
+        var complete = CardRows(screen.Show(CardOf("Answerer", reply, false)).Render());
+
+        Assert.Equal(pending.Count, complete.Count);
+        var line = pending.FindIndex(r => Text(r).Contains("Hello World in Pascal"));
+        Assert.True(line > 0, "the pending heading is not shown as text");
+        Assert.DoesNotContain(pending[line], c => c.IsTextImage);
+        Assert.Equal(Token("Light", "TextStrong"), pending[line][Text(pending[line]).IndexOf("Hello", StringComparison.Ordinal)].Foreground);
+        Assert.DoesNotContain("Hello World", Text(complete[line]));
+        Assert.Contains(complete[line], c => c.IsTextImage);
+        Assert.Contains(complete[line + 1], c => c.IsTextImage);
+        Assert.Contains("Intro", Text(complete[line - 2]));
+    }
+
+    [Fact]
+    public void A_heading_in_another_script_stays_terminal_text()
+    {
+        var rows = CardRows(new Screen().Show(CardOf("Answerer", "## Привет мир\n\nok", false)).Render());
+
+        var heading = Assert.Single(rows, r => Text(r).Contains("Привет мир"));
+        Assert.DoesNotContain(heading, c => c.IsTextImage);
+    }
+
+    [Fact]
+    public void Each_text_image_is_sent_once_however_often_the_screen_redraws()
+    {
+        var sent = new List<uint>();
+        var screen = new Screen(sent);
+        Assert.Equal(8, sent.Count); // brand, breadcrumb, send button, five key chips
+
+        screen.Show(You("hi"), CardOf("Answerer", "## Hello\n\nok", false)).Render();
+        screen.Show(You("hi"), CardOf("Answerer", "## Hello\n\nok", false)).Render();
+        screen.Render(60);
+
+        // + the user's avatar, the expert's avatar and name, the heading line.
+        Assert.Equal(12, sent.Count);
+        Assert.Equal(sent.Count, sent.Distinct().Count());
+    }
+
+    /// <summary>The rows of the (one) card, from its top ring row to its bottom one.</summary>
+    private static List<List<Cell>> CardRows(List<List<Cell>> rows) => [.. rows.Where(r => r.Any(c => c.Set == CardSet))];
 
     [Theory]
     [InlineData("", 3)]
@@ -213,15 +294,15 @@ public sealed partial class ChatScreenTileTests
         private readonly Type _screenType = Type("ForgeMission.Cli.Tui.ChatScreen");
         private readonly object _screen;
 
-        public Screen()
+        public Screen(List<uint>? sent = null)
         {
             var stylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
             var styles = Activator.CreateInstance(stylesType, Theme("Light"))!;
-            var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic")!;
+            var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
             _screen = Activator.CreateInstance(_screenType, [header, styles])!;
             var cell = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.CellSize"), 19, 42)!;
             var tiles = Type("ForgeMission.Cli.Tui.ScreenTiles").GetMethod("Create")!.Invoke(null, [styles, cell]);
-            _screenType.GetMethod("UseTiles")!.Invoke(_screen, [tiles]);
+            _screenType.GetMethod("UseImages")!.Invoke(_screen, [tiles, TextImagesFor(styles, cell, sent)]);
         }
 
         public PromptEditor Composer => (PromptEditor)_screenType.GetProperty("Composer")!.GetValue(_screen)!;
@@ -241,7 +322,21 @@ public sealed partial class ChatScreenTileTests
         }
     }
 
-    private static object Card(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Chat:Answerer", text, "Chat")!;
+    /// <summary>The session's text images, drawn with the embedded fonts; sends are discarded.</summary>
+    internal static object TextImagesFor(object styles, object cell, List<uint>? sent = null)
+    {
+        var fonts = Type("ForgeMission.Cli.Tui.Graphics.TextFonts").GetMethod("LoadEmbedded")!.Invoke(null, null)!;
+        var artStyle = styles.GetType().GetProperty("TextArt")!.GetValue(styles)!;
+        var art = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.TextArt"), artStyle, fonts, cell)!;
+        var slot = styles.GetType().GetProperty("ImageIdSlot")!.GetValue(styles)!;
+        Action<uint, byte[], int, int> send = (id, _, _, _) => sent?.Add(id);
+        return Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.TextImages"), art, slot, cell, send)!;
+    }
+
+    private static object Card(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Answerer", text, "Chat", false)!;
+
+    private static object CardOf(string title, string text, bool streaming) =>
+        Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), title, text, "Chat", streaming)!;
 
     private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text)!;
 
@@ -254,11 +349,15 @@ public sealed partial class ChatScreenTileTests
     private sealed record Cell(string Text, Color? Foreground, Color? Background, bool Italic)
     {
         private const string Placeholder = "􎻮";
+        private const uint TextBit = 1u << 23;
 
         private uint? Id => Text.StartsWith(Placeholder, StringComparison.Ordinal) && Foreground is { } c
             ? (uint)(c.R << 16 | c.G << 8 | c.B) : null;
 
-        public int? Set => Id is { } id ? (int)(id >> 3 & 7) : null;
+        /// <summary>The tile set a tile cell names; null for a text image (id bit 23) or text.</summary>
+        public int? Set => Id is { } id && id < TextBit ? (int)(id >> 3 & 7) : null;
+
+        public bool IsTextImage => Id >= TextBit;
 
         public int Slot => Id is { } id ? (int)(id & 7) : -1;
     }
@@ -301,7 +400,8 @@ public sealed partial class ChatScreenTileTests
     [GeneratedRegex(@"\[\[|\]\]|\[/\]|\[(?<style>[^\[\]]+)\]|[^\[\]]+")]
     private static partial Regex MarkupToken();
 
-    private static string Text(IEnumerable<Cell> row) => string.Concat(row.Select(c => c.Set is null ? c.Text : "▒"));
+    /// <summary>A row as text: a tile cell is ▒, a text-image cell ▓.</summary>
+    private static string Text(IEnumerable<Cell> row) => string.Concat(row.Select(c => c.IsTextImage ? "▓" : c.Set is null ? c.Text : "▒"));
 
     private static (int?, int)[] Tiles(IEnumerable<Cell> cells) => [.. cells.Select(c => (c.Set, c.Slot))];
 

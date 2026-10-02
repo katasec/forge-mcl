@@ -1,3 +1,4 @@
+using ForgeMission.Cli.Tui.Graphics;
 using XenoAtom.Terminal.UI;
 
 namespace ForgeMission.Cli.Tui;
@@ -51,9 +52,50 @@ internal sealed record ForgeTheme
     /// <summary>.keys margin-top: calc(var(--cell-h) * .6). One blank row above the key bar.</summary>
     public const int KeyBarGapRows = 1;
 
+    // ── Proportional text (Phase 56 Task 4): Inter, sizes in mockup px, shared by every theme ──
+
+    /// <summary>.brand: font: 700 17px; letter-spacing: -.02em.</summary>
+    public const double BrandSize = 17, BrandTrackingEm = -0.02;
+
+    /// <summary>.logo: width/height 20px; border-radius: 6px; font: 700 12px. .brand gap: 8px.</summary>
+    public const double LogoSize = 20, LogoRadius = 6, LogoGlyphSize = 12, LogoGap = 8;
+
+    /// <summary>.logo's letter.</summary>
+    public const string LogoGlyph = "f";
+
+    /// <summary>.crumb: font: 500 14px (SemiBold stands in for 500).</summary>
+    public const double CrumbSize = 14;
+
+    /// <summary>.card .name: font: 600 14.5px.</summary>
+    public const double NameSize = 14.5;
+
+    /// <summary>.md h2: font: 600 19px; letter-spacing: -.015em (h1 22, h3 16, same tracking).</summary>
+    public const double Heading1Size = 22, Heading2Size = 19, Heading3Size = 16, HeadingTrackingEm = -0.015;
+
+    /// <summary>.avatar: 26px circle, font: 600 12px; one row tall here (20 mockup px).</summary>
+    public const double AvatarDiameter = 20, AvatarTextSize = 12;
+
+    /// <summary>kbd: font: 500 11px; padding: 1px 6px; border: 1px, bottom 2px; border-radius: 5px.</summary>
+    public const double ChipTextSize = 11, ChipPadX = 6, ChipRadius = 5, ChipHairline = 1, ChipBottomHairline = 2;
+
+    /// <summary>.send: 30px square, border-radius: 9px, font: 600 14px; one row tall here (20 mockup
+    /// px, radius scaled to 6); Bold glyph.</summary>
+    public const double SendSize = 20, SendRadius = 6, SendGlyphSize = 14;
+
+    /// <summary>.card .head gap: 1.2ch. Columns between an avatar and its name or label.</summary>
+    public const int AvatarGapCols = 1;
+
+    /// <summary>.header gap: 1.2ch. Columns between the brand and the breadcrumb.</summary>
+    public const int BrandGapCols = 1;
+
+    /// <summary>kbd margin-right: .6ch; .keys gap: 2.5ch. Columns after a chip, and between key groups.</summary>
+    public const int ChipGapCols = 1, KeyGroupGapCols = 2;
+
     // Accent values that other light/dark tokens reuse (caret, composer glow). Declared before the
     // themes: static initialisers run in source order.
     private static readonly Color LightAccent = Color.Rgb(0x0f, 0x6f, 0xeb);
+    private static readonly Color LightMuted = Color.Rgb(0x63, 0x74, 0x8c);
+    private static readonly Color DarkMuted = Color.Rgb(0x6b, 0x7a, 0x91);
     private static readonly Color DarkAccent = Color.Rgb(0x4f, 0x9b, 0xff);
 
     public static ForgeTheme Light { get; } = new()
@@ -64,8 +106,7 @@ internal sealed record ForgeTheme
         CardSurface = Color.Rgb(0xff, 0xff, 0xff),
         Text = Color.Rgb(0x10, 0x1d, 0x34),
         TextStrong = Color.Rgb(0x10, 0x1d, 0x34),
-        TextMuted = Color.Rgb(0x63, 0x74, 0x8c),
-        CardTitle = Color.Rgb(0x5b, 0x6b, 0x83),
+        TextMuted = LightMuted,
         Accent = LightAccent,
         Prompt = Color.Rgb(0x68, 0x9d, 0xf1),
         Caret = LightAccent,
@@ -100,6 +141,11 @@ internal sealed record ForgeTheme
         ComposerGlow = new(LightAccent, Alpha: 0.14, Spread: 4),
         // .pill-ok::before width: 6px; height: 6px
         PillDotDiameter = 6,
+        // .avatar / .logo / .send: the mockup's gradients flattened to Accent; .avatar.me to TextMuted; white glyphs.
+        AvatarFill = LightAccent,
+        UserAvatarFill = LightMuted,
+        OnAccent = Color.Rgb(0xff, 0xff, 0xff),
+        TextBlend = TextBlend.Srgb,
         ImageIdSlot = 0,
     };
 
@@ -111,8 +157,7 @@ internal sealed record ForgeTheme
         CardSurface = Color.Rgb(0x15, 0x1f, 0x2e),
         Text = Color.Rgb(0xc9, 0xd4, 0xe3),
         TextStrong = Color.Rgb(0xe8, 0xee, 0xf7),
-        TextMuted = Color.Rgb(0x6b, 0x7a, 0x91),
-        CardTitle = Color.Rgb(0x6b, 0x7a, 0x91),
+        TextMuted = DarkMuted,
         Accent = DarkAccent,
         Prompt = Color.Rgb(0x24, 0xd5, 0xee),
         Caret = Color.Rgb(0x24, 0xd5, 0xee),
@@ -143,6 +188,11 @@ internal sealed record ForgeTheme
         ComposerHairline = 1,
         ComposerGlow = new(DarkAccent, Alpha: 0.14, Spread: 4),
         PillDotDiameter = 6,
+        // .avatar / .logo / .send: the mockup's gradients flattened to Accent; .avatar.me to TextMuted; white glyphs.
+        AvatarFill = DarkAccent,
+        UserAvatarFill = DarkMuted,
+        OnAccent = Color.Rgb(0xff, 0xff, 0xff),
+        TextBlend = TextBlend.Linear,
         ImageIdSlot = 1,
     };
 
@@ -153,7 +203,6 @@ internal sealed record ForgeTheme
     public required Color Text { get; init; }
     public required Color TextStrong { get; init; }
     public required Color TextMuted { get; init; }
-    public required Color CardTitle { get; init; }
     public required Color Accent { get; init; }
     public required Color Prompt { get; init; }
 
@@ -196,6 +245,19 @@ internal sealed record ForgeTheme
 
     /// <summary>The APPROVED pill's dot, drawn in its left cap.</summary>
     public required double PillDotDiameter { get; init; }
+
+    /// <summary>The logo, expert avatars and the send button (Phase 56 Task 4).</summary>
+    public required Color AvatarFill { get; init; }
+
+    /// <summary>The user's avatar.</summary>
+    public required Color UserAvatarFill { get; init; }
+
+    /// <summary>Glyphs on AvatarFill or UserAvatarFill: the logo letter, initials, the send arrow.</summary>
+    public required Color OnAccent { get; init; }
+
+    /// <summary>How image text is blended on its surface: naive sRGB looks closest to the mockup
+    /// for dark text on light, linear light for light text on dark (Phase 56 spike).</summary>
+    public required TextBlend TextBlend { get; init; }
 
     /// <summary>The theme's part of the image ids (0 or 1, one per theme), so two themes never
     /// share an image id (TileSet.ImageIds).</summary>

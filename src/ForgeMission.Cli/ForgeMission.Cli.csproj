@@ -17,6 +17,15 @@
     <PackageReference Include="Katasec.Forge.Client" Version="0.6.0" />
     <PackageReference Include="XenoAtom.Terminal.UI" Version="3.10.0" />
     <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />
+    <!-- Phase 56 G2: proportional text in forge chat; referenced only by Tui/Graphics/GlyphText.cs. -->
+    <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
+  </ItemGroup>
+
+  <!-- Phase 56 G4: Inter 4.1 subset (eng/fonts/inter-subset.sh) and its OFL licence, embedded. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Tui/Graphics/Fonts/Inter-SemiBold.ttf" LogicalName="Inter-SemiBold.ttf" />
+    <EmbeddedResource Include="Tui/Graphics/Fonts/Inter-Bold.ttf" LogicalName="Inter-Bold.ttf" />
+    <EmbeddedResource Include="Tui/Graphics/Fonts/LICENSE.txt" LogicalName="Inter-LICENSE.txt" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -26,6 +35,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>forge</AssemblyName>
     <PublishAot>true</PublishAot>
+    <!-- StbTrueTypeSharp's API takes pointers; unsafe code is allowed in Tui/Graphics/GlyphText.cs only (TuiColourLiteralTests). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- YamlDotNet uses reflection-based builders; our types are preserved via
          [DynamicDependency] so these warnings are safe to suppress. -->
     <IlcSuppressWarnings>IL3050</IlcSuppressWarnings>
