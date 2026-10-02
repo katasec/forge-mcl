@@ -46,31 +46,51 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public TextBlockStyle Project { get; } = Foreground(theme.TextStrong);
 
+    /// <summary>The APPROVED pill: Success text on SuccessFill between caps with the status dot.</summary>
     public Pill Approved { get; } = new(
         TextBlockStyle.Default with { Foreground = theme.Success, Background = theme.SuccessFill },
-        Foreground(theme.SuccessFill), theme.PillCapLeft, theme.PillCapRight);
+        Style.None.WithBackground(theme.SuccessFill));
+
+    public CapShape ApprovedCaps { get; } = new(theme.SurfaceHeader, theme.SuccessFill, theme.Success, theme.PillDotDiameter);
 
     public RuleStyle Divider { get; } = RuleStyle.Default with { LineStyle = Style.None.WithForeground(theme.Border) };
 
     // ── Transcript ──────────────────────────────────────────────────────────────────────────
 
-    public Pill User { get; } = new(
-        TextBlockStyle.Default with { Foreground = theme.UserPillText, Background = theme.UserPillFill },
-        Foreground(theme.UserPillFill), theme.PillCapLeft, theme.PillCapRight);
+    /// <summary>A user message's text on its fill: a capped pill on one line, a ring once it wraps.</summary>
+    public Style UserText { get; } = Style.None.WithForeground(theme.UserPillText).WithBackground(theme.UserPillFill);
 
-    /// <summary>A multi-line user message: the filled block without caps.</summary>
-    public Style UserBlock { get; } = Style.None.WithForeground(theme.UserPillText).WithBackground(theme.UserPillFill);
+    public Style UserFill { get; } = Style.None.WithBackground(theme.UserPillFill);
+
+    public CapShape UserCaps { get; } = new(theme.Surface, theme.UserPillFill, null, 0);
+
+    /// <summary>A multi-line user message: radius 14, fill only (no border, no shadow).</summary>
+    public RingShape UserShape { get; } = new(theme.Surface, theme.UserPillFill, theme.UserPillFill, theme.UserRadius, 0,
+        [], null, ForgeTheme.UserPaddingCols, ForgeTheme.ShapePaddingRows, 0);
+
+    /// <summary>A tool (hands) line: a one-row chip, muted text on ToolFill, no outline.</summary>
+    public Pill Tool { get; } = new(
+        TextBlockStyle.Default with { Foreground = theme.TextMuted, Background = theme.ToolFill },
+        Style.None.WithBackground(theme.ToolFill));
+
+    public CapShape ToolCaps { get; } = new(theme.Surface, theme.ToolFill, null, 0);
+
+    /// <summary>The widest a user message may be, as a share of the transcript.</summary>
+    public double UserMaxWidthPercent => ForgeTheme.UserMaxWidthPercent;
 
     public TextBlockStyle YouLabel { get; } = Foreground(theme.TextMuted);
 
     /// <summary>The card's text cells (and the ring's plain cells): the card surface.</summary>
     public Style CardFill { get; } = Style.None.WithBackground(theme.CardSurface);
 
-    /// <summary>What the card edge tiles are drawn from (Phase 56).</summary>
-    public CardEdges CardEdges { get; } = new(theme.Surface, theme.CardSurface, theme.CardBorder,
-        theme.CardRadius, theme.CardHairline, [theme.CardShadowNear, theme.CardShadowFar]);
+    /// <summary>What the card edge tiles are drawn from (Phase 56). The card's downward shadow puts
+    /// its bottom border high in its tile, so it gets one more plain row below its content than
+    /// the ring gives: the mockup's card padding is equal top and bottom.</summary>
+    public RingShape CardShape { get; } = new(theme.Surface, theme.CardSurface, theme.CardBorder,
+        theme.CardRadius, theme.CardHairline, [theme.CardShadowNear, theme.CardShadowFar], null,
+        ForgeTheme.CardPaddingCols, ForgeTheme.CardPaddingRows, ForgeTheme.CardPaddingRows);
 
-    /// <summary>The theme's part of the card image ids (CardRing.ImageIds).</summary>
+    /// <summary>The theme's part of the image ids (TileSet.ImageIds).</summary>
     public int ImageIdSlot { get; } = theme.ImageIdSlot;
 
     /// <summary>The transcript gutter in columns; a card's border lands in this column.</summary>
@@ -105,12 +125,14 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         CautionAlert = Alert(theme.Error, theme.CardSurface),
     };
 
-    /// <summary>Fenced and indented code in replies: a rounded box, no language label. The
-    /// border cells sit on the card surface so the fill stays inside the line.</summary>
+    /// <summary>Fenced and indented code in replies: the code on its fill, no language label.</summary>
     public CodeBlockStyle CodeBlock { get; } = new(
-        Style.None.WithForeground(theme.CodeBlockBorder).WithBackground(theme.CardSurface),
         Style.None.WithBackground(theme.CodeBlockFill),
         Style.None.WithForeground(theme.CodeBlockText).WithBackground(theme.CodeBlockFill));
+
+    /// <summary>A code block's ring: radius 10, hairline CodeBlockBorder, no shadow, on the card.</summary>
+    public RingShape CodeBlockShape { get; } = new(theme.CardSurface, theme.CodeBlockFill, theme.CodeBlockBorder,
+        theme.CodeBlockRadius, theme.CodeBlockHairline, [], null, ForgeTheme.CodeBlockPaddingCols, ForgeTheme.ShapePaddingRows, 0);
 
     public Style Notice { get; } = Style.None.WithForeground(theme.TextMuted) | TextStyle.Italic;
 
@@ -130,18 +152,28 @@ internal sealed class ForgeStyles(ForgeTheme theme)
     {
         PromptForeground = theme.Prompt,
         PlaceholderForeground = theme.TextMuted,
-        Background = theme.Surface,
-        PromptSidebarBackground = theme.Surface,
+        Background = theme.CardSurface,
+        PromptSidebarBackground = theme.CardSurface,
         Selection = theme.Selection,
         ShowPromptSeparator = false,
     };
 
-    public TextBlockStyle KeyBar { get; } = TextBlockStyle.Default with
-    {
-        Foreground = theme.TextMuted,
-        Background = theme.SurfaceAlt,
-        FillBackground = true,
-    };
+    /// <summary>The terminal cursor's colour while the TUI runs (TerminalCaret).</summary>
+    public Color Caret { get; } = theme.Caret;
+
+    /// <summary>The composer's text cells (and its ring's plain cells): the card surface.</summary>
+    public Style ComposerFill { get; } = Style.None.WithBackground(theme.CardSurface);
+
+    /// <summary>The composer's ring: radius 14, hairline Accent, a 4 px Accent glow, no shadow.</summary>
+    public RingShape ComposerShape { get; } = new(theme.Surface, theme.CardSurface, theme.Accent,
+        theme.ComposerRadius, theme.ComposerHairline, [], theme.ComposerGlow, ForgeTheme.ComposerPaddingCols,
+        ForgeTheme.ShapePaddingRows, 0);
+
+    /// <summary>The key bar: muted text on the screen surface, no fill of its own.</summary>
+    public TextBlockStyle KeyBar { get; } = Foreground(theme.TextMuted);
+
+    /// <summary>Blank rows above the key bar.</summary>
+    public int KeyBarGapRows => ForgeTheme.KeyBarGapRows;
 
     private static TextBlockStyle Foreground(Color color) => TextBlockStyle.Default with { Foreground = color };
 
@@ -153,8 +185,8 @@ internal sealed class ForgeStyles(ForgeTheme theme)
     };
 }
 
-/// <summary>A reply code block: border, fill, and text.</summary>
-internal sealed record CodeBlockStyle(Style Border, Style Fill, Style Text);
+/// <summary>A reply code block: fill and text (its ring is <see cref="ForgeStyles.CodeBlockShape"/>).</summary>
+internal sealed record CodeBlockStyle(Style Fill, Style Text);
 
-/// <summary>A one-line pill: the text on its fill, between rounded caps drawn in the fill colour.</summary>
-internal sealed record Pill(TextBlockStyle Text, TextBlockStyle Cap, string CapLeft, string CapRight);
+/// <summary>A one-row pill: the text on its fill, between cap tiles drawn in the fill colour.</summary>
+internal sealed record Pill(TextBlockStyle Text, Style Fill);

@@ -2,27 +2,39 @@ using XenoAtom.Terminal.UI;
 
 namespace ForgeMission.Cli.Tui.Graphics;
 
-// Phase 56: the card edge ring in device px, from the theme's card tokens and the measured cell
-// size. u = cell height / ForgeTheme.MockupRowPx (device px per mockup px). The fit ring keeps the
-// mockup's radius and shadow and is as many whole cells thick as the shadow's fade-out plus the
-// arc need on each side. That the tiles cut from it are seamless, fade into the surface at the
-// ring's edge and leave a plain interior is proven by CardEdgeTests over every realistic cell
-// size, not checked at runtime.
+// Phase 56: a shape's edge ring in device px (cards, code blocks, multi-line user messages, the
+// composer), from the theme's tokens and the measured cell size. u = cell height /
+// ForgeTheme.MockupRowPx (device px per mockup px). The fit ring keeps the mockup's radius, shadow
+// and glow and is as many whole cells thick as the shadow's fade-out (or the glow) plus the arc
+// need on each side; plain padding cells top the text inset up to the shape's padding. That the
+// tiles cut from it are seamless, fade into the surface at the ring's edge and leave a plain
+// interior is proven by TileSetTests over every realistic cell size, not checked at runtime.
 
-/// <summary>What the edge tiles are drawn from: ForgeTheme tokens, lengths in mockup px.</summary>
-internal sealed record CardEdges(Color Surface, Color CardSurface, Color CardBorder, double Radius, double Hairline,
-    IReadOnlyList<CardShadow> Shadows);
+/// <summary>What a ring's tiles are drawn from: ForgeTheme tokens, lengths in mockup px. A
+/// <paramref name="Hairline"/> of 0 draws no border line. Text sits <paramref name="PadCols"/>
+/// columns and <paramref name="PadRows"/> rows inside the border's cell, plus
+/// <paramref name="ExtraBottomRows"/> more plain rows below it.</summary>
+internal sealed record RingShape(Color Surface, Color Fill, Color Border, double Radius, double Hairline,
+    IReadOnlyList<CardShadow> Shadows, RingGlow? Glow, int PadCols, int PadRows, int ExtraBottomRows);
 
 /// <summary>A shadow layer in device px; Sigma is the Gaussian standard deviation (CSS blur / 2).</summary>
 internal readonly record struct DeviceShadow(double Dy, double Sigma, Rgb Color, double Alpha);
 
 /// <summary>The solved ring. Insets are px from the ring's outer edge to the border's outer line;
-/// Pad* are plain card cells between the ring and the text.</summary>
+/// Pad* are plain fill cells between the ring and the text. Glow is the glow's width in px.</summary>
 internal sealed record RingLayout(
     CellSize Cell, int SideCols, int TopRows, int BottomRows,
-    double Radius, int Hairline, DeviceShadow[] Shadows,
+    double Radius, int Hairline, DeviceShadow[] Shadows, int Glow,
     int SideInset, int TopInset, int BottomInset,
-    int PadCols, int PadTop, int PadBottom);
+    int PadCols, int PadTop, int PadBottom)
+{
+    /// <summary>A cap set's layout: a ring with no top or bottom rows, ForgeTheme.PillCapCols
+    /// columns at each side, and no shadow, glow, inset or padding (CapTiles).</summary>
+    public static RingLayout Caps(CellSize cell) => new(
+        cell, SideCols: ForgeTheme.PillCapCols, TopRows: 0, BottomRows: 0,
+        Radius: cell.Height / 2.0, Hairline: 0, Shadows: [], Glow: 0,
+        SideInset: 0, TopInset: 0, BottomInset: 0, PadCols: 0, PadTop: 0, PadBottom: 0);
+}
 
 internal static class RingGeometry
 {
@@ -32,24 +44,25 @@ internal static class RingGeometry
     private const double InvisibleLevels = 0.5;
 
     /// <summary>The fit ring for <paramref name="cell"/>: on each side, the fewest whole cells that
-    /// hold the shadow's fade-out plus the corner arc.</summary>
-    public static RingLayout Solve(CardEdges edges, CellSize cell)
+    /// hold the shadow's fade-out (or the glow) plus the corner arc.</summary>
+    public static RingLayout Solve(RingShape shape, CellSize cell)
     {
         var u = cell.Height / ForgeTheme.MockupRowPx;
-        var hairline = Math.Max(1, (int)Math.Round(edges.Hairline * u));
-        var radius = Math.Max(hairline, edges.Radius * u);
-        var shadows = edges.Shadows.Select(s => new DeviceShadow(s.OffsetY * u, s.Blur * u / 2, Rgb.From(s.Color), s.Alpha)).ToArray();
-        var surface = Rgb.From(edges.Surface);
-        var side = ShadowExtent(surface, shadows, _ => 0);
-        var topInset = ShadowExtent(surface, shadows, s => s.Dy);
-        var bottomInset = ShadowExtent(surface, shadows, s => -s.Dy);
+        var hairline = shape.Hairline > 0 ? Math.Max(1, (int)Math.Round(shape.Hairline * u)) : 0;
+        var radius = Math.Max(hairline, shape.Radius * u);
+        var shadows = shape.Shadows.Select(s => new DeviceShadow(s.OffsetY * u, s.Blur * u / 2, Rgb.From(s.Color), s.Alpha)).ToArray();
+        var glow = shape.Glow is { } g ? (int)Math.Round(g.Spread * u) : 0;
+        var surface = Rgb.From(shape.Surface);
+        var side = Math.Max(glow, ShadowExtent(surface, shadows, _ => 0));
+        var topInset = Math.Max(glow, ShadowExtent(surface, shadows, s => s.Dy));
+        var bottomInset = Math.Max(glow, ShadowExtent(surface, shadows, s => -s.Dy));
         var cols = CellsFor(side + radius, cell.Width);
         var top = CellsFor(topInset + radius, cell.Height);
         var bottom = CellsFor(bottomInset + radius, cell.Height);
-        return new RingLayout(cell, cols, top, bottom, radius, hairline, shadows, side, topInset, bottomInset,
-            PadCols: Math.Max(0, side / cell.Width + ForgeTheme.CardPaddingCols - cols),
-            PadTop: Math.Max(0, topInset / cell.Height + ForgeTheme.CardPaddingRows - top),
-            PadBottom: Math.Max(0, bottomInset / cell.Height + ForgeTheme.CardPaddingRows - bottom));
+        return new RingLayout(cell, cols, top, bottom, radius, hairline, shadows, glow, side, topInset, bottomInset,
+            PadCols: Math.Max(0, side / cell.Width + shape.PadCols - cols),
+            PadTop: Math.Max(0, topInset / cell.Height + shape.PadRows - top),
+            PadBottom: Math.Max(0, bottomInset / cell.Height + shape.PadRows - bottom) + shape.ExtraBottomRows);
     }
 
     private static int CellsFor(double px, int cellPx) => Math.Max(1, (int)Math.Ceiling(px / cellPx));

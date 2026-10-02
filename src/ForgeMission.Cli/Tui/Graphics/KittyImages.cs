@@ -6,8 +6,8 @@ namespace ForgeMission.Cli.Tui.Graphics;
 // Kitty graphics with Unicode placeholders (docs/design/tui-graphics.md): each image is
 // transmitted once as a virtual placement; a cell shows part of it by holding U+10EEEE plus row
 // and column diacritics, with the image id as its 24-bit foreground colour. This class is the
-// only writer of image bytes to stdout. Its one RGB colour carries an image id, not a visual colour
-// (the one exception in TuiColourLiteralTests).
+// only builder of image escapes; RawStdout writes them. Its one RGB colour carries an image id, not
+// a visual colour (the one colour exception in TuiColourLiteralTests).
 internal static class KittyImages
 {
     private const int Placeholder = 0x10EEEE;
@@ -16,7 +16,7 @@ internal static class KittyImages
     /// <summary>Sends <paramref name="png"/> as image <paramref name="id"/>, shown over
     /// cols x rows cells. Must run after the TUI has entered the alternate screen.</summary>
     public static void Transmit(uint id, byte[] png, int cols, int rows) =>
-        WriteStdout(TransmitEscape(png, $"a=T,U=1,f=100,i={id},c={cols},r={rows},q=2"));
+        RawStdout.Write(TransmitEscape(png, $"a=T,U=1,f=100,i={id},c={cols},r={rows},q=2"));
 
     /// <summary>One placeholder cell: image cell (row, col). Every cell carries both diacritics:
     /// bare placeholders count columns up, which blanks repeated one-column tiles.</summary>
@@ -26,15 +26,6 @@ internal static class KittyImages
 
     /// <summary>The foreground colour that names image <paramref name="id"/>.</summary>
     public static Color IdColor(uint id) => Color.Rgb((byte)(id >> 16), (byte)(id >> 8), (byte)id);
-
-    /// <summary>Writes straight to the stdout stream: XenoAtom's terminal writer does not reach the
-    /// terminal while the app runs (tui-graphics.md).</summary>
-    private static void WriteStdout(string escape)
-    {
-        using var stdout = Console.OpenStandardOutput();
-        stdout.Write(Encoding.UTF8.GetBytes(escape));
-        stdout.Flush();
-    }
 
     private static string TransmitEscape(byte[] png, string keys)
     {

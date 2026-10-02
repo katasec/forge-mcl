@@ -23,8 +23,8 @@ namespace ForgeMission.Cli.Tui;
 // Ctrl-D (53.9 L2) replaces the app's quit command: it cancels the session, and the loop stops only
 // after the stream, the busy work and the hands cancel have ended on the live UI thread, so no await
 // resumes after the app has stopped.
-// Card edges (Phase 56): on the first tick (on the alternate screen, with XenoAtom owning input) the
-// TUI asks for the cell size, draws the card ring at that size and sends it once; every card names
+// Shape tiles (Phase 56): on the first tick (on the alternate screen, with XenoAtom owning input) the
+// TUI asks for the cell size, draws every tile set at that size and sends it once; every shape names
 // those images. Without a cell size the app stops before opening the conversation (G8).
 internal sealed class ChatTui
 {
@@ -80,11 +80,13 @@ internal sealed class ChatTui
     {
         using var session = new CancellationTokenSource();
         var tui = new ChatTui(conversations, conversationId, header, theme, hands, session);
-        await Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture });
+        TypeAhead.Discard();
+        await TerminalCaret.WhileRunning(tui._styles.Caret, () =>
+            Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture }).AsTask());
         return tui._noCellSize ? TuiExit.NoCellSize : TuiExit.Quit;
     }
 
-    /// <summary>The UI loop's one async step: on the first tick send the card images (or stop when
+    /// <summary>The UI loop's one async step: on the first tick send the tile images (or stop when
     /// the terminal gives no cell size) and open the conversation; then submit a waiting message
     /// or cancel this window's turn, or send an Enter that woke the link once it has caught up.
     /// After Ctrl-D it stops the app; the loop calls this only once the previous step, with its busy
@@ -98,9 +100,10 @@ internal sealed class ChatTui
         {
             _opened = true;
             context.App.AddGlobalCommand(QuitCommand());
-            context.App.Focus(_screen.Composer);
-            if (!await ShowCardsAsync())
+            if (!await ShowTilesAsync())
                 return TerminalLoopResult.Stop;
+            // The composer joins the screen inside its frame once the tiles have arrived.
+            context.App.Focus(_screen.Composer);
             await WhileBusyAsync(OpenAsync);
         }
         else if (_pendingMessage is { } sent)
@@ -122,20 +125,20 @@ internal sealed class ChatTui
         return TerminalLoopResult.Continue;
     }
 
-    // ── Card images ─────────────────────────────────────────────────────────────────────────
+    // ── Tile images ──────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Asks the terminal for its cell size; with one, draws the card ring at that size,
-    /// sends it, and lets the screen show cards. Without one (G8), nothing is drawn.</summary>
-    private async Task<bool> ShowCardsAsync()
+    /// <summary>Asks the terminal for its cell size; with one, draws every tile set at that size,
+    /// sends them, and lets the screen show its shapes. Without one (G8), nothing is drawn.</summary>
+    private async Task<bool> ShowTilesAsync()
     {
         if (TerminalFacts.ImageCell(await TerminalFacts.QueryCellAsync()) is not { } cell)
         {
             _noCellSize = true;
             return false;
         }
-        var cards = CardRing.Create(_styles.CardEdges, _styles.ImageIdSlot, cell);
-        cards.Transmit();
-        _screen.UseCards(cards);
+        var tiles = ScreenTiles.Create(_styles, cell);
+        tiles.Transmit();
+        _screen.UseTiles(tiles);
         return true;
     }
 
@@ -211,7 +214,7 @@ internal sealed class ChatTui
 
     /// <summary>Enter: show the message and a pending reply at once, and queue the submit for the
     /// next UI step. While the link sleeps or catches up, Enter wakes it and sends once it is ready.
-    /// Before the card images are sent, while the conversation is opening, a call is in flight, or a
+    /// Before the tile images are sent, while the conversation is opening, a call is in flight, or a
     /// turn from any window runs, Enter does nothing and the text stays in the composer.</summary>
     private void Send(string text)
     {
@@ -222,7 +225,7 @@ internal sealed class ChatTui
             Wake();
             return;
         }
-        if (!_screen.HasCards || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
+        if (!_screen.HasTiles || _turnRunning || _pendingMessage is not null || _session.IsCancellationRequested ||
             string.IsNullOrWhiteSpace(text)) return;
         var sent = new SentMessage(Guid.NewGuid(), text);
         _pendingMessage = sent;

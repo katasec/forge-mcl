@@ -5,10 +5,13 @@ namespace ForgeMission.Tests.Cli;
 // forge chat TUI (53.6, Phase 56 G7): themes are data. Every colour literal lives in Tui/ForgeTheme.cs,
 // and the screen takes its styles from ForgeStyles only — it never names a theme or a colour. The scan
 // covers every file under Tui/ (Graphics included) and also flags raw RGB/RGBA byte literals. One
-// named exception: KittyImages, whose Color.Rgb carries an image id, not a visual colour.
+// named colour exception: KittyImages, whose Color.Rgb carries an image id, not a visual colour.
+// One raw stdout writer: RawStdout, which writes the kitty image and caret-colour escapes (XenoAtom's
+// writer does not reach the terminal while the app runs); every other file goes through it.
 public sealed partial class TuiColourLiteralTests
 {
     private const string ImageIdFile = "KittyImages.cs";
+    private const string RawStdoutFile = "RawStdout.cs";
 
     [Fact]
     public void Colour_literals_appear_only_in_ForgeTheme()
@@ -54,16 +57,16 @@ public sealed partial class TuiColourLiteralTests
     }
 
     [Fact]
-    public void Only_KittyImages_writes_to_stdout()
+    public void Only_RawStdout_writes_to_stdout()
     {
         var writers = TuiLines()
             .Where(item => StdoutWriter().IsMatch(item.Line))
-            .Where(item => !(Path.GetFileName(item.File) == ImageIdFile && item.Line.Contains("OpenStandardOutput", StringComparison.Ordinal)))
+            .Where(item => !(Path.GetFileName(item.File) == RawStdoutFile && item.Line.Contains("OpenStandardOutput", StringComparison.Ordinal)))
             .Select(item => $"{Path.GetRelativePath(CliSource(), item.File)}:{item.Number}: {item.Line.Trim()}")
             .ToList();
 
         Assert.Empty(writers);
-        Assert.Contains(TuiLines(), item => Path.GetFileName(item.File) == ImageIdFile && item.Line.Contains("OpenStandardOutput", StringComparison.Ordinal));
+        Assert.Single(TuiLines(), item => Path.GetFileName(item.File) == RawStdoutFile && item.Line.Contains("OpenStandardOutput", StringComparison.Ordinal));
     }
 
     [Theory]
