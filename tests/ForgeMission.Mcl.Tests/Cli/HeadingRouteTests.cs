@@ -43,12 +43,25 @@ public sealed class HeadingRouteTests
         Assert.DoesNotContain(document.Descendants<FencedCodeBlock>(), block => ReadHeading(block.Info, out _, out _));
     }
 
-    [Fact]
-    public void A_fence_a_model_writes_is_never_taken_for_a_heading()
+    [Theory]
+    [InlineData("forge-heading:2")]
+    [InlineData("forge-heading-0123456789abcdef0123456789abcdef:2")]
+    public void A_fence_a_model_writes_is_never_taken_for_a_heading(string info)
     {
-        var block = Assert.IsType<FencedCodeBlock>(Parse("```forge-heading:2\nHello\n```", "Complete")[0]);
+        var block = Assert.IsType<FencedCodeBlock>(Parse($"```{info}\nHello\n```", "Complete")[0]);
 
         Assert.False(ReadHeading(block.Info, out _, out _));
+    }
+
+    [Fact]
+    public void A_marker_with_a_level_other_than_1_to_3_is_not_a_heading()
+    {
+        var marker = ((FencedCodeBlock)Parse("## Hello", "Complete")[0]).Info!;
+        var token = marker[..marker.LastIndexOf(':')];
+
+        Assert.True(ReadHeading($"{token}:3", out var kind, out _));
+        Assert.Equal(Kind("Heading3"), kind);
+        Assert.False(ReadHeading($"{token}:4", out _, out _));
     }
 
     [Fact]

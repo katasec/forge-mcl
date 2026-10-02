@@ -60,6 +60,9 @@ internal sealed record ForgeTheme
     /// <summary>.logo: width/height 20px; border-radius: 6px; font: 700 12px. .brand gap: 8px.</summary>
     public const double LogoSize = 20, LogoRadius = 6, LogoGlyphSize = 12, LogoGap = 8;
 
+    /// <summary>.logo's letter.</summary>
+    public const string LogoGlyph = "f";
+
     /// <summary>.crumb: font: 500 14px (SemiBold stands in for 500).</summary>
     public const double CrumbSize = 14;
 
@@ -91,6 +94,8 @@ internal sealed record ForgeTheme
     // Accent values that other light/dark tokens reuse (caret, composer glow). Declared before the
     // themes: static initialisers run in source order.
     private static readonly Color LightAccent = Color.Rgb(0x0f, 0x6f, 0xeb);
+    private static readonly Color LightMuted = Color.Rgb(0x63, 0x74, 0x8c);
+    private static readonly Color DarkMuted = Color.Rgb(0x6b, 0x7a, 0x91);
     private static readonly Color DarkAccent = Color.Rgb(0x4f, 0x9b, 0xff);
 
     public static ForgeTheme Light { get; } = new()
@@ -101,7 +106,7 @@ internal sealed record ForgeTheme
         CardSurface = Color.Rgb(0xff, 0xff, 0xff),
         Text = Color.Rgb(0x10, 0x1d, 0x34),
         TextStrong = Color.Rgb(0x10, 0x1d, 0x34),
-        TextMuted = Color.Rgb(0x63, 0x74, 0x8c),
+        TextMuted = LightMuted,
         Accent = LightAccent,
         Prompt = Color.Rgb(0x68, 0x9d, 0xf1),
         Caret = LightAccent,
@@ -138,7 +143,7 @@ internal sealed record ForgeTheme
         PillDotDiameter = 6,
         // .avatar / .logo / .send: the mockup's gradients flattened to Accent; .avatar.me to TextMuted; white glyphs.
         AvatarFill = LightAccent,
-        UserAvatarFill = Color.Rgb(0x63, 0x74, 0x8c),
+        UserAvatarFill = LightMuted,
         OnAccent = Color.Rgb(0xff, 0xff, 0xff),
         TextBlend = TextBlend.Srgb,
         ImageIdSlot = 0,
@@ -152,7 +157,7 @@ internal sealed record ForgeTheme
         CardSurface = Color.Rgb(0x15, 0x1f, 0x2e),
         Text = Color.Rgb(0xc9, 0xd4, 0xe3),
         TextStrong = Color.Rgb(0xe8, 0xee, 0xf7),
-        TextMuted = Color.Rgb(0x6b, 0x7a, 0x91),
+        TextMuted = DarkMuted,
         Accent = DarkAccent,
         Prompt = Color.Rgb(0x24, 0xd5, 0xee),
         Caret = Color.Rgb(0x24, 0xd5, 0xee),
@@ -185,7 +190,7 @@ internal sealed record ForgeTheme
         PillDotDiameter = 6,
         // .avatar / .logo / .send: the mockup's gradients flattened to Accent; .avatar.me to TextMuted; white glyphs.
         AvatarFill = DarkAccent,
-        UserAvatarFill = Color.Rgb(0x6b, 0x7a, 0x91),
+        UserAvatarFill = DarkMuted,
         OnAccent = Color.Rgb(0xff, 0xff, 0xff),
         TextBlend = TextBlend.Linear,
         ImageIdSlot = 1,

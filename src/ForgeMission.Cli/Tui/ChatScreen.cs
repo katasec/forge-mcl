@@ -76,7 +76,8 @@ internal sealed class ChatScreen
     {
         _tiles = tiles;
         _text = text;
-        _codeBlocks = new ForgeCodeBlockRenderer(_styles.CodeBlock, tiles.CodeBlock, text, _styles.Heading);
+        _codeBlocks = new ForgeCodeBlockRenderer(_styles.CodeBlock, tiles.CodeBlock, text,
+            new HeadingStyle(_styles.CardFill, _styles.HeadingPending));
         _brandSlot.Content = new HStack(
             Image(TextKind.Brand, "forge", _styles.HeaderFill),
             Crumb(_header.Project, _header.Mission)).Spacing(_styles.BrandGapCols);
@@ -260,9 +261,9 @@ internal sealed class ChatScreen
     private HStack CardHead(string title)
     {
         Visual name = TextArt.Allows(title)
-            ? Image(TextKind.Name, title, _styles.CardImageFill)
+            ? Image(TextKind.Name, title, _styles.CardFill)
             : new TextBlock(title).Style(_styles.FallbackStrong);
-        return new HStack(Image(TextKind.Avatar, Initial(title), _styles.CardImageFill), name).Spacing(_styles.AvatarGapCols);
+        return new HStack(Image(TextKind.Avatar, Initial(title), _styles.CardFill), name).Spacing(_styles.AvatarGapCols);
     }
 
     /// <summary>Columns between the screen edge and a frame's outer edge, so its border falls in
@@ -354,7 +355,7 @@ internal sealed class ChatScreen
     /// the button's columns and a gap free.</summary>
     private ZStack ComposerWithSend()
     {
-        var send = Image(TextKind.Send, SendGlyph, _styles.CardImageFill);
+        var send = Image(TextKind.Send, SendGlyph, _styles.CardFill);
         return new ZStack(
                 new Padder(Composer) { Padding = new Thickness(0, 0, send.Image.Cols + _styles.AvatarGapCols, 0), HorizontalAlignment = Align.Stretch },
                 send.HorizontalAlignment(Align.End).VerticalAlignment(Align.End))

@@ -76,7 +76,8 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public TextBlockStyle YouLabel { get; } = Foreground(theme.TextMuted);
 
-    /// <summary>The card's text cells (and the ring's plain cells): the card surface.</summary>
+    /// <summary>The card's text cells (and the ring's plain cells), and the cells under images on a
+    /// card or the composer (names, avatars, headings, the send button): the card surface.</summary>
     public Style CardFill { get; } = Style.None.WithBackground(theme.CardSurface);
 
     /// <summary>What the card edge tiles are drawn from (Phase 56). The card's downward shadow puts
@@ -174,16 +175,12 @@ internal sealed class ForgeStyles(ForgeTheme theme)
     /// <summary>Cells under the header's images (brand, breadcrumb).</summary>
     public Style HeaderFill { get; } = Style.None.WithBackground(theme.SurfaceHeader);
 
-    /// <summary>Cells under images on a card or the composer (names, avatars, headings, send).</summary>
-    public Style CardImageFill { get; } = Style.None.WithBackground(theme.CardSurface);
-
     /// <summary>Cells under images on the screen surface (key chips, the user's avatar).</summary>
     public Style SurfaceFill { get; } = Style.None.WithBackground(theme.Surface);
 
-    /// <summary>A heading's cells, and its pending text while it streams (bold TextStrong).</summary>
-    public HeadingStyle Heading { get; } = new(
-        Style.None.WithBackground(theme.CardSurface),
-        Style.None.WithForeground(theme.TextStrong).WithBackground(theme.CardSurface) | TextStyle.Bold);
+    /// <summary>A heading's pending text while it streams: bold TextStrong on the card (its cells
+    /// use CardFill).</summary>
+    public Style HeadingPending { get; } = Style.None.WithForeground(theme.TextStrong).WithBackground(theme.CardSurface) | TextStyle.Bold;
 
     /// <summary>Text that stays terminal text where an image would show (G9): a card name or
     /// breadcrumb in another script, bold TextStrong; the breadcrumb's prefix muted.</summary>
@@ -213,7 +210,7 @@ internal sealed class ForgeStyles(ForgeTheme theme)
             t.TextBlend,
             Line(true, ForgeTheme.BrandSize, ForgeTheme.BrandTrackingEm, t.TextStrong, t.SurfaceHeader),
             Badge(ForgeTheme.LogoSize, ForgeTheme.LogoRadius, t.AvatarFill, true, ForgeTheme.LogoGlyphSize, t.SurfaceHeader),
-            ForgeTheme.LogoGap, LogoGlyph,
+            ForgeTheme.LogoGap, ForgeTheme.LogoGlyph,
             Line(false, ForgeTheme.CrumbSize, 0, t.TextMuted, t.SurfaceHeader), t.TextStrong,
             Line(false, ForgeTheme.NameSize, 0, t.TextStrong, t.CardSurface),
             Line(false, ForgeTheme.Heading1Size, ForgeTheme.HeadingTrackingEm, t.TextStrong, t.CardSurface),
@@ -225,9 +222,6 @@ internal sealed class ForgeStyles(ForgeTheme theme)
                 ForgeTheme.ChipHairline, ForgeTheme.ChipBottomHairline, t.CardSurface, t.Border),
             Badge(ForgeTheme.SendSize, ForgeTheme.SendRadius, t.AvatarFill, true, ForgeTheme.SendGlyphSize, t.CardSurface));
     }
-
-    /// <summary>The logo square's letter (.logo: "f").</summary>
-    private const string LogoGlyph = "f";
 
     private static TextBlockStyle Foreground(Color color) => TextBlockStyle.Default with { Foreground = color };
 

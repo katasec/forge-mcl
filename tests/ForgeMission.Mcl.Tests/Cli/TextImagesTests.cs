@@ -21,7 +21,6 @@ public sealed class TextImagesTests
         var other = Call(images, "Get", Request("Heading2", "Answerer"))!;
 
         Assert.Equal(2, sent.Count);
-        Assert.Equal(2, Get<int>(images, "Sent"));
         Assert.Equal(Get<uint>(first, "Id"), Get<uint>(again, "Id"));
         Assert.NotEqual(Get<uint>(first, "Id"), Get<uint>(other, "Id"));
         Assert.Equal((Get<uint>(first, "Id"), Get<int>(first, "Cols"), 1), sent[0]);

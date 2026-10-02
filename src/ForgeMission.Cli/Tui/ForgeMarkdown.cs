@@ -1,6 +1,7 @@
 using ForgeMission.Cli.Tui.Graphics;
 using Markdig;
 using Markdig.Helpers;
+using Markdig.Parsers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -35,20 +36,23 @@ internal static class ForgeMarkdown
         (kind, pending) = (TextKind.Heading2, false);
         if (fenceInfo is null || !fenceInfo.StartsWith(Marker + ":", StringComparison.Ordinal)) return false;
         var parts = fenceInfo[(Marker.Length + 1)..].Split(':');
-        kind = parts[0] switch { "1" => TextKind.Heading1, "2" => TextKind.Heading2, _ => TextKind.Heading3 };
-        pending = parts.Length > 1;
+        TextKind? level = parts[0] switch { "1" => TextKind.Heading1, "2" => TextKind.Heading2, "3" => TextKind.Heading3, _ => null };
+        if (level is null) return false;
+        (kind, pending) = (level.Value, parts.Length > 1);
         return true;
     }
 
     private static MarkdownPipeline Build(bool streaming)
     {
         var builder = new MarkdownPipelineBuilder().Configure(XenoAtomConfiguration);
-        builder.DocumentProcessed += document => RouteHeadings(document, streaming);
+        var fences = builder.BlockParsers.Find<FencedCodeBlockParser>()
+            ?? throw new InvalidOperationException("The Markdown configuration has no fenced code block parser.");
+        builder.DocumentProcessed += document => RouteHeadings(document, streaming, fences);
         return builder.Build();
     }
 
     /// <summary>Replaces every qualifying top-level heading with its marked fenced block.</summary>
-    private static void RouteHeadings(MarkdownDocument document, bool streaming)
+    private static void RouteHeadings(MarkdownDocument document, bool streaming, FencedCodeBlockParser fences)
     {
         for (var i = 0; i < document.Count; i++)
         {
@@ -56,7 +60,7 @@ internal static class ForgeMarkdown
                 continue;
             var pending = streaming && i == document.Count - 1;
             document.RemoveAt(i);
-            document.Insert(i, MarkedBlock(heading.Level, pending, text));
+            document.Insert(i, MarkedBlock(fences, heading.Level, pending, text));
         }
     }
 
@@ -76,7 +80,7 @@ internal static class ForgeMarkdown
         return text.ToString().Trim();
     }
 
-    private static FencedCodeBlock MarkedBlock(int level, bool pending, string text) => new(null!)
+    private static FencedCodeBlock MarkedBlock(FencedCodeBlockParser fences, int level, bool pending, string text) => new(fences)
     {
         Info = $"{Marker}:{level}{(pending ? ":pending" : "")}",
         FencedChar = '`',

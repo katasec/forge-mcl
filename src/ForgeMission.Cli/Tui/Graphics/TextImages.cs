@@ -30,9 +30,6 @@ internal sealed class TextImages
         _send = send;
     }
 
-    /// <summary>How many images this session has sent.</summary>
-    public int Sent { get; private set; }
-
     /// <summary>The image for <paramref name="request"/>: drawn and sent the first time, then from
     /// the cache. Only text TextArt.Allows may be asked for.</summary>
     public TextImage Get(TextImageRequest request)
@@ -42,7 +39,6 @@ internal sealed class TextImages
         var id = AssignId(Hash(_themeSlot, _cell, request), _taken.Contains);
         _taken.Add(id);
         _send(id, Png.Encode(art.Image), art.Cols, art.Rows);
-        Sent++;
         return _images[request] = new TextImage(id, art.Cols, art.Rows);
     }
 

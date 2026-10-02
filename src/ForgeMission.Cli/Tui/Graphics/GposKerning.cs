@@ -32,29 +32,23 @@ internal sealed class GposKerning
             if (lookups.Count == 0) throw new InvalidDataException("The font's GPOS table has no 'kern' feature.");
             return new GposKerning(lookups);
         }
-        catch (ArgumentOutOfRangeException)
+        catch (Exception bad) when (bad is ArgumentOutOfRangeException or OverflowException)
         {
-            throw new InvalidDataException("The font's GPOS table points outside the font.");
+            throw new InvalidDataException("The font's GPOS table points outside the font.", bad);
         }
     }
 
     /// <summary>The x-advance adjustment, in font units, between glyph <paramref name="left"/> and
     /// the glyph <paramref name="right"/> that follows it.</summary>
-    public int Adjust(int left, int right)
+    public int Adjust(int left, int right) => _lookups.Sum(lookup => FirstApplying(lookup, left, right));
+
+    /// <summary>The value of the first subtable in <paramref name="lookup"/> that applies to the
+    /// pair, or 0 when none does.</summary>
+    private static int FirstApplying(IReadOnlyList<PairSubtable> lookup, int left, int right)
     {
-        var total = 0;
-        foreach (var lookup in _lookups)
-        {
-            foreach (var subtable in lookup)
-            {
-                if (subtable.TryAdjust(left, right, out var value))
-                {
-                    total += value;
-                    break;
-                }
-            }
-        }
-        return total;
+        foreach (var subtable in lookup)
+            if (subtable.TryAdjust(left, right, out var value)) return value;
+        return 0;
     }
 
     // ── Font structure ───────────────────────────────────────────────────────────────────────
@@ -148,46 +142,60 @@ internal sealed class GposKerning
     }
 
     /// <summary>Glyph → coverage index.</summary>
-    private static Dictionary<int, int> ReadCoverage(Reader table)
+    private static Dictionary<int, int> ReadCoverage(Reader table) => table.U16(0) switch
+    {
+        1 => CoverageList(table),
+        2 => CoverageRanges(table),
+        var format => throw new InvalidDataException($"Coverage format {format} is not supported."),
+    };
+
+    /// <summary>Coverage format 1: a list of glyphs; the index is the position.</summary>
+    private static Dictionary<int, int> CoverageList(Reader table)
     {
         var map = new Dictionary<int, int>();
-        switch (table.U16(0))
+        for (var i = 0; i < table.U16(2); i++) map[table.U16(4 + 2 * i)] = i;
+        return map;
+    }
+
+    /// <summary>Coverage format 2: glyph ranges, each with the index of its first glyph.</summary>
+    private static Dictionary<int, int> CoverageRanges(Reader table)
+    {
+        var map = new Dictionary<int, int>();
+        for (var i = 0; i < table.U16(2); i++)
         {
-            case 1:
-                for (var i = 0; i < table.U16(2); i++) map[table.U16(4 + 2 * i)] = i;
-                return map;
-            case 2:
-                for (var i = 0; i < table.U16(2); i++)
-                {
-                    var range = 4 + 6 * i;
-                    int start = table.U16(range), end = table.U16(range + 2), index = table.U16(range + 4);
-                    for (var glyph = start; glyph <= end; glyph++) map[glyph] = index + glyph - start;
-                }
-                return map;
-            default:
-                throw new InvalidDataException($"Coverage format {table.U16(0)} is not supported.");
+            var range = 4 + 6 * i;
+            int start = table.U16(range), end = table.U16(range + 2), index = table.U16(range + 4);
+            for (var glyph = start; glyph <= end; glyph++) map[glyph] = index + glyph - start;
         }
+        return map;
     }
 
     /// <summary>Glyph → class; a glyph not listed is class 0.</summary>
-    private static Dictionary<int, int> ReadClassDef(Reader table)
+    private static Dictionary<int, int> ReadClassDef(Reader table) => table.U16(0) switch
+    {
+        1 => ClassArray(table),
+        2 => ClassRanges(table),
+        var format => throw new InvalidDataException($"ClassDef format {format} is not supported."),
+    };
+
+    /// <summary>ClassDef format 1: one class per glyph from a start glyph.</summary>
+    private static Dictionary<int, int> ClassArray(Reader table)
     {
         var map = new Dictionary<int, int>();
-        switch (table.U16(0))
+        for (var i = 0; i < table.U16(4); i++) map[table.U16(2) + i] = table.U16(6 + 2 * i);
+        return map;
+    }
+
+    /// <summary>ClassDef format 2: glyph ranges, each with one class.</summary>
+    private static Dictionary<int, int> ClassRanges(Reader table)
+    {
+        var map = new Dictionary<int, int>();
+        for (var i = 0; i < table.U16(2); i++)
         {
-            case 1:
-                for (var i = 0; i < table.U16(4); i++) map[table.U16(2) + i] = table.U16(6 + 2 * i);
-                return map;
-            case 2:
-                for (var i = 0; i < table.U16(2); i++)
-                {
-                    var range = 4 + 6 * i;
-                    for (var glyph = table.U16(range); glyph <= table.U16(range + 2); glyph++) map[glyph] = table.U16(range + 4);
-                }
-                return map;
-            default:
-                throw new InvalidDataException($"ClassDef format {table.U16(0)} is not supported.");
+            var range = 4 + 6 * i;
+            for (var glyph = table.U16(range); glyph <= table.U16(range + 2); glyph++) map[glyph] = table.U16(range + 4);
         }
+        return map;
     }
 
     /// <summary>Bytes in a value record: two per field present (device-table offsets included).</summary>

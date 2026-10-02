@@ -112,14 +112,15 @@ internal sealed unsafe class GlyphText
         AddCoverage(mask, width, height, bitmap, w, h, (int)Math.Floor(x) + x0, baseline + y0);
     }
 
+    /// <summary>Adds a glyph bitmap placed at (ox, oy) to the mask, clipped to the mask.</summary>
     private static void AddCoverage(float[] mask, int width, int height, byte[] glyph, int w, int h, int ox, int oy)
     {
-        for (var gy = 0; gy < h; gy++)
-        for (var gx = 0; gx < w; gx++)
+        int x0 = Math.Max(0, -ox), x1 = Math.Min(w, width - ox);
+        int y0 = Math.Max(0, -oy), y1 = Math.Min(h, height - oy);
+        for (var gy = y0; gy < y1; gy++)
+        for (var gx = x0; gx < x1; gx++)
         {
-            int px = ox + gx, py = oy + gy;
-            if (px < 0 || py < 0 || px >= width || py >= height) continue;
-            var i = py * width + px;
+            var i = (oy + gy) * width + ox + gx;
             mask[i] = Math.Min(1f, mask[i] + glyph[gy * w + gx] / 255f);
         }
     }

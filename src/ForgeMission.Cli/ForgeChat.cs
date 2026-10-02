@@ -90,7 +90,7 @@ public static class ForgeChat
 
         try
         {
-            return await ChatInDefaultProjectAsync(app, ModeFor(hands), interactive, theme, fonts);
+            return await ChatInDefaultProjectAsync(app, ModeFor(hands), theme, fonts);
         }
         catch (ChatStoppedException stopped)
         {
@@ -133,9 +133,11 @@ public static class ForgeChat
     /// <summary>Opens the default Project, gates hands on the one-time approval, makes sure the
     /// mode's mission is published, opens its conversation, attaches hands, and runs the chat:
     /// the TUI on a terminal, otherwise the line mode.</summary>
-    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, bool interactive,
-        ForgeTheme theme, TextFonts? fonts)
+    /// <remarks><paramref name="tuiFonts"/> is null in the line mode and the TUI's loaded fonts on a terminal.</remarks>
+    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, ForgeTheme theme,
+        TextFonts? tuiFonts)
     {
+        var interactive = tuiFonts is not null;
         var session = await OpenDefaultProjectAsync(app.Projects);
         if (mode.HasHands && !await HandsAllowedAsync(app.MissionConversations, session, interactive))
             return 1;
@@ -145,12 +147,12 @@ public static class ForgeChat
         await using var hands = mode.HasHands
             ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversationId, mission)
             : null;
-        if (!interactive || fonts is null)
+        if (tuiFonts is null)
             return await ChatAsync(app.MissionConversations, conversationId, hands);
 
         var header = new ChatHeader(Path.GetFileName(session.Project.Home), mode.MissionName, version, ChatProfile(mode),
             Environment.UserName);
-        if (await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, fonts, hands) == TuiExit.Quit)
+        if (await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, tuiFonts, hands) == TuiExit.Quit)
             return 0;
         Console.Error.WriteLine(NeedsImagesMessage);
         return 1;
