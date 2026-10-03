@@ -733,6 +733,7 @@ public sealed class ChatTranscriptTests
         ]));
         var fake = (StreamingConversations)service;
         fake.LastSequence = 6;
+        fake.ReplayGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         object? link = null;
         bool? readyDuringCatchUp = null;
         link = Link(service, inFlight: () => running, out _, out _, show: e =>
@@ -745,7 +746,11 @@ public sealed class ChatTranscriptTests
         Assert.False(Ready(link));
 
         // Send waits for the wake (the catch-up) before it applies the send rule.
-        await Wake(link);
+        var wake = Wake(link);
+        Assert.False(wake.IsCompleted);
+        Assert.False(Ready(link));
+        fake.ReplayGate.SetResult();
+        await wake;
 
         Assert.False(readyDuringCatchUp);
         Assert.True(Ready(link));
@@ -857,7 +862,7 @@ public sealed class ChatTranscriptTests
             if (targetMethod?.Name == "GetConversationAsync") return Snapshot();
             if (targetMethod?.Name != "StreamEventsAsync") throw new NotSupportedException(targetMethod?.Name);
             Requests.Add(((long)args![1]!, (bool)args[2]!));
-            return Serve(Connections.Dequeue());
+            return Serve(Connections.Dequeue(), (bool)args[2]!);
         }
 
         /// <summary>The conversation's last stored sequence, as <c>GetConversationAsync</c> reports it;
@@ -889,10 +894,12 @@ public sealed class ChatTranscriptTests
         public static readonly ConversationEvent[] Held = new ConversationEvent[0];
 
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource? ReplayGate { get; set; }
 
-        private async IAsyncEnumerable<ConversationEvent> Serve(ConversationEvent[] events)
+        private async IAsyncEnumerable<ConversationEvent> Serve(ConversationEvent[] events, bool includeDeltas)
         {
             await Task.Yield();
+            if (!includeDeltas && ReplayGate is { } gate) await gate.Task;
             if (ReferenceEquals(events, Held)) await Release.Task;
             if (ReferenceEquals(events, Broken)) throw new IOException("connection reset");
             if (ReferenceEquals(events, TimedOut)) throw new TaskCanceledException("The request timed out.", new TimeoutException());
