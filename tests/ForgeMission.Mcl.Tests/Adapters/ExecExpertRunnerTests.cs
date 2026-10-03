@@ -92,7 +92,7 @@ public class ExecExpertRunnerTests : IDisposable
     [SkippableFact]
     public async Task RunAsync_InvalidJson_ThrowsExpertLoadException()
     {
-        var script  = Script("print('not json')\n");
+        var script  = Script("import sys\nsys.stdin.read()\nprint('not json')\n");
         var runner  = new ExecExpertRunner();
         var expert  = ExecExpert(script);
         var context = new Dictionary<string, object> { ["input"] = "x" };
