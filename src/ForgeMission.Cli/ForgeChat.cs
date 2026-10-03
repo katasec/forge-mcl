@@ -30,12 +30,13 @@ public static class ForgeChat
     // Unchanged since 53.2: an existing default Project must keep resolving and opening as before.
     private const string ProjectGoal = "Chat with Janus from the forge CLI.";
     private const string HandsFlag = "--hands";
+    private const string ProjectFlag = "--project";
     private static readonly TimeSpan EvaluationPollDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromMilliseconds(250);
     private const string NeedsImagesMessage = "forge chat needs a terminal that can show images, such as Ghostty or Kitty " +
         "(not inside tmux). Open forge chat again from one of those.";
 
-    /// <summary>The <c>forge chat</c> command and its one flag.</summary>
+    /// <summary>The <c>forge chat</c> command and its flags.</summary>
     internal static Command BuildCommand()
     {
         var cmd = new Command("chat", "Chat in your default Forge project (--hands: let it read and edit files there)");
@@ -43,11 +44,15 @@ public static class ForgeChat
         {
             Description = "Let the model read, write and edit files in the chat project folder (asks once per project)",
         });
-        cmd.SetAction(async result => await RunAsync(Hands(result)));
+        cmd.Add(new Option<string?>(ProjectFlag)
+        {
+            Description = "Chat in the Project at this folder instead of the default one",
+        });
+        cmd.SetAction(async result => await RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag)));
         return cmd;
     }
 
-    public static async Task<int> RunAsync(bool hands)
+    public static async Task<int> RunAsync(bool hands, string? projectFolder)
     {
         // Read before any network call, on both paths: a bad config stops here either way.
         ForgeTheme theme;
@@ -90,7 +95,7 @@ public static class ForgeChat
 
         try
         {
-            return await ChatInDefaultProjectAsync(app, ModeFor(hands), theme, fonts);
+            return await ChatInProjectAsync(app, ModeFor(hands), projectFolder, theme, fonts);
         }
         catch (ChatStoppedException stopped)
         {
@@ -130,15 +135,15 @@ public static class ForgeChat
         return 1;
     }
 
-    /// <summary>Opens the default Project, gates hands on the one-time approval, makes sure the
+    /// <summary>Opens the Project, gates hands on the one-time approval, makes sure the
     /// mode's mission is published, opens its conversation, attaches hands, and runs the chat:
     /// the TUI on a terminal, otherwise the line mode.</summary>
     /// <remarks><paramref name="tuiFonts"/> is null in the line mode and the TUI's loaded fonts on a terminal.</remarks>
-    private static async Task<int> ChatInDefaultProjectAsync(ApplicationComposition app, ChatMode mode, ForgeTheme theme,
-        TextFonts? tuiFonts)
+    private static async Task<int> ChatInProjectAsync(ApplicationComposition app, ChatMode mode, string? projectFolder,
+        ForgeTheme theme, TextFonts? tuiFonts)
     {
         var interactive = tuiFonts is not null;
-        var session = await OpenDefaultProjectAsync(app.Projects);
+        var session = await OpenProjectAsync(app.Projects, projectFolder);
         if (mode.HasHands && !await HandsAllowedAsync(app.MissionConversations, session, interactive))
             return 1;
 
@@ -160,12 +165,11 @@ public static class ForgeChat
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>The default Project lives at the home a draft proposes for its title, under Forge's
-    /// own projects root. Open it; create it there only when that directory does not exist.</summary>
-    private static async Task<ProjectSession> OpenDefaultProjectAsync(IProjectService projects)
+    /// <summary>The Project lives at --project's folder, or else at the home a draft proposes for its
+    /// title, under Forge's own projects root. Open it; create it there only when that directory does not exist.</summary>
+    private static async Task<ProjectSession> OpenProjectAsync(IProjectService projects, string? folder)
     {
-        var draft = await projects.DraftAsync(new ProjectDraftRequest(ProjectGoal, ProjectTitle), CancellationToken.None);
-        var home = draft.Draft?.HomePath ?? throw Stopped(draft.Error);
+        var home = folder is null ? await DefaultHomeAsync(projects) : Path.GetFullPath(folder);
 
         var opened = await projects.OpenAsync(new ProjectOpenRequest(home), CancellationToken.None);
         if (opened.Error?.Code == ProjectOperationErrorCode.HomeNotFound)
@@ -176,6 +180,12 @@ public static class ForgeChat
         var session = opened.Session ?? throw Stopped(opened.Error);
         Console.WriteLine($"Project: {session.Project.Home}");
         return session;
+    }
+
+    private static async Task<string> DefaultHomeAsync(IProjectService projects)
+    {
+        var draft = await projects.DraftAsync(new ProjectDraftRequest(ProjectGoal, ProjectTitle), CancellationToken.None);
+        return draft.Draft?.HomePath ?? throw Stopped(draft.Error);
     }
 
     // ── Mission ─────────────────────────────────────────────────────────────────────────────
