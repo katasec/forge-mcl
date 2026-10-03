@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.AI;
 
 namespace ForgeMission.Core.Runtime;
@@ -49,7 +50,7 @@ internal sealed record PipelineContinuationCheckpoint(
     IReadOnlyList<string> MissionPath,
     string ExpertName,
     int Attempt,
-    PipelineToolCall ToolCall,
+    IReadOnlyList<ChatMessage> TurnMessages,
     IReadOnlyDictionary<string, string> RootInputs,
     IReadOnlyList<PipelineExecutionFrame> Frames);
 
@@ -81,27 +82,43 @@ internal partial class PipelineContinuationJsonContext : JsonSerializerContext;
 
 internal static class PipelineCheckpointCodec
 {
+    // MEAI's own AOT-safe metadata covers the turn's ChatMessages (tool calls and results); this
+    // context covers the checkpoint around them.
+    private static readonly JsonTypeInfo<PipelineContinuationCheckpoint> CheckpointInfo = CreateCheckpointInfo();
+
+    internal static string Write(PipelineContinuationCheckpoint checkpoint) =>
+        JsonSerializer.Serialize(checkpoint, CheckpointInfo);
+
     internal static bool TryRead(PipelineContinuation continuation, out PipelineContinuationCheckpoint checkpoint)
     {
         checkpoint = null!;
         if (continuation.FormatVersion != 1) return false;
         try
         {
-            checkpoint = JsonSerializer.Deserialize(continuation.Payload,
-                PipelineContinuationJsonContext.Default.PipelineContinuationCheckpoint)!;
+            checkpoint = JsonSerializer.Deserialize(continuation.Payload, CheckpointInfo)!;
             return checkpoint is not null && checkpoint.FormatVersion == 1
-                && !string.IsNullOrWhiteSpace(checkpoint.SessionId);
+                && !string.IsNullOrWhiteSpace(checkpoint.SessionId)
+                && checkpoint.TurnMessages is { Count: > 0 }
+                && checkpoint.TurnMessages[^1].Contents.OfType<FunctionCallContent>().Count() == 1;
         }
         catch (JsonException) { return false; }
     }
-}
 
-// Provider-neutral in-memory instruction used only between PipelineRunner and DirectExpertRunner.
-internal sealed record PipelineProviderToolTurn(
-    FunctionCallContent FunctionCall,
-    PipelineToolResult? Result = null);
+    /// <summary>The call the checkpoint waits on: the turn's last message holds exactly one.</summary>
+    internal static FunctionCallContent PendingCall(PipelineContinuationCheckpoint checkpoint) =>
+        checkpoint.TurnMessages[^1].Contents.OfType<FunctionCallContent>().Single();
+
+    private static JsonTypeInfo<PipelineContinuationCheckpoint> CreateCheckpointInfo()
+    {
+        var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions);
+        options.TypeInfoResolverChain.Insert(0, new PipelineContinuationJsonContext(new JsonSerializerOptions()));
+        return (JsonTypeInfo<PipelineContinuationCheckpoint>)options.GetTypeInfo(typeof(PipelineContinuationCheckpoint));
+    }
+}
 
 internal static class PipelineToolContinuationInstructions
 {
-    public const string ProviderToolTurn = "__pipeline_provider_tool_turn";
+    /// <summary>The resumed agent step's tool calls and results so far, in provider order; set only
+    /// by PipelineRunner, added after the step's own input by DirectExpertRunner.</summary>
+    public const string TurnMessages = "__pipeline_tool_turn_messages";
 }

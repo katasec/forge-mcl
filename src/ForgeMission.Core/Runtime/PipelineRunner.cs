@@ -114,8 +114,9 @@ public class PipelineRunner
             return new MissionResult(string.Empty, string.Empty, MissionStatus.Fail,
                 PipelineFailure.InvalidContinuation.ToString(), Failure: PipelineFailure.InvalidContinuation);
 
-        if (!string.Equals(checkpoint.ToolCall.CallId, request.Result.CallId, StringComparison.Ordinal)
-            || !checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, checkpoint.ToolCall.Name, StringComparison.Ordinal)))
+        var pending = PipelineCheckpointCodec.PendingCall(checkpoint);
+        if (!string.Equals(pending.CallId, request.Result.CallId, StringComparison.Ordinal)
+            || !checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, pending.Name, StringComparison.Ordinal)))
             return new MissionResult(checkpoint.RootMissionName, string.Empty, MissionStatus.Fail,
                 PipelineFailure.InvalidContinuation.ToString(), Failure: PipelineFailure.InvalidContinuation);
 
@@ -593,24 +594,6 @@ public class PipelineRunner
             call.Name,
             ToolArgumentsToJsonElement(call.Arguments))).ToList();
 
-    private static IDictionary<string, object?> JsonToArguments(JsonElement arguments)
-    {
-        if (arguments.ValueKind != JsonValueKind.Object) return new Dictionary<string, object?>();
-        return arguments.EnumerateObject().ToDictionary(property => property.Name,
-            property => JsonArgumentValue(property.Value), StringComparer.Ordinal);
-    }
-
-    private static object? JsonArgumentValue(JsonElement value) => value.ValueKind switch
-    {
-        JsonValueKind.String => value.GetString(),
-        JsonValueKind.True => true,
-        JsonValueKind.False => false,
-        JsonValueKind.Number when value.TryGetInt64(out var integer) => integer,
-        JsonValueKind.Number => value.GetDouble(),
-        JsonValueKind.Null => null,
-        _ => value.Clone(),
-    };
-
     private static JsonElement ToolArgumentsToJsonElement(IDictionary<string, object?>? arguments)
     {
         var buffer = new ArrayBufferWriter<byte>();
@@ -904,10 +887,12 @@ public class PipelineRunner
                 // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
                 context[PipelineRuntimeInstructions.AllowMultipleToolCalls] = false;
             }
+            IReadOnlyList<ChatMessage> turn = [];
             if (frame.ResumePausedAgent)
             {
                 if (_resumeCheckpoint is null || _resumeResult is null) return Failure(PipelineFailure.InvalidContinuation);
-                context[PipelineToolContinuationInstructions.ProviderToolTurn] = ProviderTurn(_resumeCheckpoint, _resumeResult);
+                turn = ResumedTurn(_resumeCheckpoint, _resumeResult);
+                context[PipelineToolContinuationInstructions.TurnMessages] = turn;
                 frame.ResumePausedAgent = false;
             }
 
@@ -944,7 +929,7 @@ public class PipelineRunner
                 if (!_declarations.Any(d => d.Name == call.Name)) return Failure(PipelineFailure.UnsupportedTool);
                 frame.ResumePausedAgent = true;
                 await Trace(new PipelineRootToolCheckpointed(_options.MissionName, Path(), step.ExpertName, expert.Kind, frame.Attempt, call));
-                return Pause(frame, step.ExpertName, call, context);
+                return Pause(frame, step.ExpertName, call, [.. turn, new ChatMessage(ChatRole.Assistant, [.. calls])]);
             }
 
             // Set only once the step did not pause: a paused step's checkpoint keeps its original
@@ -964,15 +949,17 @@ public class PipelineRunner
             return context;
         }
 
-        private MissionResult Pause(Frame frame, string expertName, PipelineToolCall call, Dictionary<string, object> context)
+        // The checkpoint keeps the step's whole tool turn, as providers expect it resent: every earlier
+        // call and result, ending with the pending call.
+        private MissionResult Pause(Frame frame, string expertName, PipelineToolCall call, IReadOnlyList<ChatMessage> turn)
         {
             var snapshot = _frames.Select(frame => frame.ToCheckpoint()).ToList();
             var ordinal = ++_nextContinuationOrdinal;
             _owner.RegisterIssuedContinuation(_rootExecutionId, ordinal);
             var checkpoint = new PipelineContinuationCheckpoint(CheckpointVersion, Guid.NewGuid().ToString("N"), _rootExecutionId, ordinal,
                 _options.MissionName, _definitionFingerprint, _fingerprint, _declarations, Path(), expertName,
-                frame.Attempt, call, _rootInputs, snapshot);
-            var payload = JsonSerializer.Serialize(checkpoint, PipelineContinuationJsonContext.Default.PipelineContinuationCheckpoint);
+                frame.Attempt, turn, _rootInputs, snapshot);
+            var payload = PipelineCheckpointCodec.Write(checkpoint);
             var pause = new PipelineToolPause(_options.MissionName, Path(), expertName, frame.Attempt, call,
                 new PipelineContinuation(CheckpointVersion, payload));
             return new MissionResult(_options.MissionName, string.Empty, MissionStatus.Pass, Attempts: frame.Attempt, Pause: pause);
@@ -1109,9 +1096,14 @@ public class PipelineRunner
             if (tool is not AIFunction function) throw new InvalidOperationException($"Root tool '{tool.Name}' must be an AIFunction declaration.");
             return new PipelineToolDeclaration(function.Name, function.Description ?? string.Empty, function.JsonSchema.Clone());
         }
-        private static PipelineProviderToolTurn ProviderTurn(PipelineContinuationCheckpoint checkpoint, PipelineToolResult result) => new(
-            new FunctionCallContent(checkpoint.ToolCall.CallId,
-                checkpoint.ToolCall.Name, JsonToArguments(checkpoint.ToolCall.Arguments)), result);
+        private static IReadOnlyList<ChatMessage> ResumedTurn(PipelineContinuationCheckpoint checkpoint, PipelineToolResult result) =>
+            [.. checkpoint.TurnMessages, new ChatMessage(ChatRole.Tool, [new FunctionResultContent(result.CallId, ToolResultText(result))])];
+
+        private static string ToolResultText(PipelineToolResult result) => result.Status switch
+        {
+            PipelineToolResultStatus.Succeeded => result.Content ?? string.Empty,
+            _ => $"ERROR [{result.Status}]: {result.Content ?? "Tool did not complete."}",
+        };
 
         private sealed class Frame(string missionName, int elementIndex, int attempt, Dictionary<string, string> context,
             Dictionary<string, string> initialContext)

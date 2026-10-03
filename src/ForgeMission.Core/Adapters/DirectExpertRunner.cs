@@ -52,19 +52,7 @@ Or on failure:
         CancellationToken ct = default)
     {
         var (messages, systemPrompt) = BuildMessages(expert, context);
-        if (context.TryGetValue(PipelineToolContinuationInstructions.ProviderToolTurn, out var pending)
-            && pending is PipelineProviderToolTurn providerTurn
-            && providerTurn.Result is not null)
-        {
-            context.Remove(PipelineToolContinuationInstructions.ProviderToolTurn);
-            // A durable continuation intentionally restores declaration/runtime state, not a
-            // provider transcript. Rebuild the stable expert prompt, then provide only the
-            // correlated tool call/result pair that the provider protocol requires.
-            messages.Add(new ChatMessage(ChatRole.Assistant, [providerTurn.FunctionCall]));
-            messages.Add(new ChatMessage(ChatRole.Tool,
-                [new FunctionResultContent(providerTurn.FunctionCall.CallId,
-                    ToolResultText(providerTurn.Result))]));
-        }
+        AddToolTurn(messages, context);
         // Non-generic call with an explicit closed schema (see _stepFormat) rather than
         // GetResponseAsync<StepEnvelope>, whose derived schema is rejected by Anthropic. Deserialize
         // via the source-gen context (AOT-safe); fall back to the raw text if the model returns
@@ -100,12 +88,6 @@ Or on failure:
         if (toolCalls is { Count: > 0 })
         {
             context["tool_calls"] = toolCalls;
-            // Retain only the provider-visible first turn and exact call. PipelineRunner replaces
-            // the result after the external owner correlates it; neither object enters the opaque
-            // continuation payload.
-            if (toolCalls.Count == 1)
-                context[PipelineToolContinuationInstructions.ProviderToolTurn] =
-                    new PipelineProviderToolTurn(toolCalls[0]);
             var text = response.Messages.LastOrDefault()?.Contents
                 .OfType<TextContent>().Select(c => c.Text).FirstOrDefault() ?? string.Empty;
             return new StepEnvelope(text);
@@ -126,28 +108,13 @@ Or on failure:
         return expert.IsJudge ? envelope : envelope with { Status = "pass", Reason = null };
     }
 
-    private static string ToolResultText(PipelineToolResult result) => result.Status switch
-    {
-        PipelineToolResultStatus.Succeeded => result.Content ?? string.Empty,
-        _ => $"ERROR [{result.Status}]: {result.Content ?? "Tool did not complete."}",
-    };
-
     public async IAsyncEnumerable<string> StreamAsync(
         ExpertDefinition expert,
         Dictionary<string, object> context,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var (messages, systemPrompt) = BuildMessages(expert, context);
-        if (context.TryGetValue(PipelineToolContinuationInstructions.ProviderToolTurn, out var pending)
-            && pending is PipelineProviderToolTurn providerTurn
-            && providerTurn.Result is not null)
-        {
-            context.Remove(PipelineToolContinuationInstructions.ProviderToolTurn);
-            messages.Add(new ChatMessage(ChatRole.Assistant, [providerTurn.FunctionCall]));
-            messages.Add(new ChatMessage(ChatRole.Tool,
-                [new FunctionResultContent(providerTurn.FunctionCall.CallId,
-                    ToolResultText(providerTurn.Result))]));
-        }
+        AddToolTurn(messages, context);
 
         var options = new ChatOptions();
         IList<AITool>? tools = null;
@@ -182,12 +149,16 @@ Or on failure:
         var response = ChatResponseExtensions.ToChatResponse(updates);
         var toolCalls = response.Messages.LastOrDefault()?.Contents.OfType<FunctionCallContent>().ToList();
         if (toolCalls is { Count: > 0 })
-        {
             context["tool_calls"] = toolCalls;
-            if (toolCalls.Count == 1)
-                context[PipelineToolContinuationInstructions.ProviderToolTurn] =
-                    new PipelineProviderToolTurn(toolCalls[0]);
-        }
+    }
+
+    // A resumed agent step: every tool call and result so far in this turn follows the step's own
+    // input, as the provider protocol expects the conversation resent.
+    private static void AddToolTurn(List<ChatMessage> messages, Dictionary<string, object> context)
+    {
+        if (context.Remove(PipelineToolContinuationInstructions.TurnMessages, out var turn)
+            && turn is IReadOnlyList<ChatMessage> turnMessages)
+            messages.AddRange(turnMessages);
     }
 
     private static (List<ChatMessage> messages, string systemPrompt) BuildMessages(
