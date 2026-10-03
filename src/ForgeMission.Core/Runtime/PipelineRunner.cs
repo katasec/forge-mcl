@@ -898,7 +898,12 @@ public class PipelineRunner
             foreach (var (key, value) in Bindings(step, frame.Context)) frame.Context[key] = value;
             RecordEnvironmentBindings(frame, step);
             var context = StepContext(frame);
-            if (expert.IsAgent) context["tools"] = _tools;
+            if (expert.IsAgent)
+            {
+                context["tools"] = _tools;
+                // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
+                context[PipelineRuntimeInstructions.AllowMultipleToolCalls] = false;
+            }
             if (frame.ResumePausedAgent)
             {
                 if (_resumeCheckpoint is null || _resumeResult is null) return Failure(PipelineFailure.InvalidContinuation);

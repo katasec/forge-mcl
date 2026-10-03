@@ -306,6 +306,22 @@ public sealed class AgentToolPipelineTests
         Assert.Equal(MissionStatus.Pass, completed.Status);
     }
 
+    // Phase 61: the root-scoped pause holds exactly one tool call, so the agent call asks the
+    // provider for one tool call per assistant turn.
+    [Fact]
+    public async Task RootScopedAgent_AsksProviderForOneToolCall()
+    {
+        var ast = MclParser.Parse("mission Root = { Respond }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+        { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
+        var client = new ContinuationClient();
+
+        await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
+            new PipelineRunOptions("Root", RootTools: ClientTools()));
+
+        Assert.False(Assert.Single(client.Calls).Options?.AllowMultipleToolCalls);
+    }
+
     [Fact]
     public async Task RootScopedToolPause_RejectsUnsupportedAndMultipleCalls_BeforeResume()
     {

@@ -70,6 +70,34 @@ public sealed class ChatClientsTests
         Assert.Equal(4096, body.GetProperty("max_tokens").GetInt32());
     }
 
+    // Phase 61: tryAGI.Anthropic ignores AllowMultipleToolCalls; read off the wire, a one-call
+    // request carries tool_choice.disable_parallel_tool_use on both call paths.
+    [Fact]
+    public async Task Anthropic_OneToolCall_SendsDisableParallelToolUse()
+    {
+        var body = await CaptureAnthropicRequestAsync(client =>
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")], OneToolCallOptions()));
+
+        Assert.True(body.GetProperty("tool_choice").GetProperty("disable_parallel_tool_use").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Anthropic_OneToolCall_Streaming_SendsDisableParallelToolUse()
+    {
+        var body = await CaptureAnthropicRequestAsync(async client =>
+        {
+            await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hi")], OneToolCallOptions()))
+            {
+            }
+        });
+
+        Assert.True(body.GetProperty("tool_choice").GetProperty("disable_parallel_tool_use").GetBoolean());
+    }
+
+    private static ChatOptions OneToolCallOptions() => new() { Tools = [ReadTool()], AllowMultipleToolCalls = false };
+
+    private static AITool ReadTool() => AIFunctionFactory.Create((string path) => "", "Read", "Reads a file");
+
     // Phase 58 (D6 layer 2): a step with durable chat history reaches the provider as real roles —
     // system in its own slot, alternating user/assistant turns, the step input last, placeholder
     // replies kept, and no role-labelled transcript text inside any message.
