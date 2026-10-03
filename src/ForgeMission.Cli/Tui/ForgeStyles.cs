@@ -218,6 +218,13 @@ internal sealed class ForgeStyles(ForgeTheme theme)
     /// <summary>A key-hint label beside its chip: muted, on the screen surface.</summary>
     public TextBlockStyle KeyLabel { get; } = Foreground(theme.TextMuted);
 
+    /// <summary>The start page's rows (Phase 60): the selected row in the accent on the selection fill.</summary>
+    public OptionListStyle StartRows { get; } = OptionListStyle.Default with
+    {
+        SelectedFocused = Style.None.WithForeground(theme.Accent).WithBackground(theme.Selection),
+        SelectedUnfocused = Style.None.WithForeground(theme.Accent).WithBackground(theme.Selection),
+    };
+
     private static TextArtStyle BuildTextArt(ForgeTheme t)
     {
         LineLook Line(bool bold, double size, double tracking, Color text, Color background) => new(bold, size, tracking, text, background);
