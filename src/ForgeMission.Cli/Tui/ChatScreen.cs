@@ -255,15 +255,15 @@ internal sealed class ChatScreen
         switch (block)
         {
             case YouBlock you:
-                _flow.Items.Add(YouItem(you.Text));
+                _flow.Items.Add(YouItem(you.Text, you.Sent));
                 return BlockView.None;
             case PendingYouBlock pending:
-                _flow.Items.Add(YouItem(pending.Text));
+                _flow.Items.Add(YouItem(pending.Text, pending.Sent));
                 return BlockView.None;
             case PendingReplyBlock:
                 return AppendCard(null);
             case ParticipantCard card:
-                return AppendCard(card.Title);
+                return AppendCard(card);
             case NoticeLine notice:
                 _flow.Items.Add(LineItem(notice.Text, _styles.Notice));
                 return BlockView.None;
@@ -280,13 +280,13 @@ internal sealed class ChatScreen
         }
     }
 
-    /// <summary>A reply card (<paramref name="title"/> null while pending) with its body's overlays.</summary>
-    private BlockView AppendCard(string? title)
+    /// <summary>A reply card (<paramref name="card"/> null while pending) with its body's overlays.</summary>
+    private BlockView AppendCard(ParticipantCard? card)
     {
         var body = CardBody();
         var motion = new CardMotion(new FadeIn(_clock), new StreamCaret(_styles.StreamCaret, _clock), Links.NewProbe());
         var layers = new ZStack(body, motion.Fade, motion.Probe, motion.Caret).HorizontalAlignment(Align.Stretch);
-        _flow.Items.Add(CardItem(title, layers));
+        _flow.Items.Add(CardItem(card, layers));
         return new BlockView(body, motion, null);
     }
 
@@ -305,17 +305,18 @@ internal sealed class ChatScreen
     /// the user ring. The frame chooses at layout, so a window resize can switch it. The label and
     /// the user's avatar sit in a column kept free beside the frame, centred on it, so a wrapping
     /// message never covers them. The message is at most UserMaxWidthPercent of the transcript wide
-    /// and never left of the gutter.</summary>
-    private DocumentFlowItem YouItem(string text)
+    /// and never left of the gutter. The label carries the time it was sent (Phase 59).</summary>
+    private DocumentFlowItem YouItem(string text, DateTimeOffset sent)
     {
+        var label = $"{YouLabel} · {Transcript.TimeOf(sent)}";
         var avatar = Image(TextKind.UserAvatar, Initial(_header.User), _styles.SurfaceFill);
-        var side = new HStack(new TextBlock(YouLabel).Style(_styles.YouLabel), avatar).Spacing(_styles.AvatarGapCols);
+        var side = new HStack(new TextBlock(label).Style(_styles.YouLabel), avatar).Spacing(_styles.AvatarGapCols);
         return new DocumentFlowItem
         {
             Content = new FlowDocument().Add(new ZStack(
                     new Padder(TileFrame.OneLineOr(Text(text, _styles.UserText), _tiles!.UserCaps, _tiles.UserRing, _styles.UserFill, Align.End))
                     {
-                        Padding = new Thickness(0, 0, YouLabel.Length + _styles.AvatarGapCols + avatar.Image.Cols + 1, 0),
+                        Padding = new Thickness(0, 0, label.Length + _styles.AvatarGapCols + avatar.Image.Cols + 1, 0),
                         HorizontalAlignment = Align.End,
                     },
                     side.HorizontalAlignment(Align.End).VerticalAlignment(Align.Center))
@@ -350,29 +351,31 @@ internal sealed class ChatScreen
         return true;
     }
 
-    /// <summary>A reply card; <paramref name="title"/> is null while no participant has started.
+    /// <summary>A reply card; <paramref name="card"/> is null while no participant has started.
     /// The whole card is one block (its frame, with the hover edge), after a blank gap row, inset
     /// by the gutter so the frame's border falls in the transcript's gutter column.</summary>
-    private DocumentFlowItem CardItem(string? title, Visual body) => new()
+    private DocumentFlowItem CardItem(ParticipantCard? card, Visual body) => new()
     {
-        Content = new FlowDocument().Add(TileFrame.WithHover(CardContent(title, body), _tiles!.Card, _tiles.CardHover, _styles.CardFill, Align.Stretch)),
+        Content = new FlowDocument().Add(TileFrame.WithHover(CardContent(card, body), _tiles!.Card, _tiles.CardHover, _styles.CardFill, Align.Stretch)),
         Alignment = DocumentFlowAlignment.Left,
         MaxWidthPercent = 100,
         Padding = new Thickness(Gutter(_tiles.Card), _styles.CardGapRows, Gutter(_tiles.Card), 0),
     };
 
-    private Visual CardContent(string? title, Visual body) => title is null
+    private Visual CardContent(ParticipantCard? card, Visual body) => card is null
         ? body
-        : new VStack(CardHead(title), body).HorizontalAlignment(Align.Stretch);
+        : new VStack(CardHead(card), body).HorizontalAlignment(Align.Stretch);
 
-    /// <summary>The participant's avatar and name, as images; a name an image cannot carry stays
-    /// bold terminal text (G9).</summary>
-    private HStack CardHead(string title)
+    /// <summary>The participant's avatar and name, as images, and the time the reply started (Phase
+    /// 59) as muted text; a name an image cannot carry stays bold terminal text (G9).</summary>
+    private HStack CardHead(ParticipantCard card)
     {
+        var title = card.Title;
         Visual name = TextArt.Allows(title)
             ? Image(TextKind.Name, title, _styles.CardFill)
             : new TextBlock(title).Style(_styles.FallbackStrong);
-        return new HStack(Image(TextKind.Avatar, Initial(title), _styles.CardFill), name).Spacing(_styles.AvatarGapCols);
+        var time = new TextBlock($"· {Transcript.TimeOf(card.Sent)}").Style(_styles.YouLabel).VerticalAlignment(Align.Center);
+        return new HStack(Image(TextKind.Avatar, Initial(title), _styles.CardFill), name, time).Spacing(_styles.AvatarGapCols);
     }
 
     /// <summary>Columns between the screen edge and a frame's outer edge, so its border falls in

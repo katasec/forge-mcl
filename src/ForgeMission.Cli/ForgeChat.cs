@@ -344,12 +344,12 @@ public static class ForgeChat
     private static async Task<int> ChatAsync(IMissionConversationService conversations, Guid conversationId, ChatHandsAttachment? hands)
     {
         var snapshot = (await conversations.GetConversationAsync(conversationId, CancellationToken.None)).Snapshot;
-        var cursor = await ReplayAsync(conversations, conversationId, 0, snapshot.LastSequence, item => Print(item, replay: true), CancellationToken.None);
+        var cursor = await ReplayAsync(conversations, conversationId, 0, snapshot.LastSequence, Print, CancellationToken.None);
         hands?.Begin(message => Console.WriteLine($"error: {message}"));
         Action<ConversationEvent> live = item =>
         {
             hands?.OnEvent(item);
-            LivePrint(item);
+            Print(item);
         };
         if (snapshot.ActiveRunId is { } running && !IsTerminal(snapshot.Status))
             cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, includeDeltas: false, live, CancellationToken.None);
@@ -458,17 +458,16 @@ public static class ForgeChat
 
     // ── Output and rules ────────────────────────────────────────────────────────────────────
 
-    private static void LivePrint(ConversationEvent item) => Print(item, replay: false);
-
-    private static void Print(ConversationEvent item, bool replay)
+    private static void Print(ConversationEvent item)
     {
         switch (item.Kind)
         {
-            case ConversationEventKind.UserMessage when replay:
-                Console.WriteLine($"you> {item.Text}");
+            // Phase 59: every message shows when it was sent, a live echo of a typed line too.
+            case ConversationEventKind.UserMessage:
+                Console.WriteLine($"you · {Transcript.TimeOf(item.OccurredAtUtc)}> {item.Text}");
                 break;
             case ConversationEventKind.ParticipantStarted:
-                Console.WriteLine($"[{item.Text}]");
+                Console.WriteLine($"[{item.Text} · {Transcript.TimeOf(item.OccurredAtUtc)}]");
                 break;
             case ConversationEventKind.ParticipantMessage:
                 Console.WriteLine(item.Text);

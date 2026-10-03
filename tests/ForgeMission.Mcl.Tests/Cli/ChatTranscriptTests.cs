@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using ForgeMission.Conversations.Contracts;
@@ -24,15 +25,15 @@ public sealed class ChatTranscriptTests
         var blocks = Map(User("my name is Ameer"), Started("Chat:Answerer"), Step("Nice to meet you, Ameer!"));
 
         Assert.Equal([
-            "YouBlock { Text = my name is Ameer }",
-            "ParticipantCard { Title = Answerer, Text = Nice to meet you, Ameer!, Mission = Chat, Streaming = False }",
+            $"YouBlock {{ Text = my name is Ameer, Sent = {At} }}",
+            $"ParticipantCard {{ Title = Answerer, Text = Nice to meet you, Ameer!, Mission = Chat, Sent = {At}, Streaming = False }}",
         ], blocks);
     }
 
     [Fact]
     public void A_step_title_without_a_mission_is_the_card_title()
     {
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = , Mission = Answerer, Streaming = False }"], Map(Started("Answerer")));
+        Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = , Mission = Answerer, Sent = {At}, Streaming = False }}"], Map(Started("Answerer")));
     }
 
     [Fact]
@@ -40,7 +41,7 @@ public sealed class ChatTranscriptTests
     {
         var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Final("Hello"), Status(ConversationRunStatus.Completed));
 
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat, Streaming = False }"], blocks);
+        Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello, Mission = Chat, Sent = {At}, Streaming = False }}"], blocks);
     }
 
     [Fact]
@@ -49,8 +50,8 @@ public sealed class ChatTranscriptTests
         var blocks = Map(Started("Chat:Answerer"), Step("Draft"), Final("Summary"));
 
         Assert.Equal([
-            "ParticipantCard { Title = Answerer, Text = Draft, Mission = Chat, Streaming = False }",
-            "ParticipantCard { Title = Chat, Text = Summary, Mission = Chat, Streaming = False }",
+            $"ParticipantCard {{ Title = Answerer, Text = Draft, Mission = Chat, Sent = {At}, Streaming = False }}",
+            $"ParticipantCard {{ Title = Chat, Text = Summary, Mission = Chat, Sent = {At}, Streaming = False }}",
         ], blocks);
     }
 
@@ -60,8 +61,8 @@ public sealed class ChatTranscriptTests
         var blocks = Map(Started("Plan:Planner"), Step("plan"), Started("Plan:Writer"), Step("text"));
 
         Assert.Equal([
-            "ParticipantCard { Title = Planner, Text = plan, Mission = Plan, Streaming = False }",
-            "ParticipantCard { Title = Writer, Text = text, Mission = Plan, Streaming = False }",
+            $"ParticipantCard {{ Title = Planner, Text = plan, Mission = Plan, Sent = {At}, Streaming = False }}",
+            $"ParticipantCard {{ Title = Writer, Text = text, Mission = Plan, Sent = {At}, Streaming = False }}",
         ], blocks);
     }
 
@@ -81,12 +82,12 @@ public sealed class ChatTranscriptTests
     public void A_card_without_text_is_kept_only_while_its_turn_runs()
     {
         Assert.Equal([
-            "YouBlock { Text = hi }",
-            "ParticipantCard { Title = Answerer, Text = , Mission = Chat, Streaming = False }",
+            $"YouBlock {{ Text = hi, Sent = {At} }}",
+            $"ParticipantCard {{ Title = Answerer, Text = , Mission = Chat, Sent = {At}, Streaming = False }}",
         ], Map(User("hi"), Started("Chat:Answerer")));
 
         Assert.Equal([
-            "YouBlock { Text = hi }",
+            $"YouBlock {{ Text = hi, Sent = {At} }}",
             "NoticeLine { Text = (run interrupted) }",
         ], Map(User("hi"), Started("Chat:Answerer"), Status(ConversationRunStatus.Interrupted)));
     }
@@ -96,7 +97,7 @@ public sealed class ChatTranscriptTests
     {
         var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Status(ConversationRunStatus.Completed));
 
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat, Streaming = False }"], blocks);
+        Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello, Mission = Chat, Sent = {At}, Streaming = False }}"], blocks);
     }
 
     [Theory]
@@ -173,9 +174,9 @@ public sealed class ChatTranscriptTests
             HandsResult(MissionToolOutcome.Succeeded), Step("The codeword is kiwi."), Status(ConversationRunStatus.Completed));
 
         Assert.Equal([
-            "YouBlock { Text = read it }",
+            $"YouBlock {{ Text = read it, Sent = {At} }}",
             "HandsLine { Label = Read notes.txt, Outcome = succeeded }",
-            "ParticipantCard { Title = Answerer, Text = The codeword is kiwi., Mission = ChatHands, Streaming = False }",
+            $"ParticipantCard {{ Title = Answerer, Text = The codeword is kiwi., Mission = ChatHands, Sent = {At}, Streaming = False }}",
         ], blocks);
         Assert.Equal("Answerer", Replying(Started("ChatHands:Answerer"), HandsRequested("Read", "notes.txt")));
     }
@@ -221,7 +222,7 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void An_outcome_without_a_running_tool_use_changes_nothing()
     {
-        Assert.Equal(["YouBlock { Text = hi }"], Map(User("hi"), HandsResult(MissionToolOutcome.Succeeded)));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}"], Map(User("hi"), HandsResult(MissionToolOutcome.Succeeded)));
     }
 
     private static ConversationEvent HandsRequested(string tool, string? path)
@@ -240,11 +241,14 @@ public sealed class ChatTranscriptTests
 
     private static readonly Guid Sent = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
+    // Every test event and sent message happens at this one time (Phase 59).
+    private static readonly DateTimeOffset At = new(2026, 10, 3, 22, 34, 0, TimeSpan.Zero);
+
     [Fact]
     public void A_sent_message_shows_a_pending_pill_and_reply_at_once()
     {
         Assert.Equal([
-            $"PendingYouBlock {{ CommandId = {Sent}, Text = hi }}",
+            $"PendingYouBlock {{ CommandId = {Sent}, Text = hi, Sent = {At} }}",
             $"PendingReplyBlock {{ CommandId = {Sent} }}",
         ], Strings(Submitted("hi")));
         Assert.Equal("", (string?)ReplyingMethod.Invoke(null, [Submitted("hi")]));
@@ -254,10 +258,10 @@ public sealed class ChatTranscriptTests
     public void Forges_echo_replaces_the_pending_pill_and_the_first_participant_the_pending_reply()
     {
         var echoed = ApplyAll(Submitted("hi"), User("hi") with { EventId = Sent });
-        Assert.Equal(["YouBlock { Text = hi }", $"PendingReplyBlock {{ CommandId = {Sent} }}"], Strings(echoed));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}", $"PendingReplyBlock {{ CommandId = {Sent} }}"], Strings(echoed));
 
         var started = ApplyAll(echoed, Started("Chat:Answerer"));
-        Assert.Equal(["YouBlock { Text = hi }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat, Streaming = False }"], Strings(started));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}", $"ParticipantCard {{ Title = Answerer, Text = , Mission = Chat, Sent = {At}, Streaming = False }}"], Strings(started));
         Assert.Equal("Answerer", (string?)ReplyingMethod.Invoke(null, [started]));
     }
 
@@ -267,9 +271,9 @@ public sealed class ChatTranscriptTests
         var blocks = ApplyAll(Submitted("hi"), User("from elsewhere"));
 
         Assert.Equal([
-            $"PendingYouBlock {{ CommandId = {Sent}, Text = hi }}",
+            $"PendingYouBlock {{ CommandId = {Sent}, Text = hi, Sent = {At} }}",
             $"PendingReplyBlock {{ CommandId = {Sent} }}",
-            "YouBlock { Text = from elsewhere }",
+            $"YouBlock {{ Text = from elsewhere, Sent = {At} }}",
         ], Strings(blocks));
     }
 
@@ -286,7 +290,51 @@ public sealed class ChatTranscriptTests
     {
         var ended = ApplyAll(Submitted("hi"), User("hi") with { EventId = Sent }, Status(ConversationRunStatus.Failed));
 
-        Assert.Equal(["YouBlock { Text = hi }", "NoticeLine { Text = (run failed) }"], Strings(ended));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}", "NoticeLine { Text = (run failed) }"], Strings(ended));
+    }
+
+    // ── Phase 59: every message shows when it was sent ─────────────────────────────────────────
+
+    [Fact]
+    public void A_message_and_a_reply_card_carry_the_time_of_the_event_that_made_them()
+    {
+        var asked = At.AddMinutes(1);
+        var started = At.AddMinutes(2);
+        var blocks = Map(User("hi") with { OccurredAtUtc = asked }, Started("Chat:Answerer") with { OccurredAtUtc = started },
+            Delta("Hel") with { OccurredAtUtc = At.AddMinutes(3) }, Step("Hello") with { OccurredAtUtc = At.AddMinutes(4) });
+
+        Assert.Equal([
+            $"YouBlock {{ Text = hi, Sent = {asked} }}",
+            $"ParticipantCard {{ Title = Answerer, Text = Hello, Mission = Chat, Sent = {started}, Streaming = False }}",
+        ], blocks);
+    }
+
+    [Fact]
+    public void A_pending_pill_keeps_its_send_time_when_the_turn_ends_without_an_echo()
+    {
+        var ended = ApplyAll(Submitted("hi"), Status(ConversationRunStatus.Failed) with { OccurredAtUtc = At.AddMinutes(5) });
+
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}", "NoticeLine { Text = (run failed) }"], Strings(ended));
+    }
+
+    [Theory]
+    [InlineData("en-US", @"^\d{1,2}:\d{2}\s(AM|PM)$")]
+    [InlineData("de-DE", @"^\d{2}:\d{2}$")]
+    public void A_time_is_local_in_the_system_short_time_format(string culture, string pattern)
+    {
+        var before = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+        try
+        {
+            var shown = (string)TranscriptMethod("TimeOf").Invoke(null, [At])!;
+
+            Assert.Equal(At.ToLocalTime().ToString("t", CultureInfo.CurrentCulture), shown);
+            Assert.Matches(pattern, shown);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = before;
+        }
     }
 
     [Fact]
@@ -304,10 +352,10 @@ public sealed class ChatTranscriptTests
     public void Deltas_grow_the_started_card_and_the_step_message_replaces_it()
     {
         var growing = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"));
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello, Mission = Chat, Streaming = True }"], growing);
+        Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello, Mission = Chat, Sent = {At}, Streaming = True }}"], growing);
 
         var final = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"), Step("Hello!"));
-        Assert.Equal(["ParticipantCard { Title = Answerer, Text = Hello!, Mission = Chat, Streaming = False }"], final);
+        Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello!, Mission = Chat, Sent = {At}, Streaming = False }}"], final);
     }
 
     [Fact]
@@ -315,13 +363,13 @@ public sealed class ChatTranscriptTests
     {
         var ended = Map(Started("Chat:Answerer"), Delta("## Hel"), Status(ConversationRunStatus.Interrupted));
 
-        Assert.Equal("ParticipantCard { Title = Answerer, Text = ## Hel, Mission = Chat, Streaming = False }", ended[0]);
+        Assert.Equal($"ParticipantCard {{ Title = Answerer, Text = ## Hel, Mission = Chat, Sent = {At}, Streaming = False }}", ended[0]);
     }
 
     [Fact]
     public void A_delta_with_no_card_changes_nothing()
     {
-        Assert.Equal(["YouBlock { Text = hi }"], Map(User("hi"), Delta("orphan")));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}"], Map(User("hi"), Delta("orphan")));
     }
 
     [Fact]
@@ -353,21 +401,21 @@ public sealed class ChatTranscriptTests
     {
         var other = User("from elsewhere");
         var waiting = ApplyLive(Blocks([]), other);
-        Assert.Equal(["YouBlock { Text = from elsewhere }", $"PendingReplyBlock {{ CommandId = {other.EventId} }}"], Strings(waiting));
+        Assert.Equal([$"YouBlock {{ Text = from elsewhere, Sent = {At} }}", $"PendingReplyBlock {{ CommandId = {other.EventId} }}"], Strings(waiting));
         Assert.Equal("", (string?)ReplyingMethod.Invoke(null, [waiting]));
 
         var started = ApplyLive(waiting, Started("Chat:Answerer"));
-        Assert.Equal(["YouBlock { Text = from elsewhere }", "ParticipantCard { Title = Answerer, Text = , Mission = Chat, Streaming = False }"], Strings(started));
+        Assert.Equal([$"YouBlock {{ Text = from elsewhere, Sent = {At} }}", $"ParticipantCard {{ Title = Answerer, Text = , Mission = Chat, Sent = {At}, Streaming = False }}"], Strings(started));
 
         var ended = ApplyLive(waiting, Status(ConversationRunStatus.Failed));
-        Assert.Equal(["YouBlock { Text = from elsewhere }", "NoticeLine { Text = (run failed) }"], Strings(ended));
+        Assert.Equal([$"YouBlock {{ Text = from elsewhere, Sent = {At} }}", "NoticeLine { Text = (run failed) }"], Strings(ended));
     }
 
     [Fact]
     public void This_windows_echo_keeps_its_one_pending_reply()
     {
         var echoed = ApplyLive(Submitted("hi"), User("hi") with { EventId = Sent });
-        Assert.Equal(["YouBlock { Text = hi }", $"PendingReplyBlock {{ CommandId = {Sent} }}"], Strings(echoed));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}", $"PendingReplyBlock {{ CommandId = {Sent} }}"], Strings(echoed));
     }
 
     [Fact]
@@ -550,10 +598,10 @@ public sealed class ChatTranscriptTests
     public void The_idle_notice_shows_until_wake_and_blocks_after_it_stay()
     {
         var idle = TranscriptMethod("Idle").Invoke(null, [Blocks([User("hi")])])!;
-        Assert.Equal(["YouBlock { Text = hi }", $"NoticeLine {{ Text = {IdleText} }}"], Strings(idle));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}", $"NoticeLine {{ Text = {IdleText} }}"], Strings(idle));
 
-        var typed = TranscriptMethod("Submit").Invoke(null, [idle, Sent, "next"])!;
-        Assert.Equal(["YouBlock { Text = hi }", "PendingYouBlock { CommandId = 11111111-1111-1111-1111-111111111111, Text = next }",
+        var typed = TranscriptMethod("Submit").Invoke(null, [idle, Sent, "next", At])!;
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}", $"PendingYouBlock {{ CommandId = 11111111-1111-1111-1111-111111111111, Text = next, Sent = {At} }}",
             "PendingReplyBlock { CommandId = 11111111-1111-1111-1111-111111111111 }"],
             Strings(TranscriptMethod("Awake").Invoke(null, [typed])!));
     }
@@ -853,7 +901,7 @@ public sealed class ChatTranscriptTests
     private static ConversationEvent Seq(ConversationEvent item, long sequence) => item with { Sequence = sequence };
 
     private static object Submitted(string text) =>
-        TranscriptMethod("Submit").Invoke(null, [Blocks([]), Sent, text])!;
+        TranscriptMethod("Submit").Invoke(null, [Blocks([]), Sent, text, At])!;
 
     private static object ApplyAll(object blocks, params ConversationEvent[] events)
     {
@@ -902,7 +950,7 @@ public sealed class ChatTranscriptTests
 
     private static ConversationEvent Event(ConversationEventKind kind, int? attempt, string? text) => new(
         Guid.NewGuid(), 1, Guid.Empty, Guid.Empty, 1, kind, ConversationParticipant.Forge, attempt, text,
-        null, null, null, null, null, null, DateTimeOffset.UtcNow);
+        null, null, null, null, null, null, At);
 
     private static Assembly LoadForge()
     {

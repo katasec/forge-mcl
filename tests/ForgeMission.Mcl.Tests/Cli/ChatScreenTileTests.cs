@@ -68,9 +68,10 @@ public sealed partial class ChatScreenTileTests
         // Never left of the gutter, at most 3/4 of the transcript wide.
         Assert.All(ring, row => Assert.True(row.FindIndex(c => c.Set == UserRingSet) >= Gutter, "ring starts left of the gutter"));
         Assert.All(ring, row => Assert.True(row.Count(c => c.Set == UserRingSet && c.Slot is 0 or 1 or 2) <= 40 * 3 / 4));
-        // Right-aligned, with " You" and the user's avatar (Task 4) beside the ring on a middle row.
+        // Right-aligned, with " You", the time it was sent (Phase 59) and the user's avatar (Task 4)
+        // beside the ring on a middle row.
         var middle = Assert.Single(ring, r => Text(r).Contains(" You"));
-        Assert.EndsWith("▒ You ▓▓▓ ", Text(middle));
+        Assert.EndsWith($"▒ You · {SentTime} ▓▓▓ ", Text(middle));
         var label = Text(middle).IndexOf(" You", StringComparison.Ordinal);
         Assert.Equal((UserRingSet, RightSlot), (middle[label - 1].Set, middle[label - 1].Slot));
     }
@@ -168,6 +169,8 @@ public sealed partial class ChatScreenTileTests
 
         Assert.Equal(7, head.FindIndex(c => c.IsTextImage));
         Assert.Contains("▓▓▓ ▓▓▓▓▓▓▓▓", Text(head));
+        // Phase 59: the time the reply started follows the name.
+        Assert.Contains($"▓ · {SentTime}", Text(head));
     }
 
     [Fact]
@@ -369,12 +372,12 @@ public sealed partial class ChatScreenTileTests
         return Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.TextImages"), art, slot, cell, send)!;
     }
 
-    private static object Card(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Answerer", text, "Chat", false)!;
+    private static object Card(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Answerer", text, "Chat", DateTimeOffset.UnixEpoch, false)!;
 
     private static object CardOf(string title, string text, bool streaming) =>
-        Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), title, text, "Chat", streaming)!;
+        Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), title, text, "Chat", DateTimeOffset.UnixEpoch, streaming)!;
 
-    private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text)!;
+    private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text, DateTimeOffset.UnixEpoch)!;
 
     private static object Hands(string label, string? outcome) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.HandsLine"), label, outcome)!;
 
@@ -439,6 +442,9 @@ public sealed partial class ChatScreenTileTests
     private static partial Regex MarkupToken();
 
     /// <summary>A row as text: a tile cell is ▒, a text-image cell ▓.</summary>
+    /// <summary>How the test blocks' send time (the Unix epoch) is shown on this machine.</summary>
+    private static readonly string SentTime = DateTimeOffset.UnixEpoch.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
+
     private static string Text(IEnumerable<Cell> row) => string.Concat(row.Select(c => c.IsTextImage ? "▓" : c.Set is null ? c.Text : "▒"));
 
     private static (int?, int)[] Tiles(IEnumerable<Cell> cells) => [.. cells.Select(c => (c.Set, c.Slot))];

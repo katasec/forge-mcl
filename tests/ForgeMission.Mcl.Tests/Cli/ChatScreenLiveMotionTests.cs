@@ -93,9 +93,9 @@ public sealed class ChatScreenLiveMotionTests
     }
 
     private static object Card(string? text, bool streaming) =>
-        Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Answerer", text, "Chat", streaming)!;
+        Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Answerer", text, "Chat", DateTimeOffset.UnixEpoch, streaming)!;
 
-    private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text)!;
+    private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text, DateTimeOffset.UnixEpoch)!;
 
     private static long Ms(double ms) => (long)(ms * Stopwatch.Frequency / 1000);
 
