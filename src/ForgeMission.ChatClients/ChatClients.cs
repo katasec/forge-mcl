@@ -93,7 +93,7 @@ internal sealed class AnthropicResponseFormatChatClient(AnthropicClient client, 
         CancellationToken cancellationToken = default)
     {
         options = EnsureModelId(options);
-        TranslateResponseFormat(options);
+        TranslateNativeOptions(options);
         return inner.GetResponseAsync(messages, options, cancellationToken);
     }
 
@@ -106,6 +106,7 @@ internal sealed class AnthropicResponseFormatChatClient(AnthropicClient client, 
         CancellationToken cancellationToken = default)
     {
         options = EnsureModelId(options);
+        TranslateNativeOptions(options);
         return AnthropicTextStream.Accepts(messages, options)
             ? AnthropicTextStream.StreamAsync(client, messages, options, cancellationToken)
             : inner.GetStreamingResponseAsync(messages, options, cancellationToken);
@@ -126,21 +127,32 @@ internal sealed class AnthropicResponseFormatChatClient(AnthropicClient client, 
         return options;
     }
 
-    private static void TranslateResponseFormat(ChatOptions? options)
+    // tryAGI.Anthropic ignores ChatOptions.ResponseFormat and AllowMultipleToolCalls; both reach the
+    // wire only through one native request.
+    private static void TranslateNativeOptions(ChatOptions options)
     {
-        if (options?.ResponseFormat is not ChatResponseFormatJson format)
+        var format = options.ResponseFormat as ChatResponseFormatJson;
+        var oneToolCall = options.AllowMultipleToolCalls == false && options.Tools is { Count: > 0 };
+        if (format is null && !oneToolCall)
             return;
 
-        options.RawRepresentationFactory = _ => new CreateMessageParams
+        options.RawRepresentationFactory = _ =>
         {
-            Model = string.Empty,
-            Messages = [],
-            MaxTokens = options.MaxOutputTokens ?? DefaultMaxTokens,
-            OutputConfig = new OutputConfig
+            var request = new CreateMessageParams
             {
-                Format = new JsonOutputFormat(format.Schema ?? throw new InvalidOperationException(
-                    "Anthropic structured output requires a JSON schema."))
-            }
+                Model = string.Empty,
+                Messages = [],
+                MaxTokens = options.MaxOutputTokens ?? DefaultMaxTokens,
+            };
+            if (format is not null)
+                request.OutputConfig = new OutputConfig
+                {
+                    Format = new JsonOutputFormat(format.Schema ?? throw new InvalidOperationException(
+                        "Anthropic structured output requires a JSON schema."))
+                };
+            if (oneToolCall)
+                request.ToolChoice = new ToolChoiceAuto { DisableParallelToolUse = true };
+            return request;
         };
     }
 }

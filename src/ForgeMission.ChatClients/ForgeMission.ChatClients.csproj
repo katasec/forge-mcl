@@ -7,7 +7,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>true</IsPackable>
     <PackageId>Katasec.Forge.Mcl.ChatClients</PackageId>
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
     <Authors>Katasec</Authors>
     <Description>Provider SDK adapters that build Mission Control Language chat clients and expert runners from provider-neutral profiles.</Description>
     <PackageTags>mcl;mission-control-language;chat;providers;openai;anthropic;aot</PackageTags>

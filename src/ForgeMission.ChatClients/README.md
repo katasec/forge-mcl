@@ -20,7 +20,7 @@ Provider SDKs and their protocol differences must stay below MCL execution. This
 
 - [`ChatClients.Build`](ChatClients.cs) and [`ChatClients.BuildChatClient`](ChatClients.cs) for supported profile values.
 - OpenAI-compatible OpenAI/Azure, Ollama, and xAI client construction.
-- Anthropic response-format adaptation in [`AnthropicResponseFormatChatClient`](ChatClients.cs).
+- Anthropic response-format and one-tool-call (`disable_parallel_tool_use`) adaptation in [`AnthropicResponseFormatChatClient`](ChatClients.cs).
 - Anthropic plain-text streaming with token usage in [`AnthropicTextStream`](AnthropicTextStream.cs).
 
 ## Does not own
