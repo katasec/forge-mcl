@@ -488,6 +488,242 @@ public sealed class AgentToolPipelineTests
     }
 
     // ------------------------------------------------------------------
+    // Phase 62: one interpreter, pause by replay
+    // ------------------------------------------------------------------
+
+    // The same child called twice: step keys carry the call path, so the second call's agent is the
+    // paused step and the first call's agent is a logged step, not a collision.
+    [Fact]
+    public async Task Replay_ChildCalledTwice_KeysDoNotCollide()
+    {
+        var ast = MclParser.Parse("""
+            mission Child = { Enrich -> Respond }
+            mission Root = { Child -> Child }
+            """);
+        var agentCalls = 0;
+        var runner = new StubExpertRunner((name, ctx) => name == "Respond" && ++agentCalls == 1
+            ? new StepEnvelope("first answer")
+            : Scripted(name, ctx));
+
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        Assert.Equal(["Root", "Child"], pause.MissionPath);
+        Assert.Equal(4, runner.Calls.Count);
+
+        var completed = await Resume(new PipelineRunner(runner), ast, Experts(), pause);
+
+        Assert.Equal(MissionStatus.Pass, completed.Status);
+        Assert.Equal("answered", completed.Text);
+        Assert.Equal(["Enrich", "Respond", "Enrich", "Respond", "Respond"], runner.Calls.Select(call => call.ExpertName));
+    }
+
+    // A pause in a loop retry: attempt 1 replays (including its failure and feedback), and the
+    // resumed agent in attempt 2 sees the feedback the rule step wrote.
+    [Fact]
+    public async Task Replay_PauseInLoopRetry_ReplaysTheFailedAttempt()
+    {
+        var ast = MclParser.Parse("mission Root loop(2) = { Draft -> Check -> Respond }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+        {
+            ["Draft"] = new("Draft", "any", "text", "Draft."),
+            ["Check"] = new("Check", "any", "text", "Check."),
+            ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent"),
+        };
+        var checks = 0;
+        var runner = new StubExpertRunner((name, ctx) =>
+        {
+            if (name != "Check") return Scripted(name, ctx);
+            if (++checks > 1) return new StepEnvelope("good draft");
+            ctx["feedback"] = "add detail";
+            return new StepEnvelope("thin draft", "fail", "add detail");
+        });
+
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, experts,
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        Assert.Equal(2, pause.Attempt);
+
+        var completed = await Resume(new PipelineRunner(runner), ast, experts, pause);
+
+        Assert.Equal(MissionStatus.Pass, completed.Status);
+        Assert.Equal(2, completed.Attempts);
+        Assert.Equal(["Draft", "Check", "Draft", "Check", "Respond", "Respond"], runner.Calls.Select(call => call.ExpertName));
+        Assert.Equal("add detail", runner.Calls[^1].Context["feedback"]);
+    }
+
+    [Fact]
+    public async Task Replay_PauseInChildInsideParallel_ResumesAndMergesBranches()
+    {
+        var ast = MclParser.Parse("""
+            mission Side = { Respond }
+            mission Root = {
+                parallel {
+                    Enrich
+                    Side
+                }
+                -> Verify
+            }
+            """);
+        var runner = new StubExpertRunner(Scripted);
+
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        Assert.Equal(["Root", "Side"], pause.MissionPath);
+        Assert.Equal(["Enrich", "Respond"], runner.Calls.Select(call => call.ExpertName));
+
+        var completed = await Resume(new PipelineRunner(runner), ast, Experts(), pause);
+
+        Assert.Equal(MissionStatus.Pass, completed.Status);
+        Assert.Equal(["Enrich", "Respond", "Respond", "Verify"], runner.Calls.Select(call => call.ExpertName));
+        var verify = runner.Calls[^1].Context;
+        Assert.Equal("Enrich done", verify["Enrich.output"]);
+        Assert.Equal("answered", verify["Side.output"]);
+    }
+
+    // json_extract writes a double; the log keeps its type, so the resumed run sees a double, not
+    // the string form (R5).
+    [Fact]
+    public async Task Replay_DoubleValue_ReplaysAsDouble()
+    {
+        var ast = MclParser.Parse("mission Root = { Score -> Extract -> Respond when(score > 0.5) }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+        {
+            ["Score"] = new("Score", "any", "text", "Score."),
+            ["Extract"] = new("Extract", "any", "text", "", Kind: "json_extract"),
+            ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent"),
+        };
+        var runner = new StubExpertRunner((name, ctx) => name == "Score"
+            ? new StepEnvelope("""{"score": 0.9}""")
+            : Scripted(name, ctx));
+
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, experts,
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        Assert.Matches("\"number\":\\s*0.9", pause.Continuation.Payload);
+
+        var completed = await Resume(new PipelineRunner(runner), ast, experts, pause);
+
+        Assert.Equal(MissionStatus.Pass, completed.Status);
+        Assert.Equal(["Score", "Respond", "Respond"], runner.Calls.Select(call => call.ExpertName));
+        Assert.IsType<double>(runner.Calls[^1].Context["score"]);
+        Assert.Equal(0.9, runner.Calls[^1].Context["score"]);
+    }
+
+    // An env value flips a guard between pause and resume: replay reaches a step that is neither
+    // logged nor the paused agent, so the continuation is rejected before that step runs (R6).
+    [Fact]
+    public async Task Replay_Divergence_ReturnsInvalidContinuation()
+    {
+        const string variable = "MCLPHASE62DIVERGE";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "agent");
+            var ast = MclParser.Parse($$"""
+                mission Root = {
+                    Enrich(mode: env("{{variable}}"))
+                    -> Respond when(mode: "agent")
+                    -> Verify when(else)
+                }
+                """);
+            var runner = new StubExpertRunner(Scripted);
+            var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
+                new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+
+            Environment.SetEnvironmentVariable(variable, "skip");
+            var resumed = await Resume(new PipelineRunner(runner), ast, Experts(), pause);
+
+            Assert.Equal(PipelineFailure.InvalidContinuation, resumed.Failure);
+            Assert.Equal(["Enrich", "Respond"], runner.Calls.Select(call => call.ExpertName));
+        }
+        finally { Environment.SetEnvironmentVariable(variable, previous); }
+    }
+
+    // Replayed steps publish nothing: no trace fact and no StepWriter line (R4).
+    [Fact]
+    public async Task Replay_EmitsNoTraceOrStepWriterOutputForLoggedSteps()
+    {
+        var ast = MclParser.Parse("mission Root = { Enrich -> Respond -> Verify }");
+        var runner = new StubExpertRunner(Scripted);
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+
+        var events = new List<PipelineTraceEvent>();
+        var steps = new StringWriter();
+        await new PipelineRunner(runner).ResumeAsync(ast, Experts(),
+            new PipelineResumeRequest(pause.Continuation,
+                new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "probe content")),
+            new PipelineRunOptions("ignored", StepWriter: steps,
+                OnTrace: (trace, _) => { events.Add(trace); return Task.CompletedTask; }));
+
+        Assert.DoesNotContain(events, trace => trace is PipelineStepStarted { ExpertName: "Enrich" }
+            or PipelineStepCompleted { ExpertName: "Enrich" });
+        Assert.Equal(["Respond", "Verify"], events.OfType<PipelineStepStarted>().Select(trace => trace.ExpertName));
+        Assert.DoesNotContain("Enrich", steps.ToString(), StringComparison.Ordinal);
+        Assert.Contains("→ Respond...", steps.ToString(), StringComparison.Ordinal);
+    }
+
+    // An exec step before the agent runs once across two pauses in one turn; its context write
+    // replays on both resumes.
+    [SkippableFact]
+    public async Task Replay_LoggedExecStep_NotReRunAcrossTwoPauses()
+    {
+        Skip.IfNot(File.Exists("/bin/sh"), "No /bin/sh for the exec step.");
+        var runs = Path.GetTempFileName();
+        try
+        {
+            var ast = MclParser.Parse("mission Root = { Count -> Respond }");
+            var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+            {
+                ["Count"] = new("Count", "any", "text", "", Kind: "exec", Command: "/bin/sh",
+                    Args: ["-c", $"cat > /dev/null; echo run >> '{runs}'; echo '{{\"counted\": \"yes\"}}'"], OutputKey: "counted"),
+                ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent"),
+            };
+            var runner = new StubExpertRunner((_, ctx) => TwoReads(ctx));
+
+            var first = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, experts,
+                new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+            var second = Assert.IsType<PipelineToolPause>((await Resume(new PipelineRunner(runner), ast, experts, first)).Pause);
+            var done = await Resume(new PipelineRunner(runner), ast, experts, second);
+
+            Assert.Equal(MissionStatus.Pass, done.Status);
+            Assert.Single(File.ReadAllLines(runs));
+            Assert.All(runner.Calls, call => Assert.Equal("yes", call.Context["counted"]));
+            Assert.Equal(3, runner.Calls.Count);
+        }
+        finally { File.Delete(runs); }
+    }
+
+    // Respond asks for one tool call, then answers once a tool result is in its turn.
+    private static StepEnvelope Scripted(string name, Dictionary<string, object> context)
+    {
+        if (name != "Respond") return new StepEnvelope($"{name} done");
+        if (ToolResults(context) > 0) return new StepEnvelope("answered");
+        context["tool_calls"] = new List<FunctionCallContent> { new("call-1", "Read", new Dictionary<string, object?>()) };
+        return new StepEnvelope(string.Empty);
+    }
+
+    // Reads twice (one call per assistant turn), then answers.
+    private static StepEnvelope TwoReads(Dictionary<string, object> context)
+    {
+        var results = ToolResults(context);
+        if (results >= 2) return new StepEnvelope("answered");
+        context["tool_calls"] = new List<FunctionCallContent> { new($"call-{results}", "Read", new Dictionary<string, object?>()) };
+        return new StepEnvelope(string.Empty);
+    }
+
+    private static int ToolResults(Dictionary<string, object> context) => context.Values
+        .OfType<IReadOnlyList<ChatMessage>>()
+        .SelectMany(turn => turn.SelectMany(message => message.Contents))
+        .OfType<FunctionResultContent>()
+        .Count();
+
+    private static Task<MissionResult> Resume(PipelineRunner runner, Program ast,
+        Dictionary<string, ExpertDefinition> experts, PipelineToolPause pause) =>
+        runner.ResumeAsync(ast, experts,
+            new PipelineResumeRequest(pause.Continuation,
+                new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "probe content")),
+            new PipelineRunOptions("ignored"));
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
