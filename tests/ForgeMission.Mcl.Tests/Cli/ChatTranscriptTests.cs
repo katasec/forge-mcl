@@ -45,6 +45,16 @@ public sealed class ChatTranscriptTests
     }
 
     [Fact]
+    public void Only_a_final_result_with_the_same_text_repeats_the_last_reply()
+    {
+        var repeats = TranscriptMethod("RepeatsLastReply");
+
+        Assert.True((bool)repeats.Invoke(null, ["Hello", Final("Hello")])!);
+        Assert.False((bool)repeats.Invoke(null, ["Hello", Final("Summary")])!);
+        Assert.False((bool)repeats.Invoke(null, ["Hello", Step("Hello")])!);
+    }
+
+    [Fact]
     public void A_final_result_that_differs_gets_its_own_card_titled_with_the_mission()
     {
         var blocks = Map(Started("Chat:Answerer"), Step("Draft"), Final("Summary"));

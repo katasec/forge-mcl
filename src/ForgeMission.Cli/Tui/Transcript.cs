@@ -54,7 +54,7 @@ public static class Transcript
         ConversationEventKind.ParticipantStarted => AddStartedCard(blocks, StartedCard(item.Text ?? "", item.OccurredAtUtc)),
         ConversationEventKind.ParticipantDelta => AppendToLatestCard(blocks, item.Text ?? ""),
         ConversationEventKind.ParticipantMessage when item.Attempt is not null => FillLatestCard(blocks, item.Text ?? "", item.OccurredAtUtc),
-        ConversationEventKind.ParticipantMessage => AddFinalResult(blocks, item.Text ?? "", item.OccurredAtUtc),
+        ConversationEventKind.ParticipantMessage => AddFinalResult(blocks, item),
         ConversationEventKind.Error => AddError(blocks, item),
         ConversationEventKind.RunStatus when item.RunStatus is { } status && IsTerminal(status) => EndTurn(blocks, status),
         ConversationEventKind.MissionHandsRequested => AddHandsLine(blocks, new HandsLine(HandsLabel(item), null)),
@@ -192,16 +192,23 @@ public static class Transcript
         return updated;
     }
 
-    /// <summary>The runner sends the mission's final result after the last step's message. It is
-    /// shown, as its own card titled with the mission, only when its text differs.</summary>
-    private static IReadOnlyList<TranscriptBlock> AddFinalResult(IReadOnlyList<TranscriptBlock> blocks, string text, DateTimeOffset sent)
+    /// <summary>The runner sends the mission's final result (a message with no attempt) after the
+    /// last step's message; it repeats the reply when its text is the same. The TUI and the line
+    /// mode both show a repeat once.</summary>
+    public static bool RepeatsLastReply(string? lastReplyText, ConversationEvent item) =>
+        item is { Kind: ConversationEventKind.ParticipantMessage, Attempt: null } && (item.Text ?? "") == lastReplyText;
+
+    /// <summary>The mission's final result is shown, as its own card titled with the mission, only
+    /// when it does not repeat the last reply.</summary>
+    private static IReadOnlyList<TranscriptBlock> AddFinalResult(IReadOnlyList<TranscriptBlock> blocks, ConversationEvent item)
     {
+        var text = item.Text ?? "";
         var index = LatestCardIndex(blocks);
-        if (index < 0) return Append(blocks, new ParticipantCard("Forge", text, "Forge", sent));
+        if (index < 0) return Append(blocks, new ParticipantCard("Forge", text, "Forge", item.OccurredAtUtc));
 
         var last = (ParticipantCard)blocks[index];
-        if (last.Text == text) return blocks;
-        return Append(blocks, new ParticipantCard(last.Mission, text, last.Mission, sent));
+        if (RepeatsLastReply(last.Text, item)) return blocks;
+        return Append(blocks, new ParticipantCard(last.Mission, text, last.Mission, item.OccurredAtUtc));
     }
 
     /// <summary>A mission-level error (no attempt) that repeats the step error just shown is
