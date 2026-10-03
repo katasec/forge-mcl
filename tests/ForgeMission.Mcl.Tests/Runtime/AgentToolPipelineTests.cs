@@ -322,6 +322,30 @@ public sealed class AgentToolPipelineTests
         Assert.False(Assert.Single(client.Calls).Options?.AllowMultipleToolCalls);
     }
 
+    // A second resume resends the whole tool turn, as providers expect: the first call's result is
+    // still there, not only the latest pair.
+    [Fact]
+    public async Task RootScopedAgent_SecondResume_ResendsTheWholeToolTurn()
+    {
+        var ast = MclParser.Parse("mission Root = { Respond }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+        { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
+        var client = new TwoReadClient();
+        var runner = new PipelineRunner(new DirectExpertRunner(client));
+
+        var first = (await runner.RunAsync(ast, experts, new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause!;
+        var second = (await runner.ResumeAsync(ast, experts, new PipelineResumeRequest(first.Continuation,
+            new PipelineToolResult(first.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "repo-a")),
+            new PipelineRunOptions("ignored"))).Pause!;
+        var done = await runner.ResumeAsync(ast, experts, new PipelineResumeRequest(second.Continuation,
+            new PipelineToolResult(second.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "repo-b")),
+            new PipelineRunOptions("ignored"));
+
+        Assert.Equal(MissionStatus.Pass, done.Status);
+        Assert.Equal(["a=repo-a", "b=repo-b"], client.Calls[^1].SelectMany(m => m.Contents)
+            .OfType<FunctionResultContent>().Select(r => $"{r.CallId}={r.Result}"));
+    }
+
     [Fact]
     public async Task RootScopedToolPause_RejectsUnsupportedAndMultipleCalls_BeforeResume()
     {
@@ -686,6 +710,33 @@ public sealed class AgentToolPipelineTests
             var response = await GetResponseAsync(messages, options, ct);
             yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
         }
+
+        public void Dispose() { }
+        public object? GetService(Type serviceType, object? key = null) => null;
+    }
+
+    // Reads "a", then "b", then answers: one tool call per assistant turn.
+    private sealed class TwoReadClient : IChatClient
+    {
+        public List<IList<ChatMessage>> Calls { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)
+        {
+            var captured = messages.ToList();
+            Calls.Add(captured);
+            ChatMessage reply = captured.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Count() switch
+            {
+                0 => new(ChatRole.Assistant, [new FunctionCallContent("a", "Read", new Dictionary<string, object?> { ["file_path"] = "a" })]),
+                1 => new(ChatRole.Assistant, [new FunctionCallContent("b", "Read", new Dictionary<string, object?> { ["file_path"] = "b" })]),
+                _ => new(ChatRole.Assistant, "done"),
+            };
+            return Task.FromResult(new ChatResponse([reply]));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default) =>
+            throw new NotSupportedException();
 
         public void Dispose() { }
         public object? GetService(Type serviceType, object? key = null) => null;
