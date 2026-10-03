@@ -18,6 +18,76 @@ public sealed class ForgeChatTests
 
     private sealed record Listed(string Id, string? MissionName);
 
+    [Theory]
+    [InlineData("Chat")]
+    [InlineData("ChatHands")]
+    public async Task PublishedMissionWithoutAReference_StopsBeforeAnyAuthoringAction(string missionName)
+    {
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable(missionName, "Approved", 3));
+        Assert.Equal("ChatStoppedException", failure.GetType().Name);
+        Assert.Contains("forge.project.json", failure.Message, StringComparison.Ordinal);
+        Assert.Contains($"\"{missionName}@3\"", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Superseded", 1)]
+    [InlineData(null, null)]
+    public async Task UneditableMissionWithoutApproval_RetainsTheNoCandidateRefusal(string? state, int? number)
+    {
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable("Chat", state, number));
+        Assert.Equal("ChatStoppedException", failure.GetType().Name);
+        Assert.Contains("has no candidate version to publish", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Add", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Chat")]
+    [InlineData("ChatHands")]
+    public async Task DraftAfterApproval_DoesNotRestoreARemovedReferenceOrPromote(string missionName)
+    {
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable(missionName, "Approved", 1, "Draft"));
+        Assert.Equal("ChatStoppedException", failure.GetType().Name);
+        Assert.Contains($"\"{missionName}@1\"", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Candidate")]
+    [InlineData("Evaluated")]
+    public async Task LaterUnpublishedVersion_DoesNotEvaluateOrPublishAfterAReferenceWasRemoved(string state)
+    {
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable("Chat", state, 2, "Candidate"));
+        Assert.Equal("ChatStoppedException", failure.GetType().Name);
+        Assert.Contains("Restore its approved mission reference", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chat@2", failure.Message, StringComparison.Ordinal);
+    }
+
+    private static Task<bool> AdvanceUneditable(string missionName, string? state, int? number, string editable = "None")
+    {
+        var advance = LoadForgeChatMethod("AdvanceAsync");
+        var documentType = advance.GetParameters()[2].ParameterType;
+        var summaryType = advance.GetParameters()[3].ParameterType;
+        var editableType = documentType.GetProperty("Editable")!.PropertyType;
+        var profileType = documentType.GetProperty("Profile")!.PropertyType;
+        var caseType = documentType.GetProperty("Cases")!.PropertyType.GetGenericArguments()[0];
+        var stateType = Nullable.GetUnderlyingType(summaryType.GetProperty("LatestState")!.PropertyType)!;
+        var cases = Array.CreateInstance(caseType, editable == "Candidate" ? 1 : 0);
+        if (editable == "Candidate")
+            cases.SetValue(Activator.CreateInstance(caseType, [Guid.NewGuid(), "Say hello.", "", "",
+                Enum.Parse(caseType.GetProperty("ExpectedOutcome")!.PropertyType, "Succeeded"), Array.Empty<string>(),
+                Enum.Parse(caseType.GetProperty("ResultState")!.PropertyType, state == "Evaluated" ? "Passed" : "None"),
+                state == "Evaluated" ? "Hello." : null, null]), 0);
+        var missionId = Guid.NewGuid();
+        var document = Activator.CreateInstance(documentType, [missionId, missionName,
+            Enum.Parse(editableType, editable), Enum.Parse(profileType, "NoHands"),
+            editable == "Draft" ? Guid.NewGuid() : null, editable == "Candidate" ? Guid.NewGuid() : null,
+            editable == "None" ? 0 : 1, editable == "Candidate" ? number : null,
+            editable == "None" ? "" : "mission Chat(task) = { Answerer }", cases, state == "Evaluated", null]);
+        var summary = Activator.CreateInstance(summaryType, [missionId, missionName, number,
+            state is null ? null : Enum.Parse(stateType, state), editable == "Draft"]);
+        // No authoring service: returning the refusal must precede any attempt to republish.
+        return (Task<bool>)advance.Invoke(null, [null, "session", document, summary, false])!;
+    }
+
     // Listed newest-first, as Application returns them: the other chat mode is the most recent.
     private static readonly Listed[] Mixed = [new("hands", "ChatHands"), new("chat", "Chat"), new("janus", "Janus"), new("orphan", null)];
 

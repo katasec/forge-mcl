@@ -111,6 +111,10 @@ flowchart LR
 - **Chat modes:** `forge chat` opens the default Project under `~/Forge/Projects`, or the Project
   selected by `--project`. Plain and `--hands` use separate missions (`Chat` and `ChatHands`)
   and reuse each mission's latest conversation.
+- **Project files:** `forge.project.json` contains only mission/version references and relative
+  repository folders. Client-owned identity and approval facts live in `obj/forge/project.state.json`;
+  this state is durable. A removed mission reference stops chat with explicit edit guidance.
+  Old public schemas require Project recreation; chat does not migrate or restore removed references.
 - **Hands:** Approval is once per Project, recorded by publishing `ChatHands`. Piped first use
   cannot approve it. Bob gets file capability in the Project workspace, without a terminal.
   The TUI executes hands requests only for this window's turn.

@@ -214,15 +214,23 @@ public static class ForgeChat
 
             var document = (await ReadAuthoringAsync(app.MissionAuthoring, sessionId, summary.MissionId)).Open
                 ?? throw new ChatStoppedException($"{mode.MissionName} could not be opened for authoring.");
-            ranThisLaunch = await AdvanceAsync(app.MissionAuthoring, sessionId, document, mode.MissionName, ranThisLaunch);
+            ranThisLaunch = await AdvanceAsync(app.MissionAuthoring, sessionId, document, summary, ranThisLaunch);
         }
     }
 
     /// <summary>Takes the one next authoring step for <paramref name="document"/>. Returns whether
     /// an evaluation has been started in this launch.</summary>
     private static async Task<bool> AdvanceAsync(IMissionAuthoringService authoring, string sessionId,
-        MissionAuthoringDocument document, string missionName, bool ranThisLaunch)
+        MissionAuthoringDocument document, MissionDefinitionSummary summary, bool ranThisLaunch)
     {
+        var missionName = summary.Name;
+        if (summary.LatestState == MissionVersionStateView.Approved)
+            throw new ChatStoppedException($"{missionName} is already published but is missing from forge.project.json. " +
+                $"Add \"{missionName}@{summary.LatestVersionNumber}\" to its missions array to use it.");
+        if (summary.LatestVersionNumber > 1)
+            throw new ChatStoppedException($"{missionName} has a previously published version missing from forge.project.json. " +
+                "Restore its approved mission reference or explicitly publish the pending version before starting chat.");
+
         if (document.Editable == MissionEditableKind.Draft)
         {
             Check(await authoring.PromoteCandidateAsync(
