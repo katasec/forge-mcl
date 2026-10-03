@@ -32,12 +32,16 @@ public enum PipelineFailure
     InvalidContinuation,
     DuplicateContinuation,
     LateContinuation,
-    ProviderFailed,
 }
 
 /// <summary>Closed declaration preserved in the opaque checkpoint so Core can re-declare tools.</summary>
 public sealed record PipelineToolDeclaration(string Name, string Description, JsonElement InputSchema);
 
+/// <summary>
+/// The replay checkpoint (inner format 2). A resume runs the mission from the top: each step whose
+/// key is in <see cref="Log"/> returns its recorded result instead of running, until the step at
+/// <see cref="PausedKey"/> continues its tool turn.
+/// </summary>
 internal sealed record PipelineContinuationCheckpoint(
     int FormatVersion,
     string SessionId,
@@ -52,29 +56,30 @@ internal sealed record PipelineContinuationCheckpoint(
     int Attempt,
     IReadOnlyList<ChatMessage> TurnMessages,
     IReadOnlyDictionary<string, string> RootInputs,
-    IReadOnlyList<PipelineExecutionFrame> Frames);
+    IReadOnlyList<PipelineStepLogEntry> Log,
+    string PausedKey);
 
-/// <summary>
-/// A serializable activation record for the root-scoped interpreter.  ElementIndex is the next
-/// declared element to run (or the paused agent element when ResumePausedAgent is true); parallel
-/// fields record the branch that has not yet been completed.  These are execution facts, never
-/// authority or provider objects.
-/// </summary>
-internal sealed record PipelineExecutionFrame(
-    string MissionName,
-    int ElementIndex,
-    int Attempt,
-    IReadOnlyDictionary<string, string> RuntimeDelta,
-    IReadOnlyDictionary<string, PipelineEnvironmentBinding> EnvironmentBindings,
-    string? LoopFeedback,
-    bool AnyGuardedStepMatched,
-    bool ResumePausedAgent,
-    int? ParallelBranchIndex = null,
-    IReadOnlyDictionary<string, string>? CompletedParallelOutputs = null,
-    bool ReturnsToParallel = false);
+/// <summary>One completed step: its envelope and the context keys it wrote. Binding and environment
+/// values are never here; they are re-derived on replay.</summary>
+internal sealed record PipelineStepLogEntry(
+    string Key,
+    string Text,
+    string Status,
+    string? Reason,
+    IReadOnlyDictionary<string, PipelineLoggedValue> Writes);
 
-/// <summary>AST-derived environment binding metadata. The value is intentionally never checkpointed.</summary>
-internal sealed record PipelineEnvironmentBinding(string VariableName, string? DefaultValue);
+/// <summary>A step-written context value, typed so a double replays as a double.</summary>
+internal sealed record PipelineLoggedValue(string? Text, double? Number)
+{
+    public object ToContextValue() => Number is { } number ? number : Text ?? string.Empty;
+
+    public static PipelineLoggedValue? From(object value) => value switch
+    {
+        string text => new PipelineLoggedValue(text, null),
+        double number => new PipelineLoggedValue(null, number),
+        _ => null,
+    };
+}
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(PipelineContinuationCheckpoint))]
@@ -89,15 +94,23 @@ internal static class PipelineCheckpointCodec
     internal static string Write(PipelineContinuationCheckpoint checkpoint) =>
         JsonSerializer.Serialize(checkpoint, CheckpointInfo);
 
+    /// <summary>The envelope version consumers carry; the payload stays opaque to them.</summary>
+    internal const int EnvelopeVersion = 1;
+
+    /// <summary>The checkpoint format inside the payload. Format 1 (frame snapshots) is rejected.</summary>
+    internal const int CheckpointVersion = 2;
+
     internal static bool TryRead(PipelineContinuation continuation, out PipelineContinuationCheckpoint checkpoint)
     {
         checkpoint = null!;
-        if (continuation.FormatVersion != 1) return false;
+        if (continuation.FormatVersion != EnvelopeVersion) return false;
         try
         {
             checkpoint = JsonSerializer.Deserialize(continuation.Payload, CheckpointInfo)!;
-            return checkpoint is not null && checkpoint.FormatVersion == 1
+            return checkpoint is not null && checkpoint.FormatVersion == CheckpointVersion
                 && !string.IsNullOrWhiteSpace(checkpoint.SessionId)
+                && !string.IsNullOrWhiteSpace(checkpoint.PausedKey)
+                && checkpoint.Log is not null
                 && checkpoint.TurnMessages is { Count: > 0 }
                 && checkpoint.TurnMessages[^1].Contents.OfType<FunctionCallContent>().Count() == 1;
         }

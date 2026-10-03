@@ -435,10 +435,10 @@ public sealed class AgentToolPipelineTests
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
         client.ThrowOnContinuation = true;
-        var failed = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
+        // Phase 62 R8: one error path — a provider failure throws; the runner turns it into Fail.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
             new PipelineResumeRequest(pause.Continuation, new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
-            new PipelineRunOptions("ignored"));
-        Assert.Equal(PipelineFailure.ProviderFailed, failed.Failure);
+            new PipelineRunOptions("ignored")));
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
