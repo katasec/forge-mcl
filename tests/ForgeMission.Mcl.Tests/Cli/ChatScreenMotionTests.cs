@@ -249,9 +249,9 @@ public sealed class ChatScreenMotionTests
     // ── Blocks ──────────────────────────────────────────────────────────────────────────────
 
     private static object Card(string text, bool streaming) =>
-        Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Answerer", text, "Chat", streaming)!;
+        Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), "Answerer", text, "Chat", DateTimeOffset.UnixEpoch, streaming)!;
 
-    private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text)!;
+    private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text, DateTimeOffset.UnixEpoch)!;
 
     private static object Pending() => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.PendingReplyBlock"), Guid.NewGuid())!;
 

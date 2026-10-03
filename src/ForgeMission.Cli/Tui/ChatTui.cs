@@ -248,7 +248,7 @@ internal sealed class ChatTui
         var sent = new SentMessage(Guid.NewGuid(), text);
         _pendingMessage = sent;
         _screen.Composer.Text = "";
-        ShowBlocks(Transcript.Submit(_blocks, sent.CommandId, sent.Text));
+        ShowBlocks(Transcript.Submit(_blocks, sent.CommandId, sent.Text, DateTimeOffset.Now));
     }
 
     // ── /edit ───────────────────────────────────────────────────────────────────────────────

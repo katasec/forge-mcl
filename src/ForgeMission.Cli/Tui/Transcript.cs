@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using ForgeMission.Conversations.Contracts;
 
@@ -6,18 +7,20 @@ namespace ForgeMission.Cli.Tui;
 /// <summary>One visible piece of the chat transcript.</summary>
 public abstract record TranscriptBlock;
 
-/// <summary>What the person sent, shown as the right-aligned pill.</summary>
-public sealed record YouBlock(string Text) : TranscriptBlock;
+/// <summary>What the person sent, shown as the right-aligned pill, and when (Phase 59).</summary>
+public sealed record YouBlock(string Text, DateTimeOffset Sent) : TranscriptBlock;
 
 /// <summary>A participant's reply card. <paramref name="Text"/> is null while the reply is pending;
 /// <paramref name="Mission"/> titles a final result that differs from the last step's text.
 /// <paramref name="Streaming"/> is true while live deltas grow the text, until the step's own
-/// message or the turn's end (Phase 56 Task 4: a heading at its end may still be incomplete).</summary>
-public sealed record ParticipantCard(string Title, string? Text, string Mission, bool Streaming = false) : TranscriptBlock;
+/// message or the turn's end (Phase 56 Task 4: a heading at its end may still be incomplete).
+/// <paramref name="Sent"/> is the time of the event that started the card (Phase 59).</summary>
+public sealed record ParticipantCard(string Title, string? Text, string Mission, DateTimeOffset Sent, bool Streaming = false) : TranscriptBlock;
 
 /// <summary>A message shown the moment it is sent, before Forge echoes it back as a
-/// <c>UserMessage</c> whose event id is <paramref name="CommandId"/>.</summary>
-public sealed record PendingYouBlock(Guid CommandId, string Text) : TranscriptBlock;
+/// <c>UserMessage</c> whose event id is <paramref name="CommandId"/>; <paramref name="Sent"/> is when
+/// it was sent.</summary>
+public sealed record PendingYouBlock(Guid CommandId, string Text, DateTimeOffset Sent) : TranscriptBlock;
 
 /// <summary>The reply card shown the moment a message is sent, before the first participant
 /// starts; it has no title until then.</summary>
@@ -47,11 +50,11 @@ public static class Transcript
     /// no visible block.</summary>
     public static IReadOnlyList<TranscriptBlock> Apply(IReadOnlyList<TranscriptBlock> blocks, ConversationEvent item) => item.Kind switch
     {
-        ConversationEventKind.UserMessage => AddUserMessage(blocks, item.EventId, item.Text ?? ""),
-        ConversationEventKind.ParticipantStarted => AddStartedCard(blocks, StartedCard(item.Text ?? "")),
+        ConversationEventKind.UserMessage => AddUserMessage(blocks, item.EventId, new YouBlock(item.Text ?? "", item.OccurredAtUtc)),
+        ConversationEventKind.ParticipantStarted => AddStartedCard(blocks, StartedCard(item.Text ?? "", item.OccurredAtUtc)),
         ConversationEventKind.ParticipantDelta => AppendToLatestCard(blocks, item.Text ?? ""),
-        ConversationEventKind.ParticipantMessage when item.Attempt is not null => FillLatestCard(blocks, item.Text ?? ""),
-        ConversationEventKind.ParticipantMessage => AddFinalResult(blocks, item.Text ?? ""),
+        ConversationEventKind.ParticipantMessage when item.Attempt is not null => FillLatestCard(blocks, item.Text ?? "", item.OccurredAtUtc),
+        ConversationEventKind.ParticipantMessage => AddFinalResult(blocks, item.Text ?? "", item.OccurredAtUtc),
         ConversationEventKind.Error => AddError(blocks, item),
         ConversationEventKind.RunStatus when item.RunStatus is { } status && IsTerminal(status) => EndTurn(blocks, status),
         ConversationEventKind.MissionHandsRequested => AddHandsLine(blocks, new HandsLine(HandsLabel(item), null)),
@@ -112,10 +115,11 @@ public static class Transcript
     public static string HandsText(HandsLine line) =>
         line.Outcome is null ? $"{line.Label} …" : $"{line.Label} → {line.Outcome}";
 
-    /// <summary>A message was just sent with <paramref name="commandId"/>: show it and a pending
-    /// reply now, without waiting for Forge.</summary>
-    public static IReadOnlyList<TranscriptBlock> Submit(IReadOnlyList<TranscriptBlock> blocks, Guid commandId, string text) =>
-        [.. blocks, new PendingYouBlock(commandId, text), new PendingReplyBlock(commandId)];
+    /// <summary>A message was just sent with <paramref name="commandId"/> at <paramref name="sent"/>:
+    /// show it and a pending reply now, without waiting for Forge.</summary>
+    public static IReadOnlyList<TranscriptBlock> Submit(IReadOnlyList<TranscriptBlock> blocks, Guid commandId, string text,
+        DateTimeOffset sent) =>
+        [.. blocks, new PendingYouBlock(commandId, text, sent), new PendingReplyBlock(commandId)];
 
     /// <summary>Forge did not accept the message: its pending blocks become an error line.</summary>
     public static IReadOnlyList<TranscriptBlock> SubmitFailed(IReadOnlyList<TranscriptBlock> blocks, Guid commandId, string message) =>
@@ -139,11 +143,15 @@ public static class Transcript
         return index >= 0 && blocks[index] is ParticipantCard { Streaming: true } card ? card.Title : null;
     }
 
+    /// <summary>When a message was sent, as every message shows it (Phase 59): local time in the
+    /// system's short time format.</summary>
+    public static string TimeOf(DateTimeOffset sent) => sent.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
+
     /// <summary>Forge's echo of a sent message takes the place of its pending pill.</summary>
-    private static IReadOnlyList<TranscriptBlock> AddUserMessage(IReadOnlyList<TranscriptBlock> blocks, Guid eventId, string text)
+    private static IReadOnlyList<TranscriptBlock> AddUserMessage(IReadOnlyList<TranscriptBlock> blocks, Guid eventId, YouBlock you)
     {
-        var index = IndexOf(blocks, block => block is PendingYouBlock you && you.CommandId == eventId);
-        return index < 0 ? Append(blocks, new YouBlock(text)) : ReplaceAt(blocks, index, new YouBlock(text));
+        var index = IndexOf(blocks, block => block is PendingYouBlock pending && pending.CommandId == eventId);
+        return index < 0 ? Append(blocks, you) : ReplaceAt(blocks, index, you);
     }
 
     /// <summary>The first participant to start takes the place of the pending reply (one turn
@@ -155,12 +163,12 @@ public static class Transcript
     }
 
     /// <summary>The runner titles a step <c>Mission:Expert</c>; the card shows the expert.</summary>
-    private static ParticipantCard StartedCard(string step)
+    private static ParticipantCard StartedCard(string step, DateTimeOffset sent)
     {
         var colon = step.LastIndexOf(':');
         return colon < 0
-            ? new ParticipantCard(step, null, step)
-            : new ParticipantCard(step[(colon + 1)..], null, step[..colon]);
+            ? new ParticipantCard(step, null, step, sent)
+            : new ParticipantCard(step[(colon + 1)..], null, step[..colon], sent);
     }
 
     /// <summary>A live reply delta (53.8) grows the latest card; the step's own message then replaces
@@ -174,10 +182,10 @@ public static class Transcript
         return ReplaceAt(blocks, index, card with { Text = (card.Text ?? "") + text, Streaming = true });
     }
 
-    private static IReadOnlyList<TranscriptBlock> FillLatestCard(IReadOnlyList<TranscriptBlock> blocks, string text)
+    private static IReadOnlyList<TranscriptBlock> FillLatestCard(IReadOnlyList<TranscriptBlock> blocks, string text, DateTimeOffset sent)
     {
         var index = LatestCardIndex(blocks);
-        if (index < 0) return Append(blocks, new ParticipantCard("Forge", text, "Forge"));
+        if (index < 0) return Append(blocks, new ParticipantCard("Forge", text, "Forge", sent));
 
         var updated = blocks.ToList();
         updated[index] = ((ParticipantCard)blocks[index]) with { Text = text, Streaming = false };
@@ -186,14 +194,14 @@ public static class Transcript
 
     /// <summary>The runner sends the mission's final result after the last step's message. It is
     /// shown, as its own card titled with the mission, only when its text differs.</summary>
-    private static IReadOnlyList<TranscriptBlock> AddFinalResult(IReadOnlyList<TranscriptBlock> blocks, string text)
+    private static IReadOnlyList<TranscriptBlock> AddFinalResult(IReadOnlyList<TranscriptBlock> blocks, string text, DateTimeOffset sent)
     {
         var index = LatestCardIndex(blocks);
-        if (index < 0) return Append(blocks, new ParticipantCard("Forge", text, "Forge"));
+        if (index < 0) return Append(blocks, new ParticipantCard("Forge", text, "Forge", sent));
 
         var last = (ParticipantCard)blocks[index];
         if (last.Text == text) return blocks;
-        return Append(blocks, new ParticipantCard(last.Mission, text, last.Mission));
+        return Append(blocks, new ParticipantCard(last.Mission, text, last.Mission, sent));
     }
 
     /// <summary>A mission-level error (no attempt) that repeats the step error just shown is
@@ -214,7 +222,7 @@ public static class Transcript
             .Where(block => block is not (ParticipantCard { Text: null } or PendingReplyBlock))
             .Select(block => block switch
             {
-                PendingYouBlock you => new YouBlock(you.Text),
+                PendingYouBlock you => new YouBlock(you.Text, you.Sent),
                 ParticipantCard { Streaming: true } card => card with { Streaming = false },
                 _ => block,
             })
