@@ -354,12 +354,14 @@ public static class ForgeChat
     private static async Task<int> ChatAsync(IMissionConversationService conversations, Guid conversationId, ChatHandsAttachment? hands)
     {
         var snapshot = (await conversations.GetConversationAsync(conversationId, CancellationToken.None)).Snapshot;
-        var cursor = await ReplayAsync(conversations, conversationId, 0, snapshot.LastSequence, Print, CancellationToken.None);
+        string? lastReply = null;
+        Action<ConversationEvent> print = item => lastReply = Print(item, lastReply);
+        var cursor = await ReplayAsync(conversations, conversationId, 0, snapshot.LastSequence, print, CancellationToken.None);
         hands?.Begin(message => Console.WriteLine($"error: {message}"));
         Action<ConversationEvent> live = item =>
         {
             hands?.OnEvent(item);
-            Print(item);
+            print(item);
         };
         if (snapshot.ActiveRunId is { } running && !IsTerminal(snapshot.Status))
             cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, includeDeltas: false, live, CancellationToken.None);
@@ -468,8 +470,11 @@ public static class ForgeChat
 
     // ── Output and rules ────────────────────────────────────────────────────────────────────
 
-    private static void Print(ConversationEvent item)
+    /// <summary>Prints one event; returns the last reply text printed, so a final result that
+    /// repeats it (<see cref="Transcript.RepeatsLastReply"/>) is printed once.</summary>
+    private static string? Print(ConversationEvent item, string? lastReply)
     {
+        if (Transcript.RepeatsLastReply(lastReply, item)) return lastReply;
         switch (item.Kind)
         {
             // Phase 59: every message shows when it was sent, a live echo of a typed line too.
@@ -482,7 +487,7 @@ public static class ForgeChat
             case ConversationEventKind.ParticipantMessage:
                 Console.WriteLine(item.Text);
                 Console.WriteLine();
-                break;
+                return item.Text ?? "";
             case ConversationEventKind.Error:
                 Console.WriteLine($"error: {item.Reason ?? item.Text}");
                 break;
@@ -498,6 +503,7 @@ public static class ForgeChat
                 Console.WriteLine($"(run {status.ToString().ToLowerInvariant()})");
                 break;
         }
+        return lastReply;
     }
 
     /// <summary>The TUI needs a terminal on both ends; piped input or output keeps the line mode.</summary>
