@@ -219,7 +219,7 @@ public sealed class FileEditorTests : IDisposable
         var editor = NewEditor(Open("s.txt"), () => { });
         var view = (Visual)FileEditorType.GetProperty("View")!.GetValue(editor)!;
 
-        screenType.GetMethod("ShowEditor")!.Invoke(screen, [view]);
+        screenType.GetMethod("ShowEditor")!.Invoke(screen, [view, true]);
         Assert.True((bool)screenType.GetProperty("Editing")!.GetValue(screen)!);
         var editing = RenderText(root);
         Assert.Contains("s.txt · new", editing);

@@ -24,7 +24,7 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         ControlFillHover = theme.SurfaceAlt,
         ControlFillPressed = theme.Selection,
         Border = theme.Border,
-        FocusBorder = theme.Border,
+        FocusBorder = theme.Accent,
         Accent = theme.Accent,
         Primary = theme.Accent,
         Selection = theme.Selection,
