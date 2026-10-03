@@ -59,6 +59,7 @@ internal sealed class ChatTui
     // An Enter pressed while the link was asleep or catching up: send once it is ready.
     private bool _sendOnWake;
     private readonly ChatLink _link;
+    private readonly StartPage _start;
 
     private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
         TextFonts fonts, ChatHandsAttachment? hands, CancellationTokenSource session)
@@ -71,6 +72,8 @@ internal sealed class ChatTui
         _session = session.Token;
         _styles = new ForgeStyles(theme);
         _screen = new ChatScreen(header, _styles);
+        _start = new StartPage(_styles, OpenChat);
+        _screen.ShowEditor(_start.View, editor: false);
         _link = new ChatLink(conversations, conversationId, InFlight, ShowLive, ShowNotice, _session);
         _screen.Composer.Accepted((_, e) => Send(e.Text));
         WakeOnInput();
@@ -113,8 +116,8 @@ internal sealed class ChatTui
             context.App.AddGlobalCommand(QuitCommand());
             if (!await ShowImagesAsync())
                 return TerminalLoopResult.Stop;
-            // The composer joins the screen inside its frame once the tiles have arrived.
-            context.App.Focus(_screen.Composer);
+            // The TUI opens on the start page (Phase 60); Chat with a mission swaps in the chat.
+            context.App.Focus(_start.List);
             await WhileBusyAsync(OpenAsync);
         }
         else if (_pendingMessage is { } sent)
@@ -290,6 +293,12 @@ internal sealed class ChatTui
     {
         _screen.ShowChat();
         _screen.Root.App?.Focus(_screen.Composer);
+    }
+
+    /// <summary>Chat with a mission on the start page: today's chat, once the images are there.</summary>
+    private void OpenChat()
+    {
+        if (_screen.HasTiles) CloseEditor();
     }
 
     /// <summary>Ctrl-C: stop the turn this window submitted (once its submit returns); nothing

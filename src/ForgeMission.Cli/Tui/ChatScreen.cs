@@ -102,15 +102,16 @@ internal sealed class ChatScreen
     /// <summary>Whether the file editor is on screen in place of the transcript (/edit).</summary>
     public bool Editing { get; private set; }
 
-    /// <summary>Shows a file editor's view in place of the transcript: the progress row and the
-    /// composer are hidden and the key bar shows the editor's keys. Needs the images (HasTiles).</summary>
-    public void ShowEditor(Visual editor)
+    /// <summary>Shows a view in place of the transcript, with the progress row and the composer
+    /// hidden. A file editor (<paramref name="editor"/>) also sets Editing and shows the editor's
+    /// keys, which needs the images (HasTiles); the start page (Phase 60) keeps the key bar.</summary>
+    public void ShowEditor(Visual view, bool editor = true)
     {
-        Editing = true;
-        _dock.Content = editor;
+        Editing = editor;
+        _dock.Content = view;
         _progressRow.IsVisible = false;
         _composerSlot.IsVisible = false;
-        _keysSlot.Content = KeyBar(EditorKeys);
+        if (editor) _keysSlot.Content = KeyBar(EditorKeys);
     }
 
     /// <summary>Puts the transcript, progress row, composer and chat keys back.</summary>
