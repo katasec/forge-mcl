@@ -47,6 +47,7 @@ behavior in forge-client.
 | [ForgeExec](ForgeExec.cs) | One-shot hosted mission execution, artifact input/output, and ForgeAPI endpoint selection. |
 | [PlatformLogin](PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
 | [ProviderClientBuilder](ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
+| [ForgeProject](ForgeProject.cs) | Explicit portable Project creation and hosted Chat setup through the shared Client. |
 | [ForgeChat](ForgeChat.cs) | Portable Project opening, hosted conversation reconnection, fresh hands approval/attachment, and terminal/line-mode selection. |
 | [ChatHandsAttachment](ChatHandsAttachment.cs) | Executes file requests for an acknowledged hands attachment off the conversation follow loop. |
 | [ForgeConfig](ForgeConfig.cs) | Reads the chat theme from `~/.forge/config.json`. |
@@ -108,6 +109,7 @@ flowchart LR
   [Docker](../ForgeMission.Docker/README.md), [Scout](../ForgeMission.Scout/README.md), and
   [Serve](../ForgeMission.Serve/README.md); OCI retrieval belongs in
   [Mission Registry](../ForgeMission.MissionRegistry/README.md).
+- **Project creation:** `forge project create [folder]` initializes one portable declaration and one hosted plain Chat conversation. The folder defaults to cwd and must exist. Saved sign-in is required before creation; Projects and Missions own all file, package, admission and retry rules. Explicit retry preserves the same Project and conversation.
 - **Chat modes:** `forge chat` reads `forge.project.json` in the current directory, or the
   explicit folder selected by `--project`. Missing declarations stop before sign-in or network
   setup; chat creates no Project and searches no ancestors. Plain and `--hands` select separate
