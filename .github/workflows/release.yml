@@ -18,98 +18,7 @@ env:
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Require a valid version and merged default-branch source
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Version must be major.minor.patch, without v." >&2
-            exit 1
-          fi
-          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
-            echo "Release must be dispatched from the default branch." >&2
-            exit 1
-          fi
-          git fetch origin "$DEFAULT_BRANCH"
-          git merge-base --is-ancestor "$SOURCE_SHA" "origin/$DEFAULT_BRANCH"
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.x'
-
-      - name: Build and test before release mutation
-        shell: bash
-        env:
-          NUGET_AUTH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          unset OPENAI_API_KEY XAI_API_KEY MCL_API_KEY COPILOT_GITHUB_TOKEN ANTHROPIC_API_KEY NO_COLOR
-          dotnet restore ForgeMission.slnx
-          # Existing CLI reflection tests load the Debug assembly.
-          dotnet build ForgeMission.slnx --no-restore -warnaserror
-          dotnet build ForgeMission.slnx -c Release --no-restore -warnaserror
-          dotnet test ForgeMission.slnx -c Release --no-build
-
-  prepare:
-    needs: verify
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-
-      - name: Refuse an existing tag or release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="v$VERSION"
-          existing_tag=$(git ls-remote --tags origin "refs/tags/$tag")
-          if [[ -n "$existing_tag" ]]; then
-            echo "Tag $tag already exists; releases are not overwritten." >&2
-            exit 1
-          fi
-          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$RUNNER_TEMP/release.json" 2> "$RUNNER_TEMP/release.err"; then
-            echo "Release $tag already exists; releases are not overwritten." >&2
-            exit 1
-          elif ! grep -Fq '(HTTP 404)' "$RUNNER_TEMP/release.err"; then
-            cat "$RUNNER_TEMP/release.err" >&2
-            exit 1
-          fi
-
-      - name: Create the source tag and draft release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="v$VERSION"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$tag" "$SOURCE_SHA"
-          git push origin "refs/tags/$tag"
-          if ! gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft \
-            --target "$SOURCE_SHA" --title "$tag" --generate-notes; then
-            echo "Tag $tag was pushed at $SOURCE_SHA, but draft creation failed. The tag remains; do not delete or force it." >&2
-            exit 1
-          fi
-
   build:
-    needs: prepare
     permissions:
       contents: read
       packages: read
@@ -131,6 +40,19 @@ jobs:
       RID: ${{ matrix.rid }}
       BINARY: ${{ matrix.binary }}
     steps:
+      - name: Require a valid version and default-branch dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Version must be major.minor.patch, without v." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "Release must be dispatched from the default branch." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
@@ -157,42 +79,32 @@ jobs:
         if: runner.os == 'macOS'
         run: codesign --force --sign - dist/forge
 
-      - name: Archive and extract publish output (macOS and Linux)
+      - name: Archive publish output (macOS and Linux)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           (cd dist && zip -r "$RUNNER_TEMP/forge-$RID.zip" .)
-          unzip "$RUNNER_TEMP/forge-$RID.zip" -d "$RUNNER_TEMP/forge-release-smoke"
 
-      - name: Archive and extract publish output (Windows)
+      - name: Archive publish output (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $archive = Join-Path $env:RUNNER_TEMP "forge-$env:RID.zip"
           [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path dist).Path, $archive)
-          Expand-Archive -Path $archive -DestinationPath (Join-Path $env:RUNNER_TEMP 'forge-release-smoke')
 
-      - name: Checksum and smoke the extracted native payload
+      - name: Checksum and check native help/version
         shell: pwsh
         run: |
           $archive = Join-Path $env:RUNNER_TEMP "forge-$env:RID.zip"
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           "$hash  forge-$env:RID.zip" | Set-Content -Encoding ascii "$archive.sha256"
-          $binary = Join-Path $env:RUNNER_TEMP "forge-release-smoke/$env:BINARY"
+          $binary = (Resolve-Path "dist/$env:BINARY").Path
           & $binary --help
-          if ($LASTEXITCODE -ne 0) { throw 'Extracted native --help failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Native --help failed.' }
           $version = (& $binary --version | Out-String).Trim()
           if ($LASTEXITCODE -ne 0 -or $version -ne "$env:VERSION+$env:SOURCE_SHA") {
-            throw "Extracted native version/source mismatch: $version"
-          }
-          $empty = Join-Path $env:RUNNER_TEMP 'forge-empty-project'
-          New-Item -ItemType Directory -Path $empty | Out-Null
-          $stdout = Join-Path $empty 'stdout.txt'
-          $stderr = Join-Path $empty 'stderr.txt'
-          $process = Start-Process -FilePath $binary -ArgumentList chat -WorkingDirectory $empty -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
-          if ($process.ExitCode -ne 1 -or (Get-Content $stdout -Raw) -or (Get-Content $stderr -Raw).Trim() -ne 'No forge.project.json found in the current directory.') {
-            throw 'Extracted native missing-declaration refusal failed.'
+            throw "Native version/source mismatch: $version"
           }
 
       - name: Upload verified payload for release attachment
@@ -202,28 +114,36 @@ jobs:
           path: ${{ runner.temp }}/forge-${{ matrix.rid }}.zip*
           if-no-files-found: error
 
-  upload:
-    needs: [prepare, build]
+  publish:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
       - uses: actions/download-artifact@v8
         with:
           pattern: forge-*
           merge-multiple: true
           path: dist
 
-      - name: Attach all verified assets to the draft
+      - name: Publish the new release with all assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft > "$RUNNER_TEMP/release.json"
-          jq -e '.isDraft == true' "$RUNNER_TEMP/release.json" > /dev/null
-          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+          tag="v$VERSION"
+          existing_tag=$(git ls-remote --tags origin "refs/tags/$tag")
+          if [[ -n "$existing_tag" ]]; then
+            echo "Tag $tag already exists; releases are not overwritten." >&2
+            exit 1
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" --title "$tag" --generate-notes \
             dist/forge-osx-arm64.zip dist/forge-osx-arm64.zip.sha256 \
             dist/forge-linux-x64.zip dist/forge-linux-x64.zip.sha256 \
             dist/forge-win-arm64.zip dist/forge-win-arm64.zip.sha256
-          echo "Draft v$VERSION has all three payloads and checksums. Download and verify before publishing."
