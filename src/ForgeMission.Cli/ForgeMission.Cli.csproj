@@ -14,7 +14,8 @@
     <PackageReference Include="System.CommandLine" Version="2.0.9" />
     <PackageReference Include="Katasec.OciClient" Version="0.2.1" />
     <PackageReference Include="Spectre.Console" Version="0.49.1" />
-    <PackageReference Include="Katasec.Forge.Client" Version="0.8.0" />
+    <PackageReference Include="Katasec.Forge.Client" Version="0.9.1" />
+    <PackageReference Include="Katasec.Forge.Client.Contracts" Version="0.2.0" />
     <PackageReference Include="XenoAtom.Terminal.UI" Version="3.10.0" />
     <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />
     <!-- Phase 56 G2: proportional text in forge chat; referenced only by Tui/Graphics/GlyphText.cs. -->

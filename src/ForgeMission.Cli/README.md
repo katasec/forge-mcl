@@ -47,7 +47,7 @@ behavior in forge-client.
 | [ForgeExec](ForgeExec.cs) | One-shot hosted mission execution, artifact input/output, and ForgeAPI endpoint selection. |
 | [PlatformLogin](PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
 | [ProviderClientBuilder](ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
-| [ForgeChat](ForgeChat.cs) | Project selection, mission publication, conversation reuse, hands approval/attachment, and terminal/line-mode selection. |
+| [ForgeChat](ForgeChat.cs) | Portable Project opening, hosted conversation reconnection, fresh hands approval/attachment, and terminal/line-mode selection. |
 | [ChatHandsAttachment](ChatHandsAttachment.cs) | Executes file requests for an acknowledged hands attachment off the conversation follow loop. |
 | [ForgeConfig](ForgeConfig.cs) | Reads the chat theme from `~/.forge/config.json`. |
 
@@ -108,16 +108,25 @@ flowchart LR
   [Docker](../ForgeMission.Docker/README.md), [Scout](../ForgeMission.Scout/README.md), and
   [Serve](../ForgeMission.Serve/README.md); OCI retrieval belongs in
   [Mission Registry](../ForgeMission.MissionRegistry/README.md).
-- **Chat modes:** `forge chat` opens the default Project under `~/Forge/Projects`, or the Project
-  selected by `--project`. Plain and `--hands` use separate missions (`Chat` and `ChatHands`)
-  and reuse each mission's latest conversation.
-- **Project files:** `forge.project.json` contains only mission/version references and relative
-  repository folders. Client-owned identity and approval facts live in `obj/forge/project.state.json`;
-  this state is durable. A removed mission reference stops chat with explicit edit guidance.
-  Old public schemas require Project recreation; chat does not migrate or restore removed references.
-- **Hands:** Approval is once per Project, recorded by publishing `ChatHands`. Piped first use
-  cannot approve it. Bob gets file capability in the Project workspace, without a terminal.
-  The TUI executes hands requests only for this window's turn.
+- **Chat modes:** `forge chat` reads `forge.project.json` in the current directory, or the
+  explicit folder selected by `--project`. Missing declarations stop before sign-in or network
+  setup; chat creates no Project and searches no ancestors. Plain and `--hands` select separate
+  declared missions (`Chat` and `ChatHands`) and reconnect to the latest matching hosted chat.
+- **Portable files:** `forge.project.json` carries the stable `projectId`, mission/version
+  references and relative repository folders. Chat requires neither `mcl.lock` nor private
+  authoring state. The authenticated hosted pin supplies its package and provider profile;
+  missing or ambiguous hosted references fail explicitly instead of publishing a starter.
+  Plain chat requires `NoHands`; `--hands` requires `ProjectWorkspace`. A different hosted profile
+  is refused before consent or attachment; this command does not grant terminal access.
+- **Profile projection:** Client records reconstructable `session.json` and `messages.jsonl`
+  under `<user-home>/.forge/sessions/<projectId>/<conversationId>`, using platform profile
+  discovery. Chat always displays hosted history from zero; it never reads these files for
+  selection, display or authorization. A projection-write failure shows a notice while hosted
+  chat continues. TUI notices are queued and shown on the UI loop, never written into its terminal.
+- **Hands:** Every launch requires fresh terminal approval. Piped runs cannot grant it. Bob
+  attaches only after acknowledging the authenticated hosted pin and gets files in the admitted
+  Project workspace, without terminal capability. The TUI executes hands requests only for this
+  window's turn.
 - **Terminal:** TUI mode requires both stdin and stdout to be terminals, kitty graphics,
   truecolor, and no multiplexer. Environment checks and font loading precede sign-in; the first
   UI tick checks cell size. Unsupported terminals fail explicitly. Shift+Enter needs kitty keyboard support.

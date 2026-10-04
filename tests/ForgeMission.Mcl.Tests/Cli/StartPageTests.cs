@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Collections.Concurrent;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.Backends;
 using XenoAtom.Terminal.UI;
@@ -78,7 +79,7 @@ public sealed class StartPageTests
         var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
         var fonts = Type("ForgeMission.Cli.Tui.Graphics.TextFonts").GetMethod("LoadEmbedded")!.Invoke(null, null)!;
         var tui = Activator.CreateInstance(tuiType, BindingFlags.Instance | BindingFlags.NonPublic, null,
-            [null, Guid.NewGuid(), header, theme, fonts, null, new CancellationTokenSource()], null)!;
+            [null, Guid.NewGuid(), header, theme, fonts, null, new ConcurrentQueue<string>(), new CancellationTokenSource()], null)!;
         var styles = Field(tui, "_styles");
         var screen = Field(tui, "_screen");
         var cell = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.CellSize"), 19, 42)!;

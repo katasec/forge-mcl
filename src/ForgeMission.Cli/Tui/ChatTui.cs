@@ -1,4 +1,5 @@
 using ForgeMission.Application;
+using System.Collections.Concurrent;
 using ForgeMission.Conversations.Contracts;
 using ForgeMission.Cli.Tui.Graphics;
 using XenoAtom.Terminal;
@@ -60,14 +61,16 @@ internal sealed class ChatTui
     private bool _sendOnWake;
     private readonly ChatLink _link;
     private readonly StartPage _start;
+    private readonly ConcurrentQueue<string> _notices;
 
     private ChatTui(IMissionConversationService conversations, Guid conversationId, ChatHeader header, ForgeTheme theme,
-        TextFonts fonts, ChatHandsAttachment? hands, CancellationTokenSource session)
+        TextFonts fonts, ChatHandsAttachment? hands, ConcurrentQueue<string> notices, CancellationTokenSource session)
     {
         _fonts = fonts;
         _conversations = conversations;
         _conversationId = conversationId;
         _hands = hands;
+        _notices = notices;
         _sessionSource = session;
         _session = session.Token;
         _styles = new ForgeStyles(theme);
@@ -89,10 +92,10 @@ internal sealed class ChatTui
     /// keeps running on Forge; only this process stops following it. A file operation still
     /// running is cancelled.</summary>
     public static async Task<TuiExit> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
-        ForgeTheme theme, TextFonts fonts, ChatHandsAttachment? hands)
+        ForgeTheme theme, TextFonts fonts, ChatHandsAttachment? hands, ConcurrentQueue<string> notices)
     {
         using var session = new CancellationTokenSource();
-        var tui = new ChatTui(conversations, conversationId, header, theme, fonts, hands, session);
+        var tui = new ChatTui(conversations, conversationId, header, theme, fonts, hands, notices, session);
         TypeAhead.Discard();
         await TerminalCaret.WhileRunning(tui._styles.Caret, () => TerminalPointer.WhileRunning(() =>
             Terminal.RunAsync(tui._screen.Root, tui.UpdateAsync, new TerminalRunOptions { ExitGesture = QuitGesture }).AsTask()));
@@ -106,6 +109,7 @@ internal sealed class ChatTui
     /// work, has ended. A live stream that failed unexpectedly ends the chat with its error.</summary>
     private async ValueTask<TerminalLoopResult> UpdateAsync(TerminalRunningContext context)
     {
+        if (_screen.HasTiles) ForgeChat.DrainNotices(_notices, ShowError);
         if (_link.Live.IsFaulted) await _link.Live;
         _screen.Links.Recheck();
         if (_session.IsCancellationRequested)
