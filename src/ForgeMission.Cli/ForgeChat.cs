@@ -1,4 +1,6 @@
 using System.CommandLine;
+using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using System.Net.Http.Headers;
 using ForgeMission.Application;
 using ForgeMission.Application.Transport;
@@ -8,30 +10,16 @@ using ForgeMission.Core.Tools;
 using ForgeMission.Cli.Tui;
 using ForgeMission.Cli.Tui.Graphics;
 using Microsoft.Extensions.DependencyInjection;
-// Transport and Contracts both name these; forge chat uses the surface (Transport) side.
-using CreateMissionConversationRequest = ForgeMission.Application.Transport.CreateMissionConversationRequest;
-using ListMissionConversationsRequest = ForgeMission.Application.Transport.ListMissionConversationsRequest;
 
 namespace ForgeMission.Cli;
 
-// forge chat (53.2, 53.4, 53.5): a chat with the naked Chat mission (one expert on Claude) in the
-// default Project — a full-screen TUI on a terminal (Tui/ChatTui), otherwise a plain type-and-print
-// loop (acceptance scripts pipe it). Everything below the loop is an existing Katasec.Forge.Client call
-// through ApplicationComposition: Project create/open, mission authoring, and the mission-conversation
-// messages on ForgeAPI. This file owns only the order of those calls and what is printed.
-// `forge chat --hands` (Phase 55) runs the separate ChatHands mission instead: the model may read,
-// write and edit files in the project folder through Bob, after a one-time approval per project.
-// The TUI needs a terminal that shows kitty images (Phase 56 G8), checked in two stages with one
-// message and no plain fallback: the environment before sign-in or any network call, and the cell
-// size on the TUI's first tick (ChatTui), where XenoAtom already owns terminal input.
+// forge chat opens the current folder's portable declaration and reconnects to its hosted
+// mission through Katasec.Forge.Client. Projects, packages and history stay with their existing
+// owners; this surface handles startup, fresh hands consent and terminal/line presentation.
 public static class ForgeChat
 {
-    private const string ProjectTitle = "Chat";
-    // Unchanged since 53.2: an existing default Project must keep resolving and opening as before.
-    private const string ProjectGoal = "Chat with Janus from the forge CLI.";
     private const string HandsFlag = "--hands";
     private const string ProjectFlag = "--project";
-    private static readonly TimeSpan EvaluationPollDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromMilliseconds(250);
     private const string NeedsImagesMessage = "forge chat needs a terminal that can show images, such as Ghostty or Kitty " +
         "(not inside tmux). Open forge chat again from one of those.";
@@ -39,14 +27,14 @@ public static class ForgeChat
     /// <summary>The <c>forge chat</c> command and its flags.</summary>
     internal static Command BuildCommand()
     {
-        var cmd = new Command("chat", "Chat in your default Forge project (--hands: let it read and edit files there)");
+        var cmd = new Command("chat", "Chat with a hosted mission in the current Forge project");
         cmd.Add(new Option<bool>(HandsFlag)
         {
-            Description = "Let the model read, write and edit files in the chat project folder (asks once per project)",
+            Description = "Let the model read, write and edit project files (asks every launch)",
         });
         cmd.Add(new Option<string?>(ProjectFlag)
         {
-            Description = "Chat in the Project at this folder instead of the default one",
+            Description = "Open the Forge project in this folder instead of the current directory",
         });
         cmd.SetAction(async result => await RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag)));
         return cmd;
@@ -54,7 +42,16 @@ public static class ForgeChat
 
     public static async Task<int> RunAsync(bool hands, string? projectFolder)
     {
-        // Read before any network call, on both paths: a bad config stops here either way.
+        var home = Path.GetFullPath(projectFolder ?? Directory.GetCurrentDirectory());
+        if (!File.Exists(Path.Combine(home, "forge.project.json")))
+        {
+            Console.Error.WriteLine(projectFolder is null
+                ? "No forge.project.json found in the current directory."
+                : $"No forge.project.json found in {home}.");
+            return 1;
+        }
+
+        // Configuration and terminal prerequisites still precede login/network work.
         ForgeTheme theme;
         try { theme = ForgeConfig.ReadTheme(ForgeConfig.DefaultPath); }
         catch (ForgeConfigException bad)
@@ -90,12 +87,9 @@ public static class ForgeChat
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", platform.Key);
         });
         await using var provider = services.BuildServiceProvider();
-        await using var app = ApplicationComposition.Create(provider.GetRequiredService<IHttpClientFactory>(),
-            null, PolicyFor(hands), _ => { }, CancellationToken.None);
-
         try
         {
-            return await ChatInProjectAsync(app, ModeFor(hands), projectFolder, theme, fonts);
+            return await RunApplicationAsync(provider.GetRequiredService<IHttpClientFactory>(), ModeFor(hands), home, theme, fonts);
         }
         catch (ChatStoppedException stopped)
         {
@@ -114,6 +108,40 @@ public static class ForgeChat
         {
             return ReportConnectionLost(failure, Console.Error);
         }
+    }
+
+    /// <summary>Owns the client application's joined lifetime and delivers its final notices
+    /// after disposal, while preserving the original chat failure.</summary>
+    private static async Task<int> RunApplicationAsync(IHttpClientFactory clients, ChatMode mode, string home,
+        ForgeTheme theme, TextFonts? fonts)
+    {
+        var notices = new ConcurrentQueue<string>();
+        var app = ApplicationComposition.Create(clients,
+            null, PolicyFor(mode.HasHands), item =>
+            {
+                if (item.Kind == ApplicationEventKind.Error && item.Error is { } message)
+                    notices.Enqueue(message);
+            }, CancellationToken.None);
+
+        // Dispose explicitly: the final projection flush can report a notice, and a cleanup
+        // failure must not replace the original chat failure.
+        ExceptionDispatchInfo? chatFailure = null;
+        ExceptionDispatchInfo? cleanupFailure = null;
+        var exitCode = 0;
+        try { exitCode = await ChatInProjectAsync(app, mode, home, theme, fonts, notices); }
+        catch (Exception failure) { chatFailure = ExceptionDispatchInfo.Capture(failure); }
+        try { await app.DisposeAsync(); }
+        catch (Exception failure) { cleanupFailure = ExceptionDispatchInfo.Capture(failure); }
+        finally { DrainNotices(notices, Console.Error.WriteLine); }
+
+        if (chatFailure is not null)
+        {
+            if (cleanupFailure is not null)
+                Console.Error.WriteLine($"Chat cleanup also failed: {cleanupFailure.SourceException.Message}");
+            chatFailure.Throw();
+        }
+        cleanupFailure?.Throw();
+        return exitCode;
     }
 
     /// <summary>Loads the TUI's embedded fonts; a missing or unreadable one is reported on
@@ -135,29 +163,30 @@ public static class ForgeChat
         return 1;
     }
 
-    /// <summary>Opens the Project, gates hands on the one-time approval, makes sure the
-    /// mode's mission is published, opens its conversation, attaches hands, and runs the chat:
-    /// the TUI on a terminal, otherwise the line mode.</summary>
-    /// <remarks><paramref name="tuiFonts"/> is null in the line mode and the TUI's loaded fonts on a terminal.</remarks>
-    private static async Task<int> ChatInProjectAsync(ApplicationComposition app, ChatMode mode, string? projectFolder,
-        ForgeTheme theme, TextFonts? tuiFonts)
+    /// <summary>Opens the portable Project, reconnects to its hosted mission, asks fresh hands
+    /// consent and presents its complete history in the TUI or line mode.</summary>
+    private static async Task<int> ChatInProjectAsync(ApplicationComposition app, ChatMode mode, string home,
+        ForgeTheme theme, TextFonts? tuiFonts, ConcurrentQueue<string> notices)
     {
-        var interactive = tuiFonts is not null;
-        var session = await OpenProjectAsync(app.Projects, projectFolder);
-        if (mode.HasHands && !await HandsAllowedAsync(app.MissionConversations, session, interactive))
+        var session = await OpenProjectAsync(app.Projects, home, mode.MissionName);
+        var reconnected = await app.MissionConversations.ReconnectAsync(
+            new ReconnectMissionConversationRequest(session.SessionId, mode.MissionName), CancellationToken.None);
+        var conversation = reconnected.Conversation ?? throw Stopped(reconnected.Error);
+        if (conversation.Approval.Profile != mode.ExpectedProfile)
+            throw new ChatStoppedException($"The hosted {mode.MissionName} profile {conversation.Approval.Profile} " +
+                $"does not match this chat mode's {mode.ExpectedProfile} profile.");
+        if (mode.HasHands && !HandsAllowed(session.Project.Home, tuiFonts is not null))
             return 1;
 
-        var mission = await EnsureMissionAsync(app, session.SessionId, mode);
-        var (conversationId, version) = await OpenConversationAsync(app.MissionConversations, session.SessionId, mission, mode);
         await using var hands = mode.HasHands
-            ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversationId, mission)
+            ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversation.ConversationId, conversation.Approval)
             : null;
         if (tuiFonts is null)
-            return await ChatAsync(app.MissionConversations, conversationId, hands);
+            return await ChatAsync(app.MissionConversations, conversation.ConversationId, hands, notices);
 
-        var header = new ChatHeader(Path.GetFileName(session.Project.Home), mode.MissionName, version, ChatProfile(mode),
-            Environment.UserName);
-        if (await ChatTui.RunAsync(app.MissionConversations, conversationId, header, theme, tuiFonts, hands) == TuiExit.Quit)
+        var header = new ChatHeader(session.Project.Title, conversation.MissionName, conversation.Approval.VersionNumber,
+            conversation.ProviderProfile, Environment.UserName);
+        if (await ChatTui.RunAsync(app.MissionConversations, conversation.ConversationId, header, theme, tuiFonts, hands, notices) == TuiExit.Quit)
             return 0;
         Console.Error.WriteLine(NeedsImagesMessage);
         return 1;
@@ -165,153 +194,35 @@ public static class ForgeChat
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>The Project lives at --project's folder, or else at the home a draft proposes for its
-    /// title, under Forge's own projects root. Open it; create it there only when that directory does not exist.</summary>
-    private static async Task<ProjectSession> OpenProjectAsync(IProjectService projects, string? folder)
+    private static async Task<ProjectSession> OpenProjectAsync(IProjectService projects, string home, string mission)
     {
-        var home = folder is null ? await DefaultHomeAsync(projects) : Path.GetFullPath(folder);
-
-        var opened = await projects.OpenAsync(new ProjectOpenRequest(home), CancellationToken.None);
-        if (opened.Error?.Code == ProjectOperationErrorCode.HomeNotFound)
-            opened = await projects.CreateAsync(new ProjectCreateRequest(ProjectGoal, ProjectTitle, home), CancellationToken.None);
-
-        if (opened.Outcome == ProjectOperationOutcome.GoalRequired)
-            throw new ChatStoppedException($"{home} exists but is not a Forge project.");
+        var opened = await projects.OpenChatAsync(new ProjectOpenRequest(home, Mission: mission), CancellationToken.None);
         var session = opened.Session ?? throw Stopped(opened.Error);
         Console.WriteLine($"Project: {session.Project.Home}");
         return session;
     }
 
-    private static async Task<string> DefaultHomeAsync(IProjectService projects)
-    {
-        var draft = await projects.DraftAsync(new ProjectDraftRequest(ProjectGoal, ProjectTitle), CancellationToken.None);
-        return draft.Draft?.HomePath ?? throw Stopped(draft.Error);
-    }
-
-    // ── Mission ─────────────────────────────────────────────────────────────────────────────
-
-    /// <summary>Returns the approved version of the mode's mission. On first use, runs the Desktop's authoring
-    /// sequence (draft → promote → add a case → evaluate → publish), each step chosen from the
-    /// Project's current authoring state, so an interrupted first use resumes where it stopped.
-    /// A case that failed on an earlier launch is re-run once; a failure in this launch stops.</summary>
-    private static async Task<ApprovedMissionVersionOption> EnsureMissionAsync(ApplicationComposition app, string sessionId, ChatMode mode)
-    {
-        var ranThisLaunch = false;
-        while (true)
-        {
-            if (await FindApprovedAsync(app.MissionConversations, sessionId, mode) is { } approved)
-                return approved;
-
-            var missions = await ReadAuthoringAsync(app.MissionAuthoring, sessionId, null);
-            var summary = missions.Missions.FirstOrDefault(item => item.Name == mode.MissionName);
-            if (summary is null)
-            {
-                Console.WriteLine($"First use: publishing {mode.MissionName} in this project (one evaluation run).");
-                Check(await app.MissionAuthoring.CreateDraftAsync(
-                    new CreateMissionDraftRequest(sessionId, mode.MissionName, mode.Definition, mode.Profile), CancellationToken.None));
-                continue;
-            }
-
-            var document = (await ReadAuthoringAsync(app.MissionAuthoring, sessionId, summary.MissionId)).Open
-                ?? throw new ChatStoppedException($"{mode.MissionName} could not be opened for authoring.");
-            ranThisLaunch = await AdvanceAsync(app.MissionAuthoring, sessionId, document, summary, ranThisLaunch);
-        }
-    }
-
-    /// <summary>Takes the one next authoring step for <paramref name="document"/>. Returns whether
-    /// an evaluation has been started in this launch.</summary>
-    private static async Task<bool> AdvanceAsync(IMissionAuthoringService authoring, string sessionId,
-        MissionAuthoringDocument document, MissionDefinitionSummary summary, bool ranThisLaunch)
-    {
-        var missionName = summary.Name;
-        if (summary.LatestState == MissionVersionStateView.Approved)
-            throw new ChatStoppedException($"{missionName} is already published but is missing from forge.project.json. " +
-                $"Add \"{missionName}@{summary.LatestVersionNumber}\" to its missions array to use it.");
-        if (summary.LatestVersionNumber > 1)
-            throw new ChatStoppedException($"{missionName} has a previously published version missing from forge.project.json. " +
-                "Restore its approved mission reference or explicitly publish the pending version before starting chat.");
-
-        if (document.Editable == MissionEditableKind.Draft)
-        {
-            Check(await authoring.PromoteCandidateAsync(
-                new PromoteMissionCandidateRequest(sessionId, document.MissionId, document.DraftId!.Value, document.Revision), CancellationToken.None));
-            return ranThisLaunch;
-        }
-
-        if (document.MissionVersionId is not { } versionId)
-            throw new ChatStoppedException($"{missionName} has no candidate version to publish.");
-
-        if (document.Cases.Count == 0)
-        {
-            Check(await authoring.AddCaseAsync(new AddEvaluationCaseRequest(sessionId, document.MissionId, versionId,
-                new EvaluationCaseInput("Say hello.", null, null, EvaluationOutcomeView.Succeeded, null)), CancellationToken.None));
-            return ranThisLaunch;
-        }
-
-        var open = document.Cases.FirstOrDefault(item => item.ResultState != EvaluationResultStateView.Passed);
-        if (open is null)
-        {
-            Check(await authoring.PublishAsync(new PublishMissionVersionRequest(sessionId, document.MissionId, versionId), CancellationToken.None));
-            Console.WriteLine($"{missionName} published.");
-            return ranThisLaunch;
-        }
-
-        switch (open.ResultState)
-        {
-            case EvaluationResultStateView.Pending:
-                await Task.Delay(EvaluationPollDelay);
-                return ranThisLaunch;
-            case EvaluationResultStateView.Failed when ranThisLaunch:
-                throw new ChatStoppedException($"{missionName} evaluation failed: {open.ObservedSummary}");
-            case EvaluationResultStateView.Failed:
-                Console.WriteLine($"The previous {missionName} evaluation failed: {open.ObservedSummary}");
-                Console.WriteLine("Running it again.");
-                break;
-            default:
-                Console.WriteLine($"Evaluating {missionName}…");
-                break;
-        }
-
-        Check(await authoring.RunCaseAsync(
-            new RunEvaluationCaseRequest(sessionId, document.MissionId, versionId, open.EvaluationCaseId), CancellationToken.None));
-        return true;
-    }
-
-    private static async Task<ApprovedMissionVersionOption?> FindApprovedAsync(
-        IMissionConversationService conversations, string sessionId, ChatMode mode)
-    {
-        var approved = await conversations.ListApprovedVersionsAsync(new ListApprovedMissionVersionsRequest(sessionId), CancellationToken.None);
-        return (approved.Options ?? throw Stopped(approved.Error)).FirstOrDefault(item => item.MissionName == mode.MissionName);
-    }
-
     // ── Hands (Phase 55) ────────────────────────────────────────────────────────────────────
 
-    /// <summary>H3: hands need the published ChatHands version, which is the approval. Without it,
-    /// an interactive run asks once in plain text before the TUI starts; a piped run stops.</summary>
-    private static async Task<bool> HandsAllowedAsync(IMissionConversationService conversations, ProjectSession session, bool interactive)
+    /// <summary>Every hands launch asks again; redirected input never grants file access.</summary>
+    private static bool HandsAllowed(string folder, bool interactive)
     {
-        if (await FindApprovedAsync(conversations, session.SessionId, ChatMode.Hands) is not null)
-            return true;
-
-        var folder = session.Project.Home;
         switch (AskApproval(folder, interactive, Console.In, Console.Out))
         {
             case HandsApproval.Approved:
                 return true;
             case HandsApproval.NotInteractive:
-                Console.Error.WriteLine($"forge chat --hands: file access in {folder} is not allowed yet. " +
-                    "Run `forge chat --hands` in a terminal once to allow it.");
+                Console.Error.WriteLine("forge chat --hands requires fresh file access approval in a terminal.");
                 return false;
             default:
-                Console.Error.WriteLine("File access not allowed; nothing changed.");
+                Console.Error.WriteLine("File access not allowed.");
                 return false;
         }
     }
 
-    /// <summary>H5: acknowledges the approved ChatHands launch for this conversation, which attaches
-    /// Bob in the project folder. A refusal stops the chat.</summary>
+    /// <summary>Acknowledges the authenticated hosted pin after this launch's scoped approval.</summary>
     private static async Task<ChatHandsAttachment> AttachHandsAsync(IMissionHandsConversationService hands, string sessionId,
-        Guid conversationId, ApprovedMissionVersionOption mission)
+        Guid conversationId, MissionAccessApproval mission)
     {
         var acknowledged = await hands.AcknowledgeAsync(new AcknowledgeMissionHandsRequest(sessionId, conversationId,
             mission.MissionVersionId, mission.VersionNumber, mission.DefinitionHash, ProfileAccepted: true), CancellationToken.None);
@@ -320,46 +231,14 @@ public static class ForgeChat
         return new ChatHandsAttachment(hands, sessionId, conversationId, attachmentId);
     }
 
-    private static async Task<MissionAuthoringProjection> ReadAuthoringAsync(IMissionAuthoringService authoring, string sessionId, Guid? missionId)
-    {
-        var response = await authoring.GetAsync(new GetMissionAuthoringRequest(sessionId, missionId), CancellationToken.None);
-        return response.Authoring ?? throw Stopped(response.Error);
-    }
-
     // ── Conversation ────────────────────────────────────────────────────────────────────────
-
-    /// <summary>Reopens this Project's most recent conversation on the mode's mission, so Chat and
-    /// ChatHands each keep their own history; creates one on it only when the mode has none yet
-    /// (conversations on other missions such as Janus are left stored). Returns the conversation and
-    /// the version it runs on.</summary>
-    private static async Task<(Guid ConversationId, int Version)> OpenConversationAsync(
-        IMissionConversationService conversations, string sessionId, ApprovedMissionVersionOption mission, ChatMode mode)
-    {
-        var listed = await conversations.ListAsync(new ListMissionConversationsRequest(sessionId), CancellationToken.None);
-        var latest = LatestFor(listed.Conversations ?? throw Stopped(listed.Error), item => item.MissionName, mode.MissionName);
-        if (latest is not null)
-            return (latest.ConversationId, latest.VersionNumber);
-
-        var created = await conversations.CreateAsync(
-            new CreateMissionConversationRequest(sessionId, mission.MissionId, Guid.NewGuid(), mission.MissionVersionId), CancellationToken.None);
-        return ((created.Created ?? throw Stopped(created.Error)).ConversationId, mission.VersionNumber);
-    }
-
-    /// <summary>The provider profile the mode's definition pins (<c>using anthropic</c>), read from the
-    /// definition itself so the header never names a model the deployment may change.</summary>
-    private static string ChatProfile(ChatMode mode)
-    {
-        var program = ForgeMission.Parser.MclParser.Parse(mode.Definition);
-        var chat = program.Declarations.OfType<ForgeMission.Parser.MissionDeclaration>().Single(item => item.Name == mode.MissionName);
-        var step = chat.Pipeline.Elements.OfType<ForgeMission.Parser.StepElement>().First().Step;
-        return step.Using ?? "default";
-    }
 
     /// <summary>Prints the history, follows a turn that is still running, then reads a line,
     /// submits it, and prints the reply until the turn ends. Ctrl-D exits; Ctrl-C during a turn
     /// cancels it (and a running file operation) and exits. With hands, each live hands request is
     /// executed off the follow loop.</summary>
-    private static async Task<int> ChatAsync(IMissionConversationService conversations, Guid conversationId, ChatHandsAttachment? hands)
+    private static async Task<int> ChatAsync(IMissionConversationService conversations, Guid conversationId, ChatHandsAttachment? hands,
+        ConcurrentQueue<string> notices)
     {
         var snapshot = (await conversations.GetConversationAsync(conversationId, CancellationToken.None)).Snapshot;
         string? lastReply = null;
@@ -376,6 +255,7 @@ public static class ForgeChat
 
         while (true)
         {
+            DrainNotices(notices, Console.Error.WriteLine);
             Console.Write("you> ");
             if (Console.ReadLine() is not { } line) return 0;
             if (string.IsNullOrWhiteSpace(line)) continue;
@@ -517,14 +397,6 @@ public static class ForgeChat
     /// <summary>The TUI needs a terminal on both ends; piped input or output keeps the line mode.</summary>
     internal static bool UsesTui(bool inputRedirected, bool outputRedirected) => !inputRedirected && !outputRedirected;
 
-    /// <summary>The latest conversation is reopened only when it is on the mode's mission; a model
-    /// and a hands profile are pinned at create, so a conversation on another mission (Janus, or
-    /// the other chat mode) is never continued.</summary>
-    /// <summary>The first conversation in <paramref name="listed"/> (listed newest-first) on
-    /// <paramref name="mission"/>, or null when there is none.</summary>
-    internal static T? LatestFor<T>(IEnumerable<T> listed, Func<T, string?> missionName, string mission) where T : class =>
-        listed.FirstOrDefault(item => string.Equals(missionName(item), mission, StringComparison.Ordinal));
-
     private static bool Hands(ParseResult result) => result.GetValue<bool>(HandsFlag);
 
     /// <summary>Whether <paramref name="args"/> (after <c>chat</c>) ask for hands.</summary>
@@ -532,8 +404,8 @@ public static class ForgeChat
 
     internal static ChatMode ModeFor(bool hands) => hands ? ChatMode.Hands : ChatMode.Plain;
 
-    /// <summary>Plain chat denies every capability. Hands auto-approves the file capability only
-    /// (H3: the one-time approval already covered it); the terminal stays denied.</summary>
+    /// <summary>Portable admission is NoHands. After fresh consent and authenticated pin
+    /// acknowledgement, Bob may use files; terminal capability stays denied.</summary>
     internal static CapabilityAuthorizationPolicy PolicyFor(bool hands) => hands
         ? new([new KeyValuePair<string, CapabilityAuthorizationRule>("file", new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved))], null)
         : new([], null);
@@ -559,9 +431,10 @@ public static class ForgeChat
         ConversationRunStatus.Completed or ConversationRunStatus.Rejected or
         ConversationRunStatus.Interrupted or ConversationRunStatus.Failed;
 
-    private static void Check(MissionAuthoringMutationResponse response)
+    /// <summary>Called by the presentation owner, never by the shared notification callback.</summary>
+    internal static void DrainNotices(ConcurrentQueue<string> notices, Action<string> show)
     {
-        if (response.Error is { } error) throw Stopped(error);
+        while (notices.TryDequeue(out var message)) show(message);
     }
 
     private static ChatStoppedException Stopped(ProjectOperationError? error) =>
@@ -572,14 +445,10 @@ public static class ForgeChat
 
 internal enum HandsApproval { Approved, Declined, NotInteractive }
 
-/// <summary>The two chat missions (H4). A conversation's hands profile is pinned at create, so each
-/// mode has its own mission: plain <c>Chat</c> (no hands) and <c>ChatHands</c> (project files).</summary>
-internal sealed record ChatMode(string MissionName, string Definition, MissionHandsProfile Profile)
+/// <summary>The command's mission selection; the hosted response owns its actual pin/profile.</summary>
+internal sealed record ChatMode(string MissionName, MissionHandsProfile ExpectedProfile)
 {
-    public static ChatMode Plain { get; } = new(StarterMissions.Chat, StarterMissions.ChatDefinition, MissionHandsProfile.NoHands);
-
-    public static ChatMode Hands { get; } =
-        new(StarterMissions.ChatHands, StarterMissions.ChatHandsDefinition, MissionHandsProfile.ProjectWorkspace);
-
-    public bool HasHands => Profile != MissionHandsProfile.NoHands;
+    public static ChatMode Plain { get; } = new(StarterMissions.Chat, MissionHandsProfile.NoHands);
+    public static ChatMode Hands { get; } = new(StarterMissions.ChatHands, MissionHandsProfile.ProjectWorkspace);
+    public bool HasHands => ExpectedProfile != MissionHandsProfile.NoHands;
 }

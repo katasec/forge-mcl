@@ -1,120 +1,152 @@
 using System.Reflection;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using ForgeMission.Conversations.Contracts;
 using XenoAtom.Terminal;
 
 namespace ForgeMission.Tests.Cli;
 
-// forge chat (53.2, 53.4, Phase 55): the rules that decide a turn has ended, which conversation to
-// open, and the --hands flag, policy, mission and one-time approval, read through reflection like the
-// other CLI tests (the test project does not reference the forge executable's assembly).
+// Portable chat startup, command modes, fresh consent and turn/terminal rules.
+// The test project loads the built CLI through reflection like the other CLI tests.
 public sealed class ForgeChatTests
 {
     private static readonly MethodInfo EndsTurn = LoadForgeChatMethod("EndsTurn");
-    private static readonly MethodInfo LatestFor = LoadForgeChatMethod("LatestFor").MakeGenericMethod(typeof(Listed));
     private static readonly MethodInfo ParseHands = LoadForgeChatMethod("ParseHands");
     private static readonly MethodInfo PolicyFor = LoadForgeChatMethod("PolicyFor");
     private static readonly MethodInfo ModeFor = LoadForgeChatMethod("ModeFor");
     private static readonly MethodInfo AskApproval = LoadForgeChatMethod("AskApproval");
     private static readonly MethodInfo ImageCell = LoadTerminalFactsMethod("ImageCell");
 
-    private sealed record Listed(string Id, string? MissionName);
-
     [Theory]
-    [InlineData("Chat")]
-    [InlineData("ChatHands")]
-    public async Task PublishedMissionWithoutAReference_StopsBeforeAnyAuthoringAction(string missionName)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Missing_project_file_stops_without_login_network_creation_or_ancestor_search(bool explicitFolder)
     {
-        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable(missionName, "Approved", 3));
-        Assert.Equal("ChatStoppedException", failure.GetType().Name);
-        Assert.Contains("forge.project.json", failure.Message, StringComparison.Ordinal);
-        Assert.Contains($"\"{missionName}@3\"", failure.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("Superseded", 1)]
-    [InlineData(null, null)]
-    public async Task UneditableMissionWithoutApproval_RetainsTheNoCandidateRefusal(string? state, int? number)
-    {
-        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable("Chat", state, number));
-        Assert.Equal("ChatStoppedException", failure.GetType().Name);
-        Assert.Contains("has no candidate version to publish", failure.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("Add", failure.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("Chat")]
-    [InlineData("ChatHands")]
-    public async Task DraftAfterApproval_DoesNotRestoreARemovedReferenceOrPromote(string missionName)
-    {
-        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable(missionName, "Approved", 1, "Draft"));
-        Assert.Equal("ChatStoppedException", failure.GetType().Name);
-        Assert.Contains($"\"{missionName}@1\"", failure.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("Candidate")]
-    [InlineData("Evaluated")]
-    public async Task LaterUnpublishedVersion_DoesNotEvaluateOrPublishAfterAReferenceWasRemoved(string state)
-    {
-        var failure = await Assert.ThrowsAnyAsync<Exception>(() => AdvanceUneditable("Chat", state, 2, "Candidate"));
-        Assert.Equal("ChatStoppedException", failure.GetType().Name);
-        Assert.Contains("Restore its approved mission reference", failure.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("Chat@2", failure.Message, StringComparison.Ordinal);
-    }
-
-    private static Task<bool> AdvanceUneditable(string missionName, string? state, int? number, string editable = "None")
-    {
-        var advance = LoadForgeChatMethod("AdvanceAsync");
-        var documentType = advance.GetParameters()[2].ParameterType;
-        var summaryType = advance.GetParameters()[3].ParameterType;
-        var editableType = documentType.GetProperty("Editable")!.PropertyType;
-        var profileType = documentType.GetProperty("Profile")!.PropertyType;
-        var caseType = documentType.GetProperty("Cases")!.PropertyType.GetGenericArguments()[0];
-        var stateType = Nullable.GetUnderlyingType(summaryType.GetProperty("LatestState")!.PropertyType)!;
-        var cases = Array.CreateInstance(caseType, editable == "Candidate" ? 1 : 0);
-        if (editable == "Candidate")
-            cases.SetValue(Activator.CreateInstance(caseType, [Guid.NewGuid(), "Say hello.", "", "",
-                Enum.Parse(caseType.GetProperty("ExpectedOutcome")!.PropertyType, "Succeeded"), Array.Empty<string>(),
-                Enum.Parse(caseType.GetProperty("ResultState")!.PropertyType, state == "Evaluated" ? "Passed" : "None"),
-                state == "Evaluated" ? "Hello." : null, null]), 0);
-        var missionId = Guid.NewGuid();
-        var document = Activator.CreateInstance(documentType, [missionId, missionName,
-            Enum.Parse(editableType, editable), Enum.Parse(profileType, "NoHands"),
-            editable == "Draft" ? Guid.NewGuid() : null, editable == "Candidate" ? Guid.NewGuid() : null,
-            editable == "None" ? 0 : 1, editable == "Candidate" ? number : null,
-            editable == "None" ? "" : "mission Chat(task) = { Answerer }", cases, state == "Evaluated", null]);
-        var summary = Activator.CreateInstance(summaryType, [missionId, missionName, number,
-            state is null ? null : Enum.Parse(stateType, state), editable == "Draft"]);
-        // No authoring service: returning the refusal must precede any attempt to republish.
-        return (Task<bool>)advance.Invoke(null, [null, "session", document, summary, false])!;
-    }
-
-    // Listed newest-first, as Application returns them: the other chat mode is the most recent.
-    private static readonly Listed[] Mixed = [new("hands", "ChatHands"), new("chat", "Chat"), new("janus", "Janus"), new("orphan", null)];
-
-    private static Listed? Select(Listed[] listed, string mission) =>
-        (Listed?)LatestFor.Invoke(null, [listed, (Func<Listed, string?>)(item => item.MissionName), mission]);
-
-    [Theory]
-    [InlineData("Chat", "chat")]
-    [InlineData("ChatHands", "hands")]
-    public void Each_mode_reopens_its_own_latest_conversation_even_when_the_other_mode_is_newer(string mission, string expected)
-    {
-        Assert.Equal(expected, Select(Mixed, mission)?.Id);
-    }
-
-    [Fact]
-    public void The_newest_conversation_on_the_mode_wins_over_older_ones()
-    {
-        Assert.Equal("new", Select([new("new", "Chat"), new("old", "Chat")], "Chat")?.Id);
+        var parent = Path.Combine(Path.GetTempPath(), "forge-chat-test-" + Guid.NewGuid().ToString("N"));
+        var child = Path.Combine(parent, "child");
+        var missing = Path.Combine(parent, "missing");
+        Directory.CreateDirectory(child);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(parent, "forge.project.json"),
+                "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
+            var start = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = child,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            start.ArgumentList.Add(EndsTurn.DeclaringType!.Assembly.Location);
+            start.ArgumentList.Add("chat");
+            if (explicitFolder)
+            {
+                start.ArgumentList.Add("--project");
+                start.ArgumentList.Add(missing);
+            }
+            // Controlled negative proof: any unexpected network setup would fail this test.
+            start.Environment["FORGE_API_ENDPOINT"] = "invalid-endpoint";
+            using var process = Process.Start(start)!;
+            process.StandardInput.Close();
+            var output = process.StandardOutput.ReadToEndAsync();
+            var error = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            Assert.Equal(1, process.ExitCode);
+            Assert.Equal("", await output);
+            Assert.Equal(explicitFolder ? $"No forge.project.json found in {missing}." :
+                "No forge.project.json found in the current directory.", (await error).Trim());
+            Assert.Empty(Directory.EnumerateFileSystemEntries(child));
+            Assert.False(Directory.Exists(missing));
+            Assert.Single(Directory.GetFiles(parent));
+        }
+        finally { Directory.Delete(parent, recursive: true); }
     }
 
     [Theory]
-    [InlineData("Chat")]
-    [InlineData("ChatHands")]
-    public void No_conversation_on_the_mode_creates_a_new_one(string mission)
+    [InlineData(false, MissionHandsProfile.ProjectWorkspace)]
+    [InlineData(true, MissionHandsProfile.NoHands)]
+    [InlineData(true, MissionHandsProfile.ProjectWorkspaceAndTerminal)]
+    public async Task A_hosted_profile_outside_the_command_mode_stops_before_consent_or_attachment(bool hands, MissionHandsProfile profile)
     {
-        Assert.Null(Select([new("janus", "Janus"), new("orphan", null)], mission));
-        Assert.Null(Select([], mission));
+        var home = Path.Combine(Path.GetTempPath(), "forge-chat-profile-" + Guid.NewGuid().ToString("N"));
+        var projectId = Guid.NewGuid();
+        var mission = hands ? "ChatHands" : "Chat";
+        Directory.CreateDirectory(home);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(home, "forge.project.json"),
+                "{\"projectId\":\"" + projectId + "\",\"missions\":[\"" + mission + "@1\"],\"folders\":[]}");
+            using var host = new PinnedHost(projectId, mission, profile);
+            var chat = LoadForgeChatMethod("ChatInProjectAsync");
+            var appType = chat.GetParameters()[0].ParameterType;
+            var create = appType.GetMethod("Create")!;
+            var publishType = create.GetParameters()[3].ParameterType;
+            var publish = typeof(ForgeChatTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
+                .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
+            await using var app = (IAsyncDisposable)create.Invoke(null,
+                [host, null, PolicyFor.Invoke(null, [hands]), publish, CancellationToken.None])!;
+            var theme = EndsTurn.DeclaringType!.Assembly.GetType("ForgeMission.Cli.Tui.ForgeTheme")!
+                .GetProperty("Dark", BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
+            var failure = await Assert.ThrowsAnyAsync<Exception>(() => (Task<int>)chat.Invoke(null,
+                [app, ModeFor.Invoke(null, [hands]), home, theme, null, new ConcurrentQueue<string>()])!);
+            Assert.Equal("ChatStoppedException", failure.GetType().Name);
+            Assert.Contains("does not match this chat mode", failure.Message, StringComparison.Ordinal);
+            Assert.Equal(["/api/ListMissionConversations", "/api/GetConversation"], host.Requests);
+            Assert.Single(Directory.GetFiles(home));
+            Assert.Empty(Directory.GetDirectories(home));
+        }
+        finally { Directory.Delete(home, recursive: true); }
+    }
+
+    private static void IgnoreEvents<T>(T item) { }
+
+    // Controlled Host replies: every request after authenticated pin resolution is a failure.
+    private sealed class PinnedHost : HttpMessageHandler, IHttpClientFactory
+    {
+        private readonly Guid _projectId;
+        private readonly Guid _conversationId = Guid.NewGuid();
+        private readonly DurableMissionLaunch _launch;
+        public List<string> Requests { get; } = [];
+
+        public PinnedHost(Guid projectId, string mission, MissionHandsProfile profile)
+        {
+            _projectId = projectId;
+            var definition = $"mission {mission}(message) = {{\n    Assistant using anthropic\n}}\n";
+            _launch = new DurableMissionLaunch(Guid.NewGuid(), 1, "sha256:test", definition, profile,
+                new DurableMissionPackage(1, "sha256:package", definition, mission, "message", []));
+        }
+
+        public HttpClient CreateClient(string name) => new(this, disposeHandler: false)
+        {
+            BaseAddress = new Uri("https://controlled-host.invalid/"),
+        };
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var route = request.RequestUri!.AbsolutePath;
+            Requests.Add(route);
+            var snapshot = new ConversationSnapshot(_conversationId, null, null, 0, ConversationRunStatus.Completed,
+                null, DateTimeOffset.UtcNow, Purpose: ConversationPurpose.MissionConversation, ProjectId: _projectId, PinnedLaunch: _launch);
+            var json = route switch
+            {
+                "/api/ListMissionConversations" => JsonSerializer.Serialize(new ListMissionConversationsResponse(
+                    [new MissionConversationSummary(_conversationId, _projectId, _launch, snapshot.Status, 0, snapshot.UpdatedAtUtc)]),
+                    ConversationContractsJsonContext.Default.ListMissionConversationsResponse),
+                "/api/GetConversation" => JsonSerializer.Serialize(new GetConversationResponse(snapshot),
+                    ConversationContractsJsonContext.Default.GetConversationResponse),
+                _ => throw new InvalidOperationException($"Profile refusal must precede {route}."),
+            };
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            });
+        }
     }
 
     // ── Terminal check (Phase 56 G8) ────────────────────────────────────────────────────────
@@ -206,13 +238,10 @@ public sealed class ForgeChatTests
     }
 
     [Fact]
-    public void Each_mode_has_its_own_mission_and_hands_profile()
+    public void Each_mode_selects_its_own_hosted_mission()
     {
-        Assert.Equal(("Chat", "NoHands"), Mode(false));
-        Assert.Equal(("ChatHands", "ProjectWorkspace"), Mode(true));
-        // The starter definitions from Katasec.Forge.Client (one owner): ChatHands runs the agent-role Assistant.
-        Assert.Equal("mission Chat(message) = {\n    Answerer using anthropic\n}\n", (string)Property(ModeFor.Invoke(null, [false])!, "Definition"));
-        Assert.Equal("mission ChatHands(message) = {\n    Assistant using anthropic\n}\n", (string)Property(ModeFor.Invoke(null, [true])!, "Definition"));
+        Assert.Equal(("Chat", false, "NoHands"), Mode(false));
+        Assert.Equal(("ChatHands", true, "ProjectWorkspace"), Mode(true));
     }
 
     [Theory]
@@ -253,10 +282,10 @@ public sealed class ForgeChatTests
         return Property(rule, "Outcome").ToString()!;
     }
 
-    private static (string Mission, string Profile) Mode(bool hands)
+    private static (string Mission, bool Hands, string Profile) Mode(bool hands)
     {
         var mode = ModeFor.Invoke(null, [hands])!;
-        return ((string)Property(mode, "MissionName"), Property(mode, "Profile").ToString()!);
+        return ((string)Property(mode, "MissionName"), (bool)Property(mode, "HasHands"), Property(mode, "ExpectedProfile").ToString()!);
     }
 
     private static (string Answer, string Shown) Ask(bool interactive, string typed)
