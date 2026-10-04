@@ -32,6 +32,9 @@ jobs:
           - os: ubuntu-latest
             rid: linux-x64
             binary: forge
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+            binary: forge
           - os: windows-11-arm
             rid: win-arm64
             binary: forge.exe
@@ -146,4 +149,5 @@ jobs:
             --target "$SOURCE_SHA" --title "$tag" --generate-notes \
             dist/forge-osx-arm64.zip dist/forge-osx-arm64.zip.sha256 \
             dist/forge-linux-x64.zip dist/forge-linux-x64.zip.sha256 \
+            dist/forge-linux-arm64.zip dist/forge-linux-arm64.zip.sha256 \
             dist/forge-win-arm64.zip dist/forge-win-arm64.zip.sha256
