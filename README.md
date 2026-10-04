@@ -17,6 +17,18 @@ dotnet run --project src/ForgeMission.Cli -- --help
 
 Use `make install` to publish the current-platform Native AOT CLI locally.
 
+## Create a chat project
+
+```sh
+forge login
+forge project create       # initialize the current existing folder
+forge chat
+```
+
+Use `forge project create <folder>` for another existing folder, then `forge chat --project <folder>`.
+Creation writes `forge.project.json` and creates one hosted plain Chat conversation. Rerunning
+the same command safely retries setup with the same Project and conversation identities.
+
 ## CLI releases
 
 The manual [Release CLI workflow](.github/workflows/release.yml) builds the exact dispatched

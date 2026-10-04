@@ -35,6 +35,7 @@ rootCommand.Add(BuildWhoamiCommand());
 rootCommand.Add(BuildLogoutCommand());
 rootCommand.Add(BuildExecCommand());
 rootCommand.Add(ForgeChat.BuildCommand()); // forge chat (53.2; --hands, Phase 55)
+rootCommand.Add(ForgeProject.BuildCommand());
 rootCommand.Add(BuildPublishCommand());
 rootCommand.Add(BuildCleanCommand());
 rootCommand.Add(BuildServeCommand());
