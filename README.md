@@ -21,13 +21,14 @@ Use `make install` to publish the current-platform Native AOT CLI locally.
 
 The manual [Release CLI workflow](.github/workflows/release.yml) builds the exact dispatched
 `main` commit for macOS ARM64, Linux x64 and Windows ARM64. Dispatch with an unused
-`major.minor.patch` version; the first release here follows the original repository's `v0.9.0`:
+`major.minor.patch` version:
 
 ```sh
-gh workflow run release.yml --repo katasec/forge-mcl --ref main -f version=0.9.1
+gh workflow run release.yml --repo katasec/forge-mcl --ref main -f version=0.9.2
 ```
 
-The workflow tests before creating a tag and draft release. Each `forge-<rid>.zip` contains
+The workflow publishes automatically after all three native builds and help/version checks pass.
+Each `forge-<rid>.zip` contains
 the entire Native AOT publish output, including native sidecars, and has a `.zip.sha256`
 checksum. Extract the whole archive and keep those files beside `forge` (`forge.exe` on Windows).
 macOS retains the existing Homebrew runtime prerequisites:
@@ -40,20 +41,17 @@ These archives still depend on their supported operating-system libraries; a mis
 dylib produces a loader error and is recovered by installing those prerequisites. The macOS binary
 is ad-hoc signed, not Developer ID signed or notarized.
 
-The release stays draft. The supervisor downloads all assets, checks their SHA-256 values and
-native smoke results, and verifies the downloaded macOS CLI against the normal ForgeAPI before
-publishing. Authenticated download, for example:
+Authenticated download, for example:
 
 ```sh
-gh release download v0.9.1 --repo katasec/forge-mcl --pattern 'forge-osx-arm64.zip*' --dir downloads
+gh release download v0.9.2 --repo katasec/forge-mcl --pattern 'forge-osx-arm64.zip*' --dir downloads
 cd downloads
 shasum -a 256 -c forge-osx-arm64.zip.sha256
 unzip forge-osx-arm64.zip -d forge-osx-arm64
 ./forge-osx-arm64/forge --version
 ```
 
-After acceptance, publish with `gh release edit v0.9.1 --repo katasec/forge-mcl --draft=false`.
-Existing tags, releases and assets are never overwritten. A failed native build/upload leaves
-an unpublished draft. Draft creation can fail after its tag was pushed; the workflow reports that
-tag explicitly. Recover through a safe failed-job rerun or a new version, without deleting or
-forcing existing release state. The original repository's history and releases are preserved.
+Existing tags, releases and assets are never overwritten. A failed native build prevents
+publication. GitHub CLI uploads all six assets before publishing; create/upload errors fail the
+job. Recover through a safe failed-job rerun or a new version, without deleting or forcing existing
+release state. The original repository's history and releases are preserved.
