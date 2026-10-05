@@ -174,7 +174,7 @@ public sealed class ChatClientsTests
         var text = new StringBuilder();
         ChatFinishReason? finishReason = null;
 
-        await ServeAnthropicStreamAsync(AnthropicTextStream, async client =>
+        await ServeAnthropicAsync(200, "text/event-stream", AnthropicTextStream, async client =>
         {
             using var tracked = new UsageTrackingChatClient(client, accumulator);
             await foreach (var update in tracked.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hi")]))
@@ -188,6 +188,61 @@ public sealed class ChatClientsTests
         Assert.Equal(25, accumulator.InputTokens);
         Assert.Equal(7, accumulator.OutputTokens);
         Assert.Equal(ChatFinishReason.Stop, finishReason);
+    }
+
+    // Phase 69: the SDK keeps Anthropic's explanation in the response body, so a failed streamed turn
+    // read just "Bad Request". Every call path now carries the provider's error.message.
+    private const string ProviderErrorSummary =
+        "The model provider (Anthropic) returned an error. Check your provider account.";
+
+    [Theory]
+    [InlineData("complete")]
+    [InlineData("native-stream")]
+    [InlineData("tool-stream")]
+    public async Task Anthropic_ProviderError_ShowsProviderMessage(string callShape)
+    {
+        const string body = """{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}""";
+
+        var error = await ProviderErrorAsync(400, body, callShape);
+
+        Assert.Equal($"{ProviderErrorSummary} Details: prompt is too long: 250000 tokens > 200000 maximum", error.Message);
+        Assert.IsAssignableFrom<Anthropic.ApiException>(error.InnerException);
+    }
+
+    // A streamed 5xx keeps no body in the SDK; a whole-response one keeps a body with no message.
+    [Theory]
+    [InlineData("complete")]
+    [InlineData("native-stream")]
+    [InlineData("tool-stream")]
+    public async Task Anthropic_ProviderErrorWithoutMessage_OmitsDetails(string callShape)
+    {
+        var error = await ProviderErrorAsync(500, """{"type":"error","error":{"type":"api_error"}}""", callShape);
+
+        Assert.Equal(ProviderErrorSummary, error.Message);
+        Assert.IsAssignableFrom<Anthropic.ApiException>(error.InnerException);
+    }
+
+    private static async Task<InvalidOperationException> ProviderErrorAsync(int statusCode, string body, string callShape)
+    {
+        InvalidOperationException? error = null;
+        await ServeAnthropicAsync(statusCode, "application/json", body, async client =>
+            error = await Assert.ThrowsAsync<InvalidOperationException>(() => CallAsync(client, callShape)));
+        return error!;
+    }
+
+    private static async Task CallAsync(IChatClient client, string callShape)
+    {
+        List<ChatMessage> messages = [new(ChatRole.User, "hi")];
+        if (callShape == "complete")
+        {
+            await client.GetResponseAsync(messages);
+            return;
+        }
+
+        var options = callShape == "tool-stream" ? new ChatOptions { Tools = [ReadTool()] } : null;
+        await foreach (var _ in client.GetStreamingResponseAsync(messages, options))
+        {
+        }
     }
 
     private const string AnthropicTextStream = """
@@ -213,8 +268,8 @@ public sealed class ChatClientsTests
         """;
 
     /// <summary>Points an Anthropic client at a local listener that answers the first request with
-    /// the given server-sent-event body.</summary>
-    private static async Task ServeAnthropicStreamAsync(string sse, Func<IChatClient, Task> call)
+    /// the given status and body.</summary>
+    private static async Task ServeAnthropicAsync(int statusCode, string contentType, string responseBody, Func<IChatClient, Task> call)
     {
         var port = FreePort();
         using var listener = new HttpListener();
@@ -224,8 +279,9 @@ public sealed class ChatClientsTests
         var served = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
-            context.Response.ContentType = "text/event-stream";
-            var body = Encoding.UTF8.GetBytes(sse);
+            context.Response.StatusCode = statusCode;
+            context.Response.ContentType = contentType;
+            var body = Encoding.UTF8.GetBytes(responseBody);
             await context.Response.OutputStream.WriteAsync(body);
             context.Response.Close();
         });

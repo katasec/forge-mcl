@@ -87,14 +87,15 @@ internal sealed class AnthropicResponseFormatChatClient(AnthropicClient client, 
     private const int DefaultMaxTokens = 4096;
     private readonly IChatClient inner = client;
 
-    public Task<ChatResponse> GetResponseAsync(
+    public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         options = EnsureModelId(options);
         TranslateNativeOptions(options);
-        return inner.GetResponseAsync(messages, options, cancellationToken);
+        try { return await inner.GetResponseAsync(messages, options, cancellationToken); }
+        catch (ApiException error) { throw AnthropicProviderError.From(error); }
     }
 
     // Streaming never uses ResponseFormat (a judge's envelope is a prompt-level instruction). A plain
@@ -107,9 +108,10 @@ internal sealed class AnthropicResponseFormatChatClient(AnthropicClient client, 
     {
         options = EnsureModelId(options);
         TranslateNativeOptions(options);
-        return AnthropicTextStream.Accepts(messages, options)
+        var updates = AnthropicTextStream.Accepts(messages, options)
             ? AnthropicTextStream.StreamAsync(client, messages, options, cancellationToken)
             : inner.GetStreamingResponseAsync(messages, options, cancellationToken);
+        return AnthropicProviderError.Translate(updates, cancellationToken);
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) =>
