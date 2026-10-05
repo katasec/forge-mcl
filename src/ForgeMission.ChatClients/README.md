@@ -22,6 +22,7 @@ Provider SDKs and their protocol differences must stay below MCL execution. This
 - OpenAI-compatible OpenAI/Azure, Ollama, and xAI client construction.
 - Anthropic response-format and one-tool-call (`disable_parallel_tool_use`) adaptation in [`AnthropicResponseFormatChatClient`](ChatClients.cs).
 - Anthropic plain-text streaming with token usage in [`AnthropicTextStream`](AnthropicTextStream.cs).
+- Anthropic provider-error translation in [`AnthropicProviderError`](AnthropicProviderError.cs).
 
 ## Does not own
 
@@ -55,6 +56,7 @@ flowchart LR
 - Anthropic structured output is translated at this boundary; do not leak native provider types into Core.
 - Every Anthropic call sends `MaxOutputTokens` 4096 unless the caller sets one; the SDK otherwise sends 250, which cut streamed and tool-mode replies short.
 - A plain-text Anthropic stream (no tools, text-only messages) is read from the native event stream: the SDK's streaming adapter drops usage, so it would bill 0 tokens. Tool-mode streaming still uses the SDK adapter and reports no usage or tool calls.
+- An Anthropic `ApiException` on any call path is rethrown as `InvalidOperationException` reading `The model provider (Anthropic) returned an error. Check your provider account. Details: <error.message>` (Details only when the body has `error.message`); the SDK exception is the inner exception.
 
 ## Related documentation
 
