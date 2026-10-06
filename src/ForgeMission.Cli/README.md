@@ -50,10 +50,18 @@ behavior in forge-client.
 | [ProviderClientBuilder](ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
 | [ForgeProject](ForgeProject.cs) | Explicit portable Project creation and hosted Chat setup through the shared Client. |
 | [ForgeChat](ForgeChat.cs) | Portable Project opening, hosted conversation reconnection, fresh hands approval/attachment, and terminal/line-mode selection. |
+| [MacChatWindow](MacChatWindow.cs) | Interactive Mac launch into a dedicated Ghostty instance, exact child context and visible request/child failures. |
 | [ChatHandsAttachment](ChatHandsAttachment.cs) | Executes file requests for an acknowledged hands attachment off the conversation follow loop. |
 | [ForgeConfig](ForgeConfig.cs) | Reads the chat theme from `~/.forge/config.json`. |
 
 ### Terminal UI — [Tui/](Tui)
+
+Interactive macOS chat launches a dedicated Ghostty instance after the existing startup checks.
+The child runs the same chat path; the CLI restores its original working directory and endpoint
+before resolution. Launch acceptance reports only the request result. A graceful child failure
+remains visible until a key dismisses it, after normal application cleanup.
+Ghostty owns the window/PTY and scoped Cmd+A forwarding; native editors own Select All and focus.
+No shared terminal configuration is rewritten. Piped and non-Mac chat keep their existing path.
 
 Built on XenoAtom.Terminal.UI.
 

@@ -34,6 +34,15 @@ forge chat
 ```
 
 Use `forge project create <folder>` for another existing folder, then `forge chat --project <folder>`.
+On an interactive Mac, the installed native `forge chat` opens a dedicated Ghostty window after
+its startup checks. Cmd+A selects all in the focused composer or `/edit` editor; quitting closes
+the window. Ordinary terminal tabs keep their shortcuts. Additional tabs in the dedicated
+instance also run Forge. A graceful chat error stays visible until you press a key to close it.
+The dedicated instance uses normal top-level Ghostty display configuration but excludes recursive
+`config-file` includes to keep its command and shortcut scoped. No shared config file is changed.
+Piped chat and other operating systems retain their existing behaviour; the dedicated Mac launch
+requires the native executable rather than `dotnet run`.
+
 Creation writes `forge.project.json` and creates one hosted plain Chat conversation. Rerunning
 the same command safely retries setup with the same Project and conversation identities.
 
