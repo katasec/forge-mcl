@@ -25,7 +25,7 @@ internal sealed class StartPage
                 if (e.Index == ChatIndex) openChat();
             });
         View = new VStack(
-                new TextBlock("Where do you want to start?").Style(styles.FallbackStrong),
+                new TextBlock("Where do you want to start?") { IsSelectable = false }.Style(styles.FallbackStrong),
                 List.Margin(new Thickness(0, 1, 0, 0)))
             .Margin(new Thickness(styles.TranscriptGutterCols, 1, 1, 0));
     }
@@ -38,7 +38,7 @@ internal sealed class StartPage
 
     private static OptionListItem Row(ForgeStyles styles, string name, string description) => new()
     {
-        Content = new TextBlock(name),
-        Description = new TextBlock(description).Style(styles.Label),
+        Content = new TextBlock(name) { IsSelectable = false },
+        Description = new TextBlock(description) { IsSelectable = false }.Style(styles.Label),
     };
 }

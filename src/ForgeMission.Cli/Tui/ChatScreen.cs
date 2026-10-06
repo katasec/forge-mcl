@@ -71,10 +71,11 @@ internal sealed class ChatScreen
         _clock = clock;
         _header = header;
         Composer = BuildComposer(header);
+        Interaction.Configure(Composer);
         // Progress row, composer ring, one blank row, key bar; all on the transcript's gutter.
         var gutter = styles.TranscriptGutterCols;
         _transcript = _flow.Style(styles.Scroll);
-        _progressRow = new HStack(_progressSpinner, new TextBlock(() => _progress.Value).Style(styles.Progress)).Margin(new Thickness(gutter, 0, 1, 0));
+        _progressRow = new HStack(_progressSpinner, new TextBlock(() => Interaction.Status(_progress.Value)) { IsSelectable = false }.Style(styles.Progress)).Margin(new Thickness(gutter, 0, 1, 0));
         _dock = new DockLayout()
             .Top(new VStack(BuildHeader(header), Divider()))
             .Content(_transcript)
@@ -85,10 +86,15 @@ internal sealed class ChatScreen
         Root = _dock;
         Root.Style(styles.Screen);
         Root.Style(styles.Markdown);
+        Root.Style(styles.ClipboardMenu);
+        Root.Style(styles.ClipboardTooltip);
+        Interaction.Bind(Root);
         Links = new LinkPointer(Root, writePointer);
     }
 
     public Visual Root { get; }
+
+    internal TextInteraction Interaction { get; } = new();
 
     /// <summary>The pointer's shape over links (ChatTui feeds it the pointer's moves).</summary>
     public LinkPointer Links { get; }
@@ -107,6 +113,7 @@ internal sealed class ChatScreen
     /// keys, which needs the images (HasTiles); the start page (Phase 60) keeps the key bar.</summary>
     public void ShowEditor(Visual view, bool editor = true)
     {
+        Interaction.ChangeView(view, Composer);
         Editing = editor;
         _dock.Content = view;
         _progressRow.IsVisible = false;
@@ -117,6 +124,7 @@ internal sealed class ChatScreen
     /// <summary>Puts the transcript, progress row, composer and chat keys back.</summary>
     public void ShowChat()
     {
+        Interaction.ChangeView(_transcript, Composer);
         Editing = false;
         _dock.Content = _transcript;
         _progressRow.IsVisible = true;
@@ -132,7 +140,7 @@ internal sealed class ChatScreen
         _tiles = tiles;
         _text = text;
         _codeBlocks = new ForgeCodeBlockRenderer(_styles.CodeBlock, tiles.CodeBlock, text,
-            new HeadingStyle(_styles.CardFill, _styles.HeadingPending));
+            new HeadingStyle(_styles.CardFill, _styles.HeadingPending), _styles, Interaction);
         _brandSlot.Content = new HStack(
             Image(TextKind.Brand, "forge", _styles.HeaderFill),
             Crumb(_header.Project, _header.Mission)).Spacing(_styles.BrandGapCols);
@@ -193,7 +201,7 @@ internal sealed class ChatScreen
             motion.Caret.Active = true;     // the pending reply before any participant starts
             return;
         }
-        var changed = SetMarkdown(view.Body!, card.Text ?? "", card.Streaming);
+        var changed = SetMarkdown(view.Body!, view.Selection!, card.Text ?? "", card.Streaming);
         if (changed && card.Streaming) motion.Fade.MarkDelta();
         if (!card.Streaming) motion.Fade.Settle();
         motion.Caret.Active = card.Streaming || (card.Text is null && last);
@@ -285,10 +293,11 @@ internal sealed class ChatScreen
     private BlockView AppendCard(ParticipantCard? card)
     {
         var body = CardBody();
+        var selection = new ParagraphSelection(body, Interaction);
         var motion = new CardMotion(new FadeIn(_clock), new StreamCaret(_styles.StreamCaret, _clock), Links.NewProbe());
-        var layers = new ZStack(body, motion.Fade, motion.Probe, motion.Caret).HorizontalAlignment(Align.Stretch);
+        var layers = new ZStack(selection, motion.Fade, motion.Probe, motion.Caret).HorizontalAlignment(Align.Stretch);
         _flow.Items.Add(CardItem(card, layers));
-        return new BlockView(body, motion, null);
+        return new BlockView(body, motion, null) { Selection = selection };
     }
 
     /// <summary>A running tool chip: its spinner slot, then its label (with the ellipsis when it
@@ -297,7 +306,7 @@ internal sealed class ChatScreen
     {
         var chip = new ChipMotion(new Padder(), new State<bool>(false));
         var label = new TextBlock(() => chip.Spinning.Value ? line.Label : Transcript.HandsText(line))
-            { Trimming = TextTrimming.EndEllipsis }.Style(_styles.Tool.Text);
+            { Trimming = TextTrimming.EndEllipsis, IsSelectable = false }.Style(_styles.Tool.Text);
         _flow.Items.Add(ToolItem(new TileFrame(new HStack(chip.Spinner, label), _tiles!.Tool, _styles.Tool.Fill, Align.Start)));
         return new BlockView(null, null, chip);
     }
@@ -311,7 +320,7 @@ internal sealed class ChatScreen
     {
         var label = $"{YouLabel} · {Transcript.TimeOf(sent)}";
         var avatar = Image(TextKind.UserAvatar, Initial(_header.User), _styles.SurfaceFill);
-        var side = new HStack(new TextBlock(label).Style(_styles.YouLabel), avatar).Spacing(_styles.AvatarGapCols);
+        var side = new HStack(new TextBlock(label) { IsSelectable = false }.Style(_styles.YouLabel), avatar).Spacing(_styles.AvatarGapCols);
         return new DocumentFlowItem
         {
             Content = new FlowDocument().Add(new ZStack(
@@ -343,9 +352,11 @@ internal sealed class ChatScreen
 
     /// <summary>Sets a body's text, and the pipeline for it: a streaming reply's last heading may
     /// still be incomplete (ForgeMarkdown.For). A changed pipeline re-renders the body.</summary>
-    private static bool SetMarkdown(MarkdownControl body, string markdown, bool streaming)
+    private static bool SetMarkdown(MarkdownControl body, ParagraphSelection selection, string markdown, bool streaming)
     {
         var pipeline = ForgeMarkdown.For(streaming, markdown);
+        if (body.Pipeline == pipeline && body.Markdown == markdown) return false;
+        selection.Retire();
         if (body.Pipeline != pipeline) body.Pipeline = pipeline;
         if (body.Markdown == markdown) return false;
         body.Markdown = markdown;
@@ -374,8 +385,8 @@ internal sealed class ChatScreen
         var title = card.Title;
         Visual name = TextArt.Allows(title)
             ? Image(TextKind.Name, title, _styles.CardFill)
-            : new TextBlock(title).Style(_styles.FallbackStrong);
-        var time = new TextBlock($"· {Transcript.TimeOf(card.Sent)}").Style(_styles.YouLabel).VerticalAlignment(Align.Center);
+            : new TextBlock(title) { IsSelectable = false }.Style(_styles.FallbackStrong);
+        var time = new TextBlock($"· {Transcript.TimeOf(card.Sent)}") { IsSelectable = false }.Style(_styles.YouLabel).VerticalAlignment(Align.Center);
         return new HStack(Image(TextKind.Avatar, Initial(title), _styles.CardFill), name, time).Spacing(_styles.AvatarGapCols);
     }
 
@@ -393,7 +404,7 @@ internal sealed class ChatScreen
         Padding = new Thickness(_styles.TranscriptGutterCols, 0, 1, 0),
     };
 
-    private static DocumentFlowItem LineItem(string text, Style style) => new()
+    private DocumentFlowItem LineItem(string text, Style style) => new()
     {
         Content = new FlowDocument().Add(Text(text, style)),
         Alignment = DocumentFlowAlignment.Left,
@@ -402,15 +413,15 @@ internal sealed class ChatScreen
 
     /// <summary>One row of text on its fill between the set's cap tiles.</summary>
     private static TileFrame PillOf(string text, Pill pill, TileSet caps) => new(
-        new TextBlock(text) { Trimming = TextTrimming.EndEllipsis }.Style(pill.Text), caps, pill.Fill, Align.Start);
+        new TextBlock(text) { Trimming = TextTrimming.EndEllipsis, IsSelectable = false }.Style(pill.Text), caps, pill.Fill, Align.Start);
 
     /// <summary>Wrapped text that keeps its line breaks (TextBlock folds them into spaces), in one
     /// token style.</summary>
-    private static Paragraph Text(string text, Style style)
+    private ParagraphSelection Text(string text, Style style)
     {
         var paragraph = new Paragraph { Wrap = true };
         SetText(paragraph, text, style);
-        return paragraph;
+        return new ParagraphSelection(paragraph, Interaction);
     }
 
     private static void SetText(Paragraph paragraph, string text, Style style)
@@ -425,9 +436,9 @@ internal sealed class ChatScreen
     private Visual BuildHeader(ChatHeader header) => new Header()
         .Left(new Padder(_brandSlot).Padding(new Thickness(1, 0, 0, 0)))
         .Right(new Padder(new HStack(
-                new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · ").Style(_styles.Label),
+                new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · ") { IsSelectable = false }.Style(_styles.Label),
                 _approvedSlot,
-                new TextBlock($" · {header.Profile}").Style(_styles.Label))).Padding(new Thickness(0, 0, 1, 0)))
+                new TextBlock($" · {header.Profile}") { IsSelectable = false }.Style(_styles.Label))).Padding(new Thickness(0, 0, 1, 0)))
         .Style(_styles.Header);
 
     private PromptEditor BuildComposer(ChatHeader header)
@@ -441,8 +452,6 @@ internal sealed class ChatScreen
             .MinHeight(1)
             .MaxHeight(6)
             .Style(_styles.Composer);
-        // Ctrl-C belongs to the screen (stop the run); a mouse selection is still copied by the app.
-        composer.RemoveCommand("TextEditor.Copy");
         return composer;
     }
 
@@ -461,7 +470,7 @@ internal sealed class ChatScreen
         var prefix = $"{project} / ";
         return TextArt.Allows(prefix + mission)
             ? Image(TextKind.Crumb, prefix + mission, _styles.HeaderFill, prefix.Length)
-            : new HStack(new TextBlock(prefix).Style(_styles.FallbackMuted), new TextBlock(mission).Style(_styles.FallbackStrong));
+            : new HStack(new TextBlock(prefix) { IsSelectable = false }.Style(_styles.FallbackMuted), new TextBlock(mission) { IsSelectable = false }.Style(_styles.FallbackStrong));
     }
 
     /// <summary>The composer with the send button on its bottom row, right of the text, which keeps
@@ -478,7 +487,7 @@ internal sealed class ChatScreen
     /// <summary>Each key's chip and muted label; clipped at the right in a narrow window.</summary>
     private HStack KeyBar((string Chip, string Label)[] keys) => new HStack([.. keys.Select(key => (Visual)new HStack(
             Image(TextKind.Chip, key.Chip, _styles.SurfaceFill),
-            new TextBlock(key.Label).Style(_styles.KeyLabel)).Spacing(_styles.ChipGapCols))])
+            new TextBlock(key.Label) { IsSelectable = false }.Style(_styles.KeyLabel)).Spacing(_styles.ChipGapCols))])
         .Spacing(_styles.KeyGroupGapCols);
 
     /// <summary>An avatar's initial (Ameer's ruling): the first letter, uppercased; none (an empty
@@ -493,6 +502,7 @@ internal sealed class ChatScreen
 /// <summary>What one shown block changes in place: a card's body and overlays, a running chip's spinner.</summary>
 internal sealed record BlockView(MarkdownControl? Body, CardMotion? Card, ChipMotion? Chip)
 {
+    internal ParagraphSelection? Selection { get; init; }
     public static readonly BlockView None = new(null, null, null);
 }
 

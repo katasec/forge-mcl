@@ -2,6 +2,7 @@ using ForgeMission.Cli.Tui.Graphics;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Extensions.Markdown.Styling;
 using XenoAtom.Terminal.UI.Styling;
+using XenoAtom.Terminal.UI.Geometry;
 
 namespace ForgeMission.Cli.Tui;
 
@@ -132,6 +133,34 @@ internal sealed class ForgeStyles(ForgeTheme theme)
     /// <summary>Fenced and indented code in replies: the code on its fill, no language label,
     /// syntax-coloured by the theme's Light+ or Dark+ (G12).</summary>
     public CodeBlockStyle CodeBlock { get; } = CodeBlockOf(theme);
+
+    internal ButtonStyle CodeCopy(string result, int width, bool focused)
+    {
+        var foreground = result switch { "Copied" => theme.Success, "Copy failed" => theme.Error, _ => theme.CodeBlockText };
+        var normal = Style.None.WithForeground(foreground).WithBackground(theme.CodeBlockFill) | TextStyle.Bold;
+        var pressed = Style.None.WithForeground(theme.CodeBlockText).WithBackground(theme.Selection) | TextStyle.Bold;
+        return ButtonStyle.Default with
+        {
+            Padding = width < ForgeTheme.CodeCopyPaddedWidth ? new Thickness(0) : new Thickness(ForgeTheme.CodeCopySidePadding, 0, ForgeTheme.CodeCopySidePadding, 0),
+            Normal = normal, Hovered = normal, Focused = normal | TextStyle.Underline,
+            Pressed = focused ? pressed | TextStyle.Underline : pressed,
+            Disabled = Style.None.WithForeground(theme.TextMuted).WithBackground(theme.CodeBlockFill) | TextStyle.Bold,
+        };
+    }
+
+    public MenuListStyle ClipboardMenu { get; } = MenuListStyle.Default with
+    {
+        ItemStyle = Style.None.WithForeground(theme.Text).WithBackground(theme.SurfaceAlt),
+        SelectedStyle = Style.None.WithForeground(theme.TextStrong).WithBackground(theme.Selection),
+        HoveredStyle = Style.None.WithForeground(theme.TextStrong).WithBackground(theme.SurfaceAlt),
+        DisabledStyle = Style.None.WithForeground(theme.TextMuted).WithBackground(theme.SurfaceAlt),
+    };
+
+    public TooltipStyle ClipboardTooltip { get; } = TooltipStyle.Default with
+    {
+        SurfaceStyle = Style.None.WithForeground(theme.Text).WithBackground(theme.SurfaceAlt),
+        BorderStyle = Style.None.WithForeground(theme.Border).WithBackground(theme.SurfaceAlt),
+    };
 
     /// <summary>A code block's ring: radius 10, hairline CodeBlockBorder, no shadow, on the card.</summary>
     public RingShape CodeBlockShape { get; } = new(theme.CardSurface, theme.CodeBlockFill, theme.CodeBlockBorder,

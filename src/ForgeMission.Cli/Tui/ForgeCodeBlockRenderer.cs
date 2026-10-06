@@ -14,7 +14,8 @@ namespace ForgeMission.Cli.Tui;
 // its pending bold text while it streams. It is created when the images arrive (ChatScreen.UseImages),
 // before any reply is shown. Inside a list or quote the package wraps the returned visual in a
 // left-padded Padder.
-internal sealed class ForgeCodeBlockRenderer(CodeBlockStyle style, TileSet tiles, TextImages text, HeadingStyle headings)
+internal sealed class ForgeCodeBlockRenderer(CodeBlockStyle style, TileSet tiles, TextImages text, HeadingStyle headings,
+    ForgeStyles styles, TextInteraction interaction)
     : IMarkdownCodeBlockRenderer
 {
     public Visual? CreateVisual(in MarkdownCodeBlockRenderContext context)
@@ -24,6 +25,9 @@ internal sealed class ForgeCodeBlockRenderer(CodeBlockStyle style, TileSet tiles
             return new HeadingImage(text, kind, code, pending, headings.Fill, headings.Pending);
         var body = new Paragraph(code) { Wrap = context.Options.WrapCodeBlocks, HorizontalAlignment = Align.Stretch };
         body.Runs = code.Length == 0 ? [] : style.Colours.Runs(context.Language, code) ?? [new StyledRun(0, code.Length, style.Text)];
-        return new TileFrame(body, tiles, style.Fill, Align.Stretch);
+        interaction.Configure(body);
+        var header = new CodeCopyHeader(context.Code, styles, interaction);
+        var content = new VStack(header, body).HorizontalAlignment(Align.Stretch);
+        return new TileFrame(content, tiles, style.Fill, Align.Stretch);
     }
 }

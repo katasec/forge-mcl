@@ -279,7 +279,8 @@ public sealed partial class ChatScreenTileTests
             var line = rows[at];
             var start = Text(line).IndexOf(code, StringComparison.Ordinal);
             Assert.Equal([(CodeBlockSet, LeftSlot), (CodeBlockSet, LeftSlot)], Tiles(line[(start - 2)..start]));
-            Assert.Contains(rows[at - 1], c => c.Set == CodeBlockSet && c.Slot is >= 0 and <= 2);
+            Assert.Contains("Copy code", Text(rows[at - 1]));
+            Assert.Contains(rows[at - 2], c => c.Set == CodeBlockSet && c.Slot is >= 0 and <= 2);
             Assert.Contains(rows[at + 1], c => c.Set == CodeBlockSet && c.Slot is >= 5 and <= 7);
         }
     }
@@ -307,7 +308,7 @@ public sealed partial class ChatScreenTileTests
 
     /// <summary>The visible text cells between a code-block row's left and right ring tiles.</summary>
     private static List<Cell> InsideCodeBlock(List<List<Cell>> rows) =>
-        [.. rows.Where(r => r.Any(c => c.Set == CodeBlockSet && c.Slot == LeftSlot)).SelectMany(r =>
+        [.. rows.Where(r => r.Any(c => c.Set == CodeBlockSet && c.Slot == LeftSlot) && !Text(r).Contains("Copy code")).SelectMany(r =>
             r.Skip(r.FindIndex(c => c.Set == CodeBlockSet)).Take(r.FindLastIndex(c => c.Set == CodeBlockSet) - r.FindIndex(c => c.Set == CodeBlockSet)))
             .Where(c => c.Set is null && c.Text.Trim().Length > 0)];
 

@@ -17,6 +17,14 @@ dotnet run --project src/ForgeMission.Cli -- --help
 
 Use `make install` to publish the current-platform Native AOT CLI locally.
 
+## Terminal clipboard component
+
+[Forge Terminal Extensions](src/ForgeMission.Terminal.Extensions/README.md) owns truthful clipboard
+results and fixed native text context menus. The independently packable
+`Katasec.Forge.Terminal.Extensions` package uses exactly XenoAtom.Terminal.UI 3.10.0 and
+XenoAtom.Terminal 2.2.0; the CLI owns selection coordination, snippet composition and presentation.
+Run `make verify-terminal-extensions-package` before its merged-ref publication workflow.
+
 ## Create a chat project
 
 ```sh
