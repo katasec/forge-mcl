@@ -30,6 +30,7 @@ public sealed class CodeCopyControlTests
             switch (phase)
             {
                 case 1:
+                    Assert.Equal("Copy code", TextInteractionTests.Property(button, "TooltipText"));
                     context.App.Focus(editor);
                     TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Move, button, 1);
                     break;
@@ -52,7 +53,8 @@ public sealed class CodeCopyControlTests
                     TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, button, 1);
                     break;
                 case 5:
-                    Assert.Contains("Copied", line);
+                    AssertLabel(frame, button, "✓");
+                    Assert.Equal("Copied", TextInteractionTests.Property(button, "TooltipText"));
                     button.IsEnabled = false;
                     break;
                 case 6:
@@ -65,7 +67,7 @@ public sealed class CodeCopyControlTests
                     TerminalInteractionTestHost.Key(backend, TerminalKey.Enter);
                     break;
                 case 7:
-                    Assert.Contains("Copy failed", line);
+                    AssertLabel(frame, button, "!");
                     Assert.Equal("Copy failed", TextInteractionTests.Property(button, "TooltipText"));
                     Assert.Contains(ForgeText.Get<Color>(ForgeText.Theme(theme), "Error").ToHexString(), line, StringComparison.OrdinalIgnoreCase);
                     break;
@@ -96,7 +98,7 @@ public sealed class CodeCopyControlTests
             Assert.Equal(button.Bounds.Y + 1, body.Bounds.Y);
             Assert.InRange(button.Bounds.Right, 0, size.Columns);
             Assert.InRange(body.Bounds.Right, 0, size.Columns);
-            Assert.Contains("Copy code", frame.Lines[button.Bounds.Y]);
+            AssertLabel(frame, button, "⧉");
             Console.WriteLine($"Native viewport {theme} {size.Columns}x{size.Rows}: button={button.Bounds} code={body.Bounds} {frame.Lines[button.Bounds.Y]}");
             if (phase < sizes.Length) backend.SetSize(sizes[phase], raiseEvent: true);
         }, last: sizes.Length);
@@ -105,7 +107,7 @@ public sealed class CodeCopyControlTests
     [Theory]
     [InlineData("Light")]
     [InlineData("Dark")]
-    public async Task Same_native_header_resizes_through_zero_icon_and_full_label(string theme)
+    public async Task Same_native_header_resizes_through_zero_icon_and_reserved_width(string theme)
     {
         var policy = TextInteractionTests.New("TextInteraction");
         var header = (Visual)TextInteractionTests.New("CodeCopyHeader", "payload", ForgeText.Styles(theme), policy);
@@ -122,7 +124,7 @@ public sealed class CodeCopyControlTests
             Assert.Equal(buttonWidth, button.Bounds.Width);
             Assert.Equal(x, button.Bounds.X);
             Assert.Equal(1, header.Bounds.Height);
-            if (width >= 15) Assert.Contains("Copy code", frame.Lines[button.Bounds.Y]);
+            if (width >= 15) AssertLabel(frame, button, "⧉");
             Console.WriteLine($"Native header {theme} available={width} bounds={button.Bounds} visible={button.IsVisible} tab={button.IsTabStop}: {frame.Lines[0]}");
             if (phase < widths.Length) header.MaxWidth = widths[phase].Available;
         }, last: widths.Length);
@@ -441,7 +443,11 @@ public sealed class CodeCopyControlTests
             Assert.Equal(buttonWidth, button.Bounds.Width);
             Assert.Equal(x, button.Bounds.X);
             Assert.All(header.EnumerateVisualsDepthFirst().OfType<TextBlock>(), text => Assert.False(text.IsSelectable));
-            if (width >= 15) Assert.Contains("Copy code", string.Join("", lines));
+            if (width >= 15)
+            {
+                Assert.Contains("⧉", string.Join("", lines));
+                Assert.DoesNotContain("Copy code", string.Join("", lines));
+            }
         }
         foreach (var result in new[] { "", "Copied", "Copy failed" })
         {
@@ -501,10 +507,15 @@ public sealed class CodeCopyControlTests
         var root = new ZStack(new VStack(first, second), frame);
         await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
         {
-            if (phase == 1) { context.App.Focus(buttons[0]); TerminalInteractionTestHost.Key(backend, TerminalKey.Enter); }
+            if (phase == 1)
+            {
+                Assert.Equal("Copy code", TextInteractionTests.Property(buttons[0], "TooltipText"));
+                context.App.Focus(buttons[0]);
+                TerminalInteractionTestHost.Key(backend, TerminalKey.Enter);
+            }
             if (phase == 2)
             {
-                AssertLabel(frame, buttons[0], "Copied");
+                AssertLabel(frame, buttons[0], "✓");
                 Assert.Equal("Copied", TextInteractionTests.Property(buttons[0], "TooltipText"));
                 Assert.Equal(ForgeText.Get<Color>(ForgeText.Theme(theme), "Success"), Foreground(buttons[0]));
                 context.App.Focus(buttons[1]);
@@ -512,19 +523,25 @@ public sealed class CodeCopyControlTests
             }
             if (phase == 3)
             {
-                AssertLabel(frame, buttons[0], "Copy code");
-                AssertLabel(frame, buttons[1], "Copied");
+                AssertLabel(frame, buttons[0], "⧉");
+                Assert.Equal("Copy code", TextInteractionTests.Property(buttons[0], "TooltipText"));
+                AssertLabel(frame, buttons[1], "✓");
+                Assert.Equal("Copied", TextInteractionTests.Property(buttons[1], "TooltipText"));
                 backend.FailWrite = true;
                 TerminalInteractionTestHost.Key(backend, TerminalKey.Enter);
             }
             if (phase == 4)
             {
-                AssertLabel(frame, buttons[1], "Copy failed");
+                AssertLabel(frame, buttons[1], "!");
                 Assert.Equal("Copy failed", TextInteractionTests.Property(buttons[1], "TooltipText"));
                 Assert.Equal(ForgeText.Get<Color>(ForgeText.Theme(theme), "Error"), Foreground(buttons[1]));
                 TextInteractionTests.Call(policy, "Reset");
             }
-            if (phase == 5) AssertLabel(frame, buttons[1], "Copy code");
+            if (phase == 5)
+            {
+                AssertLabel(frame, buttons[1], "⧉");
+                Assert.Equal("Copy code", TextInteractionTests.Property(buttons[1], "TooltipText"));
+            }
         }, last: 6);
     }
 
@@ -574,8 +591,14 @@ public sealed class CodeCopyControlTests
         (60, 45, 15), (100, 85, 15), (2, 0, 2), (0, 0, 0), (15, 0, 15),
     ];
 
-    private static void AssertLabel(NativeFrame frame, Button button, string label) =>
-        Assert.Contains(label, frame.Lines[button.Bounds.Y]);
+    private static void AssertLabel(NativeFrame frame, Button button, string glyph)
+    {
+        var line = frame.Lines[button.Bounds.Y];
+        Assert.Contains(glyph, line);
+        Assert.DoesNotContain("Copy code", line);
+        Assert.DoesNotContain("Copied", line);
+        Assert.DoesNotContain("Copy failed", line);
+    }
 
     private static Color Foreground(Button button)
     {
