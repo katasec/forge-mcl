@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="../ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj" />
     <ProjectReference Include="..\ForgeMission.Core\ForgeMission.Core.csproj" />
     <ProjectReference Include="..\ForgeMission.ChatClients\ForgeMission.ChatClients.csproj" />
     <ProjectReference Include="..\ForgeMission.Docker\ForgeMission.Docker.csproj" />

@@ -1,0 +1,177 @@
+name: Publish Terminal Extensions package
+
+on:
+  pull_request:
+  push:
+    tags:
+      - terminal-extensions-v0.1.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  verify:
+    name: Verify package and macOS ARM64 CLI
+    runs-on: macos-14
+    permissions:
+      contents: read
+      packages: read
+    env:
+      NUGET_AUTH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install existing native prerequisites
+        run: brew install openssl@3 brotli
+
+      - name: Verify current product and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/verification
+          git rev-parse HEAD > artifacts/verification/source.txt
+          { make build; make test; make verify-terminal-extensions-package; } 2>&1 | tee artifacts/verification/checks.log
+
+      - name: Publish native CLI and enforce zero warnings
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          dotnet publish src/ForgeMission.Cli -c Release -r osx-arm64 -o artifacts/verification/native \
+            -p:SourceRevisionId="$GITHUB_SHA" -warnaserror 2>&1 | tee artifacts/verification/native-publish.log
+          publish_status=("${PIPESTATUS[@]}")
+          set -e
+          if (( publish_status[0] != 0 )); then exit "${publish_status[0]}"; fi
+          if (( publish_status[1] != 0 )); then exit "${publish_status[1]}"; fi
+          if grep -Ei '(^|[[:space:]])warning([[:space:]]+[A-Z]+[0-9]+)?[[:space:]]*:' artifacts/verification/checks.log artifacts/verification/native-publish.log; then
+            echo "Actual compiler or linker warnings fail verification." >&2
+            exit 1
+          fi
+
+      - name: Check native identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifacts/verification/native/forge --help > artifacts/verification/native-help.txt
+          artifacts/verification/native/forge --version > artifacts/verification/native-version.txt
+          test "$(cat artifacts/verification/native-version.txt)" = "1.0.0+$GITHUB_SHA"
+          shasum -a 256 artifacts/verification/native/forge > artifacts/verification/native-sha256.txt
+
+      - name: Preserve full verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-extensions-verification-${{ github.sha }}
+          path: |
+            artifacts/verification
+            artifacts/packages
+          if-no-files-found: error
+
+  publish:
+    name: Publish Katasec.Forge.Terminal.Extensions 0.1.0
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require an exact release ref already merged into the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "terminal-extensions-v0.1.0" ]]; then
+            echo "Only terminal-extensions-v0.1.0 may publish this package." >&2
+            exit 1
+          fi
+          git fetch origin "${DEFAULT_BRANCH}" --depth=1
+          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/${DEFAULT_BRANCH}"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore, build, and test the Terminal Extensions slice
+        env:
+          NUGET_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          dotnet restore ForgeMission.slnx
+          dotnet build src/ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj -c Release --no-restore -warnaserror
+          dotnet test tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj -c Release --no-restore -warnaserror --filter "FullyQualifiedName~ForgeMission.Tests.Terminal"
+
+      - name: Pack Terminal Extensions 0.1.0 with source provenance
+        run: |
+          dotnet pack src/ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj \
+            -c Release \
+            --no-build \
+            --output artifacts/packages \
+            -p:ContinuousIntegrationBuild=true \
+            -p:RepositoryCommit="${GITHUB_SHA}"
+          bash ./eng/verify-terminal-extensions-package.sh artifacts/packages "${GITHUB_SHA}"
+
+      - name: Refuse to overwrite the immutable package version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: 0.1.0
+        run: |
+          set -euo pipefail
+          endpoint="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/nuget/Katasec.Forge.Terminal.Extensions/versions?per_page=100"
+          if gh api --paginate --slurp "$endpoint" > "${RUNNER_TEMP}/terminal-extensions-versions.json" 2> "${RUNNER_TEMP}/terminal-extensions-versions.err"; then
+            if jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length > 0' "${RUNNER_TEMP}/terminal-extensions-versions.json" > /dev/null; then
+              echo "Katasec.Forge.Terminal.Extensions 0.1.0 is already published." >&2
+              exit 1
+            fi
+          elif ! grep -Fq "404" "${RUNNER_TEMP}/terminal-extensions-versions.err"; then
+            cat "${RUNNER_TEMP}/terminal-extensions-versions.err" >&2
+            exit 1
+          fi
+
+      - name: Publish private package
+        env:
+          NUGET_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          dotnet nuget push artifacts/packages/Katasec.Forge.Terminal.Extensions.0.1.0.nupkg \
+            --source "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json" \
+            --api-key "${NUGET_AUTH_TOKEN}"
+
+      - name: Verify GitHub Packages ownership and visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: 0.1.0
+        run: |
+          set -euo pipefail
+          package_endpoint="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/nuget/Katasec.Forge.Terminal.Extensions"
+          versions_endpoint="${package_endpoint}/versions?per_page=100"
+          versions_json="${RUNNER_TEMP}/terminal-extensions-versions.json"
+          package_json="${RUNNER_TEMP}/terminal-extensions-package.json"
+          api_error="${RUNNER_TEMP}/terminal-extensions-package-visibility.err"
+          for attempt in {1..12}; do
+            if gh api "${package_endpoint}" > "${package_json}" 2> "${api_error}" \
+              && jq -e \
+                --arg repository "${GITHUB_REPOSITORY}" \
+                '.visibility == "private" and .repository.full_name == $repository' \
+                "${package_json}" > /dev/null \
+              && gh api --paginate --slurp "${versions_endpoint}" > "${versions_json}" 2>> "${api_error}" \
+              && jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length == 1' "${versions_json}" > /dev/null; then
+              exit 0
+            fi
+            if (( attempt < 12 )); then
+              sleep 5
+            fi
+          done
+          echo "Katasec.Forge.Terminal.Extensions ${PACKAGE_VERSION} did not become private, repository-associated, and version-visible after publication." >&2
+          cat "${api_error}" >&2 || true
+          exit 1

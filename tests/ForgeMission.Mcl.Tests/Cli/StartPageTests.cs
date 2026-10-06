@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.Backends;
 using XenoAtom.Terminal.UI;
+using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Rendering;
 
 namespace ForgeMission.Tests.Cli;
@@ -26,6 +27,7 @@ public sealed class StartPageTests
         Assert.Contains("Start a durable chat on an approved mission version. It stays pinned to that version.", text);
         Assert.Contains("newline", text);
         Assert.Equal(1, Get<int>(tui.List, "SelectedIndex"));
+        Assert.All(tui.Root.EnumerateVisualsDepthFirst().OfType<TextBlock>(), chrome => Assert.False(chrome.IsSelectable));
     }
 
     [Fact]

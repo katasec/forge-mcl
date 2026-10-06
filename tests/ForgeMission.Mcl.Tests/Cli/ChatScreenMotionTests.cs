@@ -280,6 +280,7 @@ public sealed class ChatScreenMotionTests
     {
         for (var y = 0; y < buffer.Height; y++)
         {
+            if (text == "code" && Row(buffer, y).Contains("Copy code")) continue;
             var x = Row(buffer, y).IndexOf(text, StringComparison.Ordinal);
             if (x >= 0) return (x, y);
         }

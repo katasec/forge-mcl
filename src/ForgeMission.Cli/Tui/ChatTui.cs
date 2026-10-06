@@ -82,7 +82,10 @@ internal sealed class ChatTui
         WakeOnInput();
         // The pointer's shape over links (Task 5). Moving the pointer never wakes the link.
         _screen.Root.PointerMovedRouted += (_, e) => _screen.Links.PointerAt(e.UiX, e.UiY);
-        AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", StopRun);
+        AddKey(new KeyGesture(TerminalChar.CtrlC, TerminalModifiers.Ctrl), "Forge.StopRun", () =>
+        {
+            if (!_screen.Interaction.CopySelection()) StopRun();
+        });
         AddKey(new KeyGesture(TerminalKey.PageUp), "Forge.PageUp", _screen.PageUp);
         AddKey(new KeyGesture(TerminalKey.PageDown), "Forge.PageDown", _screen.PageDown);
     }
@@ -112,6 +115,7 @@ internal sealed class ChatTui
         if (_screen.HasTiles) ForgeChat.DrainNotices(_notices, ShowError);
         if (_link.Live.IsFaulted) await _link.Live;
         _screen.Links.Recheck();
+        _screen.Interaction.CheckFeedback();
         if (_session.IsCancellationRequested)
             return await StopAsync();
         if (!_opened)
@@ -273,7 +277,7 @@ internal sealed class ChatTui
             return;
         }
         if (OpenFile(path) is not { } file) return;
-        var editor = new FileEditor(file, _styles, CloseEditor);
+        var editor = new FileEditor(file, _styles, CloseEditor, _screen.Interaction);
         _screen.ShowEditor(editor.View);
         _screen.Root.App?.Focus(editor.Editor);
     }
@@ -335,6 +339,7 @@ internal sealed class ChatTui
             Id = id, LabelMarkup = string.Empty, Gesture = gesture,
             CanExecute = _ => !_screen.Editing, ConsumesGestureWhenUnavailable = false, Execute = _ =>
             {
+                _screen.Interaction.Reset();
                 Wake();
                 action();
             },

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsPackable>true</IsPackable>
+    <PackageId>Katasec.Forge.Terminal.Extensions</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Katasec</Authors>
+    <Description>Truthful clipboard results and fixed native XenoAtom text context menus.</Description>
+    <PackageTags>terminal;clipboard;xenoatom;aot</PackageTags>
+    <PackageProjectUrl>https://github.com/katasec/forge-mcl</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/katasec/forge-mcl</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE.md" Pack="true" PackagePath="/" Link="LICENSE.md" />
+    <PackageReference Include="XenoAtom.Terminal.UI" Version="[3.10.0]" />
+    <PackageReference Include="XenoAtom.Terminal" Version="[2.2.0]" />
+  </ItemGroup>
+</Project>

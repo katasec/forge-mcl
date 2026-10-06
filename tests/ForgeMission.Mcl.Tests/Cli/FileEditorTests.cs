@@ -258,7 +258,7 @@ public sealed class FileEditorTests : IDisposable
     private static object Styles() => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ForgeStyles"),
         Type("ForgeMission.Cli.Tui.ForgeTheme").GetProperty("Dark", BindingFlags.Static | BindingFlags.Public)!.GetValue(null))!;
 
-    private static object NewEditor(object file, Action close) => Activator.CreateInstance(FileEditorType, file, Styles(), close)!;
+    private static object NewEditor(object file, Action close) => Activator.CreateInstance(FileEditorType, file, Styles(), close, Activator.CreateInstance(Type("ForgeMission.Cli.Tui.TextInteraction"), nonPublic: true)!)!;
 
     private static string EditorText(object editor) =>
         (string)FileEditorType.GetProperty("Text", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(editor)!;
@@ -293,7 +293,7 @@ public sealed class FileEditorTests : IDisposable
         var backend = output is null
             ? new VirtualTerminalBackend(initialSize: new TerminalSize(60, 12))
             : new VirtualTerminalBackend(output, new StringWriter(), new TerminalSize(60, 12), null, false);
-        using var terminal = Terminal.Open(backend, force: true);
+        using var terminal = Terminal.Open(backend, new TerminalOptions { RespectNoColor = false }, force: true);
         var root = new Padder(view).Style((XenoAtom.Terminal.UI.Styling.Theme)Styles().GetType().GetProperty("Screen")!.GetValue(Styles())!);
         var ticks = 0;
 

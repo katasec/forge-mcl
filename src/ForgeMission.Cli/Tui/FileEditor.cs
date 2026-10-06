@@ -22,15 +22,18 @@ internal sealed class FileEditor
     private readonly Action _close;
     private readonly State<string> _header;
     private readonly State<string> _message = new("");
+    private readonly TextInteraction _interaction;
 
-    public FileEditor(EditFile file, ForgeStyles styles, Action close)
+    public FileEditor(EditFile file, ForgeStyles styles, Action close, TextInteraction interaction)
     {
         _file = file;
+        _interaction = interaction;
         _close = close;
         _header = new State<string>(file.Header);
         _document = new TextDocument(file.Text);
         _document.Changed += (_, _) => OnEdited();
         Editor = BuildEditor(file.FullPath, _document);
+        interaction.Configure(Editor);
         View = BuildView(styles, Editor);
         View.AddCommand(KeyCommand("Forge.Edit.Save", new KeyGesture(TerminalChar.CtrlS, TerminalModifiers.Ctrl), Save));
         View.AddCommand(KeyCommand("Forge.Edit.Close", new KeyGesture(TerminalKey.Escape), Escape));
@@ -49,12 +52,14 @@ internal sealed class FileEditor
 
     private void Save()
     {
+        _interaction.Reset();
         _message.Value = _file.Save(Text);
         _header.Value = _file.Header;
     }
 
     private void Escape()
     {
+        _interaction.Reset();
         if (_file.Escape(Text) == EscapeOutcome.Close)
         {
             _close();
@@ -84,13 +89,13 @@ internal sealed class FileEditor
     }
 
     private Visual BuildView(ForgeStyles styles, CodeEditor editor) => new DockLayout()
-        .Top(new TextBlock(() => _header.Value) { Trimming = TextTrimming.StartEllipsis }.Style(styles.Label))
+        .Top(new TextBlock(() => _header.Value) { Trimming = TextTrimming.StartEllipsis, IsSelectable = false }.Style(styles.Label))
         .Content(new ScrollViewer(editor.Stretch(), focusable: false)
             .IsTabStop(false)
             .HorizontalAlignment(Align.Stretch)
             .VerticalAlignment(Align.Stretch)
             .Style(styles.Scroll))
-        .Bottom(new TextBlock(() => _message.Value).Style(styles.Progress));
+        .Bottom(new TextBlock(() => _interaction.Status(_message.Value)) { IsSelectable = false }.Style(styles.Progress));
 
     private static Command KeyCommand(string id, KeyGesture gesture, Action action) => new()
     {

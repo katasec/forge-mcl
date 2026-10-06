@@ -22,6 +22,7 @@ input and output; the components it calls own language semantics, provider proto
 - Command registration, arguments, output, and mission-file selection.
 - CLI wiring for OCI pulls, platform sign-in, built-in mission references, and MCP commands.
 - `forge chat` startup and presentation: a full-screen terminal UI or line mode when piped.
+- Owned text-source coordination, selection-aware Copy versus chat Stop, snippet controls and clipboard feedback.
 
 ## Does not own
 
@@ -56,12 +57,18 @@ behavior in forge-client.
 
 Built on XenoAtom.Terminal.UI.
 
+Fixed native clipboard commands and menus come from
+[Forge Terminal Extensions](../ForgeMission.Terminal.Extensions/README.md). Editing/rendering stays
+with native controls; text-source coordination and visual feedback stay here.
+
 | Piece | Responsibility |
 |---|---|
 | [ChatTui](Tui/ChatTui.cs) | UI loop, replay, submit/cancel, hands routing, screen swaps, and shutdown. |
 | [ChatLink](Tui/ChatLink.cs) | Live-stream ownership, cursor, reconnect, idle sleep, and catch-up on wake. |
 | [Transcript](Tui/Transcript.cs) | Event-to-block mapping for replay/live turns and duplicate final-reply suppression. |
 | [ChatScreen](Tui/ChatScreen.cs), [ComposerEditor](Tui/ComposerEditor.cs) | Screen layout, composer sizing, and editor/start-page slots. |
+| [TextInteraction](Tui/TextInteraction.cs), [ParagraphSelection](Tui/ParagraphSelection.cs) | Owned native text targeting, source claims, truthful feedback and bounded realized-source lifetime. |
+| [CodeCopyControl](Tui/CodeCopyControl.cs) | Reserved snippet header and native Button with immutable complete code payload and lifecycle reset. |
 | [StartPage](Tui/StartPage.cs) | Initial mission choices; **Chat with a mission** opens chat, **Create a mission** is a placeholder. |
 | [EditFile](Tui/EditFile.cs), [FileEditor](Tui/FileEditor.cs) | `/edit <path>` rules and editor view; Ctrl+S saves, Esc closes or guards unsaved changes. |
 | [ForgeTheme](Tui/ForgeTheme.cs), [ForgeStyles](Tui/ForgeStyles.cs) | Light/dark visual tokens and component styles. |
@@ -132,8 +139,9 @@ flowchart LR
 - **Terminal:** TUI mode requires both stdin and stdout to be terminals, kitty graphics,
   truecolor, and no multiplexer. Environment checks and font loading precede sign-in; the first
   UI tick checks cell size. Unsupported terminals fail explicitly. Shift+Enter needs kitty keyboard support.
-- **Turns and connection:** One turn runs at a time across windows. Ctrl-C cancels this window's
-  turn; Ctrl-D ends the stream and busy calls before stopping the UI. A stream ending during a
+- **Turns and connection:** One turn runs at a time across windows. Ctrl-C copies selected owned
+  text first, including a failed copy attempt; without selection it cancels this window's turn.
+  Ctrl-D ends the stream and busy calls before stopping the UI. A stream ending during a
   turn reconnects from its cursor; an idle stream sleeps, then catches up before reopening or sending.
   Piped mode uses whole messages and exits on a lost stream.
 - **Streaming:** Live deltas update a reply only after its step started on that connection.

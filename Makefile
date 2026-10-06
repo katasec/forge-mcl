@@ -21,6 +21,8 @@ endif
 
 INSTALL_DIR := $(HOME)/.local/bin
 CLI := src/ForgeMission.Cli
+TERMINAL_EXTENSIONS_PROJECT := src/ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj
+TERMINAL_EXTENSIONS_COMMIT := $(shell git rev-parse HEAD)
 PARSER_PROJECT := src/ForgeMission.Parser/ForgeMission.Parser.csproj
 PARSER_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
 PARSER_PACKAGE_DIR := artifacts/packages
@@ -61,6 +63,17 @@ DOCKER_COMMIT := $(shell git rev-parse HEAD)
 
 build:
 	dotnet build ForgeMission.slnx
+
+.PHONY: test-terminal-extensions pack-terminal-extensions verify-terminal-extensions-package
+
+test-terminal-extensions:
+	dotnet test tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj -c Release --filter "FullyQualifiedName~ForgeMission.Tests.Terminal"
+
+pack-terminal-extensions:
+	dotnet pack $(TERMINAL_EXTENSIONS_PROJECT) -c Release --output artifacts/packages -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(TERMINAL_EXTENSIONS_COMMIT)
+
+verify-terminal-extensions-package: test-terminal-extensions pack-terminal-extensions
+	bash ./eng/verify-terminal-extensions-package.sh artifacts/packages $(TERMINAL_EXTENSIONS_COMMIT)
 
 test:
 	dotnet test ForgeMission.slnx

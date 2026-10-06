@@ -12,6 +12,10 @@ namespace ForgeMission.Cli.Tui;
 // px, where 1 mockup px = cell height / MockupRowPx.
 internal sealed record ForgeTheme
 {
+    public const int CodeCopyWidth = 15;
+    public const int CodeCopyHeaderRows = 1;
+    public const int CodeCopySidePadding = 1;
+    public const int CodeCopyPaddedWidth = 3;
     // ── Layout shared by every theme (finish-line mockup) ───────────────────────────────────
 
     /// <summary>--cell-h: 20px. One terminal row in the mockup; defines the mockup px.</summary>
