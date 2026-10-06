@@ -36,7 +36,14 @@ public static class ForgeChat
         {
             Description = "Open the Forge project in this folder instead of the current directory",
         });
-        cmd.SetAction(async result => await RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag)));
+        cmd.SetAction(async result => await MacChatWindow.RunCommandAsync(
+            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag)),
+            MacChatWindow.ChildMarker(OperatingSystem.IsMacOS(),
+                UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected),
+                Environment.GetEnvironmentVariable(MacChatWindow.Marker)),
+            context => MacChatWindow.RestoreContext(context, Directory.SetCurrentDirectory,
+                (name, value) => Environment.SetEnvironmentVariable(name, value)),
+            () => { Console.ReadKey(intercept: true); }, Console.Error));
         return cmd;
     }
 
@@ -79,6 +86,12 @@ public static class ForgeChat
             Console.Error.WriteLine("Not signed in. Run `forge login`.");
             return 1;
         }
+
+        if (MacChatWindow.ShouldLaunch(OperatingSystem.IsMacOS(), interactive,
+            Environment.GetEnvironmentVariable(MacChatWindow.Marker)))
+            return await MacChatWindow.LaunchAsync(Environment.ProcessPath, hands, home,
+                Directory.GetCurrentDirectory(), Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT"),
+                Console.Out, Console.Error);
 
         var services = new ServiceCollection();
         services.AddHttpClient("conversation-host", client =>

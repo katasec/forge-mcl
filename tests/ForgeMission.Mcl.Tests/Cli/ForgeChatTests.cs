@@ -21,9 +21,11 @@ public sealed class ForgeChatTests
     private static readonly MethodInfo ImageCell = LoadTerminalFactsMethod("ImageCell");
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Missing_project_file_stops_without_login_network_creation_or_ancestor_search(bool explicitFolder)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Missing_project_file_stops_without_login_network_creation_or_ancestor_search(bool explicitFolder, bool childMarker)
     {
         var parent = Path.Combine(Path.GetTempPath(), "forge-chat-test-" + Guid.NewGuid().ToString("N"));
         var child = Path.Combine(parent, "child");
@@ -50,6 +52,7 @@ public sealed class ForgeChatTests
             }
             // Controlled negative proof: any unexpected network setup would fail this test.
             start.Environment["FORGE_API_ENDPOINT"] = "invalid-endpoint";
+            if (childMarker) start.Environment["FORGE_CHAT_WINDOW"] = "invalid-context-must-be-ignored-when-piped";
             using var process = Process.Start(start)!;
             process.StandardInput.Close();
             var output = process.StandardOutput.ReadToEndAsync();
