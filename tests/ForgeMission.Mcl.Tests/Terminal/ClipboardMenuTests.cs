@@ -78,6 +78,7 @@ public sealed class ClipboardMenuTests
         editor.ConfigureClipboard(results.Add);
         Popup? popup = null;
         var caret = 0;
+        var inserts = !failed && payload.Length > 0;
         await TerminalInteractionTestHost.Run(editor, (context, phase, backend) =>
         {
             if (phase == 1)
@@ -104,8 +105,8 @@ public sealed class ClipboardMenuTests
                 Assert.NotNull(popup);
                 Assert.Equal(expected, results.Single());
                 Assert.Equal(1, backend.Reads);
-                Assert.Equal(failed || payload.Length == 0 ? "!alpha\nbeta" : payload, editor.Text);
-                if (failed || payload.Length == 0)
+                Assert.Equal(inserts ? payload : "!alpha\nbeta", editor.Text);
+                if (!inserts)
                 {
                     Assert.True(editor.TryCopySelection(out var selection));
                     Assert.Equal("!alpha\nbeta", selection);
@@ -115,8 +116,8 @@ public sealed class ClipboardMenuTests
             }
             if (phase == 4)
             {
-                Assert.Equal(failed || payload.Length == 0 ? "alpha\nbeta" : "!alpha\nbeta", editor.Text);
-                if (!failed && payload.Length > 0) editor.Commands.Single(command => command.Id == "TextEditor.Undo").Execute(editor);
+                Assert.Equal(inserts ? "!alpha\nbeta" : "alpha\nbeta", editor.Text);
+                if (inserts) editor.Commands.Single(command => command.Id == "TextEditor.Undo").Execute(editor);
             }
             if (phase == 5) Assert.Equal("alpha\nbeta", editor.Text);
         }, last: 6);

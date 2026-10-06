@@ -63,7 +63,8 @@ internal sealed class CodeCopyButton : Button
         _width.Value = width;
         if (width == 0) Reset();
         IsVisible = IsTabStop = width > 0;
-        MinWidth = MaxWidth = Math.Min(width, ForgeTheme.CodeCopyWidth);
+        MinWidth = MaxWidth = width >= ForgeTheme.CodeCopyWidth ? ForgeTheme.CodeCopyWidth
+            : width >= ForgeTheme.CodeCopyPaddedWidth ? ForgeTheme.CodeCopyPaddedWidth : width;
     }
 
     internal void Retire()

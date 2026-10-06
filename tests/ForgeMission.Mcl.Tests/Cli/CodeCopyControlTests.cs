@@ -111,19 +111,20 @@ public sealed class CodeCopyControlTests
         var header = (Visual)TextInteractionTests.New("CodeCopyHeader", "payload", ForgeText.Styles(theme), policy);
         var button = (Button)TextInteractionTests.Property(header, "Button");
         var frame = new NativeFrame();
-        var widths = new[] { 0, 1, 2, 3, 4, 12, 14, 15, 16, 60, 100, 2, 0, 15 };
-        header.MaxWidth = widths[0];
+        var widths = HeaderBounds;
+        header.MaxWidth = widths[0].Available;
         await TerminalInteractionTestHost.Run(new ZStack(header, frame), (context, phase, backend) =>
         {
             if (phase == 0) return;
-            var width = widths[phase - 1];
+            var (width, x, buttonWidth) = widths[phase - 1];
             Assert.Equal(width > 0, button.IsVisible);
             Assert.Equal(width > 0, button.IsTabStop);
-            Assert.Equal(Math.Min(width, 15), button.Bounds.Width);
+            Assert.Equal(buttonWidth, button.Bounds.Width);
+            Assert.Equal(x, button.Bounds.X);
             Assert.Equal(1, header.Bounds.Height);
             if (width >= 15) Assert.Contains("Copy code", frame.Lines[button.Bounds.Y]);
             Console.WriteLine($"Native header {theme} available={width} bounds={button.Bounds} visible={button.IsVisible} tab={button.IsTabStop}: {frame.Lines[0]}");
-            if (phase < widths.Length) header.MaxWidth = widths[phase];
+            if (phase < widths.Length) header.MaxWidth = widths[phase].Available;
         }, last: widths.Length);
     }
 
@@ -429,7 +430,7 @@ public sealed class CodeCopyControlTests
         var policy = TextInteractionTests.New("TextInteraction");
         var header = (Visual)TextInteractionTests.New("CodeCopyHeader", "", styles, policy);
         var button = (Button)TextInteractionTests.Property(header, "Button");
-        foreach (var width in new[] { 0, 1, 2, 3, 14, 15, 16, 60, 100, 2, 0, 15 })
+        foreach (var (width, x, buttonWidth) in HeaderBounds)
         {
             header = (Visual)TextInteractionTests.New("CodeCopyHeader", "", styles, policy);
             button = (Button)TextInteractionTests.Property(header, "Button");
@@ -437,7 +438,8 @@ public sealed class CodeCopyControlTests
             var lines = VisualSnapshotRenderer.Render(header, Math.Max(width, 1), 1).ToMarkupLines();
             Assert.Equal(width > 0, button.IsVisible);
             Assert.Equal(width > 0, button.IsTabStop);
-            Assert.Equal(Math.Min(width, 15), button.Bounds.Width);
+            Assert.Equal(buttonWidth, button.Bounds.Width);
+            Assert.Equal(x, button.Bounds.X);
             Assert.All(header.EnumerateVisualsDepthFirst().OfType<TextBlock>(), text => Assert.False(text.IsSelectable));
             if (width >= 15) Assert.Contains("Copy code", string.Join("", lines));
         }
@@ -563,6 +565,14 @@ public sealed class CodeCopyControlTests
             if (phase == 2) { Assert.Equal(1, backend.Writes); Assert.Equal("", TextInteractionTests.Feedback(policy)); }
         }, last: 3);
     }
+
+    // Binding gallery bounds, including return transitions; no production width formula.
+    private static readonly (int Available, int X, int Width)[] HeaderBounds =
+    [
+        (0, 0, 0), (1, 0, 1), (2, 0, 2), (3, 0, 3), (4, 1, 3),
+        (12, 9, 3), (14, 11, 3), (15, 0, 15), (16, 1, 15),
+        (60, 45, 15), (100, 85, 15), (2, 0, 2), (0, 0, 0), (15, 0, 15),
+    ];
 
     private static void AssertLabel(NativeFrame frame, Button button, string label) =>
         Assert.Contains(label, frame.Lines[button.Bounds.Y]);

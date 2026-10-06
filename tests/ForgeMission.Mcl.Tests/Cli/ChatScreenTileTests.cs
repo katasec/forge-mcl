@@ -58,7 +58,8 @@ public sealed partial class ChatScreenTileTests
     public void A_long_one_line_user_message_wraps_into_the_right_aligned_ring()
     {
         var text = string.Join(' ', Enumerable.Repeat("words", 12));
-        var rows = new Screen().Show(You(text)).Render(40);
+        // Inspect the complete frame; a localized side label can make the narrow ring scroll.
+        var rows = new Screen().Show(You(text)).Render(40, 80);
         var ring = rows.Where(r => r.Any(c => c.Set == UserRingSet)).ToList();
 
         Assert.DoesNotContain(rows.SelectMany(r => r), c => c.Set == UserCapsSet);
@@ -74,6 +75,30 @@ public sealed partial class ChatScreenTileTests
         Assert.EndsWith($"▒ You · {SentTime} ▓▓▓ ", Text(middle));
         var label = Text(middle).IndexOf(" You", StringComparison.Ordinal);
         Assert.Equal((UserRingSet, RightSlot), (middle[label - 1].Set, middle[label - 1].Slot));
+    }
+
+    [Fact]
+    public void A_narrow_midnight_user_ring_scrolls_its_top_without_changing_tiles()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
+            var sent = new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(1970, 1, 1)));
+            var text = string.Join(' ', Enumerable.Repeat("words", 12));
+            var screen = new Screen().Show(You(text, sent));
+            var clipped = screen.Render(40);
+            var flow = screen.Root.EnumerateVisualsDepthFirst().OfType<DocumentFlow>().Single();
+            Assert.True(flow.Scroll.OffsetY > 0);
+            var first = clipped.First(row => row.Any(c => c.Set == UserRingSet));
+            Assert.All(first.Where(c => c.Set == UserRingSet), c => Assert.InRange(c.Slot, LeftSlot, RightSlot));
+            var complete = screen.Render(40, 80).Where(row => row.Any(c => c.Set == UserRingSet)).ToList();
+            Assert.Equal(0, flow.Scroll.OffsetY);
+            Assert.All(complete[0].Where(c => c.Set == UserRingSet), c => Assert.InRange(c.Slot, 0, 2));
+            Assert.All(complete[^1].Where(c => c.Set == UserRingSet), c => Assert.InRange(c.Slot, 5, 7));
+            Console.WriteLine($"Native US-midnight ring: clipped side slots3/4 at40x40, complete top/bottom at40x80; extent={flow.Scroll.ExtentHeight}");
+        }
+        finally { CultureInfo.CurrentCulture = originalCulture; }
     }
 
     [Fact]
@@ -355,10 +380,11 @@ public sealed partial class ChatScreenTileTests
             return this;
         }
 
-        public List<List<Cell>> Render(int width = Width)
+        public Visual Root => (Visual)_screenType.GetProperty("Root")!.GetValue(_screen)!;
+
+        public List<List<Cell>> Render(int width = Width, int height = 40)
         {
-            var root = (Visual)_screenType.GetProperty("Root")!.GetValue(_screen)!;
-            return [.. VisualSnapshotRenderer.Render(root, width, 40).ToMarkupLines().Select(Cells)];
+            return [.. VisualSnapshotRenderer.Render(Root, width, height).ToMarkupLines().Select(Cells)];
         }
     }
 
@@ -378,7 +404,7 @@ public sealed partial class ChatScreenTileTests
     private static object CardOf(string title, string text, bool streaming) =>
         Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ParticipantCard"), title, text, "Chat", DateTimeOffset.UnixEpoch, streaming)!;
 
-    private static object You(string text) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text, DateTimeOffset.UnixEpoch)!;
+    private static object You(string text, DateTimeOffset? sent = null) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.YouBlock"), text, sent ?? DateTimeOffset.UnixEpoch)!;
 
     private static object Hands(string label, string? outcome) => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.HandsLine"), label, outcome)!;
 

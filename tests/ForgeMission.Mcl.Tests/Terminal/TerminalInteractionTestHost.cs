@@ -9,7 +9,7 @@ using NativeTerminal = XenoAtom.Terminal.Terminal;
 
 namespace ForgeMission.Tests.TerminalInteraction;
 
-// Memory-only native loop. Phases allow the normal relay to deliver a complete input batch.
+// Memory-only native loop. A backend marker acknowledges each delivered batch before layout.
 internal static class TerminalInteractionTestHost
 {
     internal static async Task Run(Visual root, Action<TerminalRunningContext, int, ClipboardBackend> phase,
@@ -18,13 +18,22 @@ internal static class TerminalInteractionTestHost
         backend ??= new ClipboardBackend();
         using var session = NativeTerminal.Open(backend, new TerminalOptions { ImplicitStartInput = true, RespectNoColor = false }, force: true);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        var count = 0;
+        var nextPhase = 0;
+        var acknowledged = true;
+        var laidOut = false;
         await Task.Run(async () => await session.Instance.RunAsync(root, context =>
         {
-            if (count % 5 == 0) phase(context, count / 5, backend);
-            Thread.Sleep(5);
-            return count++ >= last * 5 ? TerminalLoopResult.Stop : TerminalLoopResult.Continue;
+            if (!acknowledged) return TerminalLoopResult.Continue;
+            if (!laidOut) { laidOut = true; return TerminalLoopResult.Continue; }
+            phase(context, nextPhase, backend);
+            if (nextPhase++ >= last) return TerminalLoopResult.Stop;
+            acknowledged = laidOut = false;
+            // The relay enqueues prior input before reading this marker. Post runs before the
+            // event drain; the extra update above then waits through that drain and render.
+            backend.PushEvent(new ClipboardBackend.InputBatchEnd(() => context.App.Post(() => acknowledged = true)));
+            return TerminalLoopResult.Continue;
         }, new TerminalRunOptions(), deadline.Token));
+        if (nextPhase <= last) throw new TimeoutException("Native input batch and layout did not complete before the test deadline.");
     }
 
     internal static void Ctrl(ClipboardBackend backend, char key) => backend.PushEvent(new TerminalKeyEvent
@@ -59,6 +68,7 @@ internal sealed class NativeFrame : Visual
 
 internal sealed class ClipboardBackend : VirtualTerminalBackend, ITerminalBackend
 {
+    internal sealed record InputBatchEnd(Action Acknowledge) : TerminalEvent;
     internal int Writes { get; private set; }
     internal int Reads { get; private set; }
     internal bool FailWrite { get; set; }
@@ -67,6 +77,17 @@ internal sealed class ClipboardBackend : VirtualTerminalBackend, ITerminalBacken
     internal string? Written { get; private set; }
 
     internal ClipboardBackend() : base(TextWriter.Null, TextWriter.Null, new TerminalSize(100, 32)) { }
+
+    async ValueTask<TerminalEvent> ITerminalBackend.ReadEventAsync(CancellationToken cancellationToken)
+    {
+        var input = await base.ReadEventAsync(cancellationToken).ConfigureAwait(false);
+        while (input is InputBatchEnd end)
+        {
+            end.Acknowledge();
+            input = await base.ReadEventAsync(cancellationToken).ConfigureAwait(false);
+        }
+        return input;
+    }
 
     bool ITerminalBackend.TrySetClipboardText(ReadOnlySpan<char> text)
     {
