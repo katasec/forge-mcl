@@ -139,7 +139,7 @@ jobs:
             exit 1
           fi
 
-      - name: Publish private package
+      - name: Publish public package
         env:
           NUGET_AUTH_TOKEN: ${{ github.token }}
         run: |
@@ -162,7 +162,7 @@ jobs:
             if gh api "${package_endpoint}" > "${package_json}" 2> "${api_error}" \
               && jq -e \
                 --arg repository "${GITHUB_REPOSITORY}" \
-                '.visibility == "private" and .repository.full_name == $repository' \
+                '.visibility == "public" and .repository.full_name == $repository' \
                 "${package_json}" > /dev/null \
               && gh api --paginate --slurp "${versions_endpoint}" > "${versions_json}" 2>> "${api_error}" \
               && jq -e --arg version "${PACKAGE_VERSION}" '[.[].[] | select(.name == $version)] | length == 1' "${versions_json}" > /dev/null; then
@@ -172,6 +172,6 @@ jobs:
               sleep 5
             fi
           done
-          echo "Katasec.Forge.Terminal.Extensions ${PACKAGE_VERSION} did not become private, repository-associated, and version-visible after publication." >&2
+          echo "Katasec.Forge.Terminal.Extensions ${PACKAGE_VERSION} did not become public, repository-associated, and version-visible after publication." >&2
           cat "${api_error}" >&2 || true
           exit 1
