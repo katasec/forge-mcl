@@ -55,7 +55,9 @@ internal sealed class CodeCopyButton : Button
 
     internal string TooltipText => _interaction.ResultFor(this) switch
     {
-        "Copied" => "Copied", "Copy failed" => "Copy failed", _ => "Copy code",
+        "Copied" => "Copied",
+        "Copy failed" => "Copy failed",
+        _ => "Copy code",
     };
 
     internal void SetAvailableWidth(int width)
@@ -122,7 +124,8 @@ internal sealed class CodeCopyButton : Button
         {
             var result = _interaction.ResultFor(this);
             var glyph = result switch { "Copied" => "✓", "Copy failed" => "!", _ => "⧉" };
-            return _width.Value < ForgeTheme.CodeCopyWidth ? glyph : $"{glyph} {TooltipText}";
+            //return _width.Value < ForgeTheme.CodeCopyWidth ? glyph : $"{glyph} {TooltipText}";
+            return glyph;
         }
     }
 
