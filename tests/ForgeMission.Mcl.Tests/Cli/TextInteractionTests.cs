@@ -5,6 +5,7 @@ using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Commands;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Extensions.Markdown;
+using XenoAtom.Terminal.UI.Geometry;
 using XenoAtom.Terminal.UI.Input;
 using XenoAtom.Terminal.UI.Text;
 
@@ -326,6 +327,147 @@ public sealed class TextInteractionTests
     }
 
     [Fact]
+    public async Task Rich_assistant_card_drag_to_same_row_trailing_body_space_copies_nearest_member()
+    {
+        var policy = New("TextInteraction");
+        var markdown = new MarkdownControl("short body");
+        var wrapper = (Visual)New("ParagraphSelection", markdown, policy);
+        var root = new Padder(wrapper) { HorizontalAlignment = Align.Stretch };
+        Call(policy, "Bind", root);
+        Paragraph? paragraph = null;
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            if (phase == 1)
+            {
+                paragraph = markdown.EnumerateVisualsDepthFirst().OfType<Paragraph>()
+                    .Single(source => source.App == context.App);
+                paragraph.HorizontalAlignment = Align.Start;
+            }
+            if (phase == 2)
+            {
+                Assert.True(paragraph!.Bounds.Right < markdown.Bounds.Right);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, paragraph);
+                backend.PushEvent(new TerminalMouseEvent
+                {
+                    Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left,
+                    X = paragraph.Bounds.Right + 1, Y = paragraph.Bounds.Y,
+                });
+                backend.PushEvent(new TerminalMouseEvent
+                {
+                    Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left,
+                    X = paragraph.Bounds.Right + 1, Y = paragraph.Bounds.Y,
+                });
+            }
+            if (phase == 3)
+            {
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Equal("short body", backend.Written);
+            }
+        }, last: 4);
+    }
+
+    [Fact]
+    public async Task Rich_assistant_card_trailing_fallback_prefers_the_rightmost_same_row_member()
+    {
+        var policy = New("TextInteraction");
+        var markdown = new MarkdownControl("left\n\nright");
+        var wrapper = (Visual)New("ParagraphSelection", markdown, policy);
+        var root = new Padder(wrapper) { HorizontalAlignment = Align.Stretch };
+        Call(policy, "Bind", root);
+        await TerminalInteractionTestHost.Run(root, (context, phase, _) =>
+        {
+            if (phase != 1) return;
+            var members = markdown.EnumerateVisualsDepthFirst().OfType<Paragraph>()
+                .Where(paragraph => paragraph.App == context.App).ToArray();
+            var left = members.Single(paragraph => paragraph.Text == "left");
+            var right = members.Single(paragraph => paragraph.Text == "right");
+            Assert.True((bool)Call(wrapper, "TryBegin", left, left.Bounds.X, left.Bounds.Y)!);
+            left.Arrange(new Rectangle(markdown.Bounds.X, markdown.Bounds.Y, left.Text!.Length, 1));
+            right.Arrange(new Rectangle(markdown.Bounds.X + 10, markdown.Bounds.Y, right.Text!.Length, 1));
+            var x = right.Bounds.Right + 1;
+
+            Assert.True(x < markdown.Bounds.Right);
+            Assert.True((bool)Call(wrapper, "TryExtend", markdown, x, right.Bounds.Y)!);
+            Assert.True(right.HasSelection);
+            Assert.True(right.TryCopySelection(out var copied));
+            Assert.Equal("right", copied);
+        }, last: 2);
+    }
+
+    [Fact]
+    public async Task Active_chat_rich_drag_rejects_card_padding()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "body text", "mission", DateTimeOffset.UnixEpoch, false));
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var body = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "body text");
+            var card = root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "ParagraphSelection");
+            var x = card.Bounds.X - 1;
+            if (phase == 1)
+            {
+                Assert.False((bool)Call(card, "Owns", root.HitTest(x, body.Bounds.Y))!);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, body);
+                backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left, X = x, Y = body.Bounds.Y });
+                backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left, X = x, Y = body.Bounds.Y });
+            }
+            if (phase == 2) Assert.False((bool)Call(policy, "CopySelection")!);
+        }, last: 3);
+    }
+
+    [Fact]
+    public async Task Active_chat_rich_drag_rejects_inter_block_gap()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "first body\n\nsecond body", "mission", DateTimeOffset.UnixEpoch, false));
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var first = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "first body");
+            var second = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "second body");
+            var card = root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "ParagraphSelection");
+            var y = first.Bounds.Bottom;
+            if (phase == 1)
+            {
+                Assert.True(y < second.Bounds.Y);
+                var target = root.HitTest(first.Bounds.X, y)!;
+                Assert.True((bool)Call(card, "Owns", target)!);
+                Assert.IsNotType<Paragraph>(target);
+                Assert.True((bool)Call(card, "TryBegin", first, first.Bounds.X, first.Bounds.Y)!);
+                Assert.False((bool)Call(card, "TryExtend", target, first.Bounds.X, y)!);
+                Call(card, "Clear");
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, first);
+                backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left, X = first.Bounds.X, Y = y });
+                backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left, X = first.Bounds.X, Y = y });
+            }
+            if (phase == 2) Assert.False((bool)Call(policy, "CopySelection")!);
+        }, last: 3);
+    }
+
+    [Fact]
+    public async Task Active_chat_rich_drag_rejects_another_assistant_card()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen,
+            New("ParticipantCard", "Answerer", "first card", "mission", DateTimeOffset.UnixEpoch, false),
+            New("ParticipantCard", "Answerer", "second card", "mission", DateTimeOffset.UnixEpoch, false));
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var first = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "first card");
+            var second = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "second card");
+            if (phase == 1)
+            {
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, first);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, second);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, second);
+            }
+            if (phase == 2) Assert.False((bool)Call(policy, "CopySelection")!);
+        }, last: 3);
+    }
+
+    [Fact]
     public async Task Active_chat_assistant_card_drag_copies_real_code_body()
     {
         using var session = new CancellationTokenSource();
@@ -351,11 +493,13 @@ public sealed class TextInteractionTests
         }, last: 3);
     }
 
-    [Fact]
-    public async Task Active_chat_assistant_card_drag_copies_logical_heading_with_selection_overlay()
+    [Theory]
+    [InlineData("Light")]
+    [InlineData("Dark")]
+    public async Task Active_chat_assistant_card_drag_copies_logical_heading_with_selection_overlay(string theme)
     {
         using var session = new CancellationTokenSource();
-        var (_, screen, policy, _, root) = ActiveChat(session);
+        var (_, screen, policy, _, root) = ActiveChat(session, theme);
         Show(screen, New("ParticipantCard", "Answerer", "## Heading text\n\nbody text", "mission", DateTimeOffset.UnixEpoch, false));
         var frame = new NativeFrame();
         await TerminalInteractionTestHost.Run(new ZStack(root, frame), (context, phase, backend) =>
@@ -373,10 +517,45 @@ public sealed class TextInteractionTests
                 Assert.True((bool)Property(heading, "HasSelection"));
                 Assert.True((bool)Call(policy, "CopySelection")!);
                 Assert.Contains("Heading text\n\nbody", backend.Written);
-                var selection = ForgeText.Get<Color>(ForgeText.Theme("Dark"), "Selection").ToHexString();
+                var selection = ForgeText.Get<Color>(ForgeText.Theme(theme), "Selection").ToHexString();
                 Assert.Contains(selection, string.Join('\n', frame.Lines), StringComparison.OrdinalIgnoreCase);
             }
         }, last: 3);
+    }
+
+    [Theory]
+    [InlineData("Light")]
+    [InlineData("Dark")]
+    public async Task Active_chat_composer_and_body_share_the_theme_selection_token(string theme)
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, _, composer, root) = ActiveChat(session, theme);
+        composer.TextDocument = new TextDocument("composer text");
+        Show(screen, New("ParticipantCard", "Answerer", "body text", "mission", DateTimeOffset.UnixEpoch, false));
+        var frame = new NativeFrame();
+        await TerminalInteractionTestHost.Run(new ZStack(root, frame), (context, phase, backend) =>
+        {
+            var selection = ForgeText.Get<Color>(ForgeText.Theme(theme), "Selection").ToHexString();
+            if (phase == 1)
+            {
+                context.App.Focus(composer);
+                TerminalInteractionTestHost.Ctrl(backend, TerminalChar.CtrlA);
+            }
+            if (phase == 2)
+            {
+                Assert.True(composer.HasSelection);
+                Assert.Contains(selection, string.Join('\n', frame.Lines), StringComparison.OrdinalIgnoreCase);
+                ((ISelectionOwner)composer).ClearSelection();
+                var body = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "body text");
+                TerminalInteractionTestHost.Drag(backend, body, 0, body.Text!.Length);
+            }
+            if (phase == 3)
+            {
+                var body = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "body text");
+                Assert.True(body.HasSelection);
+                Assert.Contains(selection, frame.Lines[body.Bounds.Y], StringComparison.OrdinalIgnoreCase);
+            }
+        }, last: 4);
     }
 
     [Fact]
@@ -834,15 +1013,15 @@ public sealed class TextInteractionTests
         Assert.Equal(0, (int)Property(policy, "SourceCount"));
     }
 
-    private static (object Tui, object Screen, object Policy, TextEditorBase Composer, Visual Root) ActiveChat(CancellationTokenSource session)
+    private static (object Tui, object Screen, object Policy, TextEditorBase Composer, Visual Root) ActiveChat(CancellationTokenSource session, string theme = "Dark")
     {
         const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic;
         var type = ForgeText.Type("ForgeMission.Cli.Tui.ChatTui");
         var serviceType = type.GetConstructors(fields).Single().GetParameters()[0].ParameterType;
         var service = DispatchProxy.Create(serviceType, typeof(ChatTranscriptTests.StreamingConversations));
-        var styles = ForgeText.Styles("Dark");
+        var styles = ForgeText.Styles(theme);
         var tui = New("ChatTui", service, Guid.NewGuid(), New("ChatHeader", "chat", "Chat", 1, "anthropic", "ameer"),
-            ForgeText.Theme("Dark"), ForgeText.Fonts(), null, new System.Collections.Concurrent.ConcurrentQueue<string>(), session);
+            ForgeText.Theme(theme), ForgeText.Fonts(), null, new System.Collections.Concurrent.ConcurrentQueue<string>(), session);
         var screen = type.GetField("_screen", fields)!.GetValue(tui)!;
         var cell = ForgeText.Cell(10, 20);
         var tiles = ForgeText.Type("ForgeMission.Cli.Tui.ScreenTiles").GetMethod("Create")!.Invoke(null, [styles, cell])!;
