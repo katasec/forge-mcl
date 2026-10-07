@@ -92,20 +92,21 @@ internal sealed class TextArt(TextArtStyle style, TextFonts fonts, CellSize cell
 
     /// <summary>Splits a heading into lines that each fit <paramref name="maxCols"/> cells, at word
     /// breaks; a word wider than a line on its own is cut to fit and ends in "…".</summary>
-    public IReadOnlyList<string> Wrap(TextKind kind, string text, int maxCols)
+    public IReadOnlyList<HeadingLine> Wrap(TextKind kind, string text, int maxCols)
     {
         var look = HeadingLook(kind);
         var maxPx = maxCols * cell.Width - 2 * EdgePx;
-        var lines = new List<string>();
-        var line = "";
-        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        var lines = new List<HeadingLine>();
+        var words = new List<HeadingWord>();
+        foreach (var word in HeadingWords(text))
         {
-            var joined = line.Length == 0 ? word : $"{line} {word}";
-            if (Fits(joined, look, maxPx)) { line = joined; continue; }
-            if (line.Length > 0) lines.Add(line);
-            line = Fits(word, look, maxPx) ? word : Cut(word, look, maxPx);
+            var joined = Join(words, word);
+            if (Fits(joined, look, maxPx)) { words.Add(word); continue; }
+            AddLine(lines, words);
+            if (Fits(word.Text, look, maxPx)) { words.Add(word); continue; }
+            lines.Add(TruncatedLine(word, Cut(word.Text, look, maxPx)));
         }
-        if (line.Length > 0) lines.Add(line);
+        AddLine(lines, words);
         return lines;
     }
 
@@ -229,7 +230,75 @@ internal sealed class TextArt(TextArtStyle style, TextFonts fonts, CellSize cell
         return "…";
     }
 
+    private static IEnumerable<HeadingWord> HeadingWords(string text)
+    {
+        for (var start = 0; start < text.Length;)
+        {
+            while (start < text.Length && text[start] == ' ') start++;
+            if (start == text.Length) yield break;
+            var end = start;
+            while (end < text.Length && text[end] != ' ') end++;
+            yield return new HeadingWord(text[start..end], start, end);
+            start = end;
+        }
+    }
+
+    private static string Join(IReadOnlyList<HeadingWord> words, HeadingWord next) => words.Count == 0
+        ? next.Text
+        : string.Join(' ', words.Select(word => word.Text).Append(next.Text));
+
+    private static void AddLine(List<HeadingLine> lines, List<HeadingWord> words)
+    {
+        if (words.Count == 0) return;
+        lines.Add(HeadingLine.FromWords(words));
+        words.Clear();
+    }
+
+    private static HeadingLine TruncatedLine(HeadingWord word, string display)
+    {
+        var visible = display.EndsWith('…') ? display.Length - 1 : display.Length;
+        var offsets = new int[display.Length + 1];
+        for (var index = 0; index <= display.Length; index++)
+            offsets[index] = index <= visible ? word.Start + index : word.End;
+        return new HeadingLine(display, word.Start, word.End, offsets);
+    }
+
     private double Px(double mockupPx) => mockupPx * cell.Height / ForgeTheme.MockupRowPx;
 
     private int Cols(double px) => Math.Max(1, (int)Math.Ceiling(px / cell.Width));
+
+}
+
+internal readonly record struct HeadingWord(string Text, int Start, int End);
+
+/// <summary>One rendered heading line and the source indices each displayed character boundary
+/// represents. A normalized space covers its original run; an ellipsis covers the omitted suffix.</summary>
+internal sealed class HeadingLine(string text, int sourceStart, int sourceEnd, int[] sourceOffsets)
+{
+    internal string Text { get; } = text;
+    internal int SourceStart { get; } = sourceStart;
+    internal int SourceEnd { get; } = sourceEnd;
+
+    internal int SourceIndexAtVisual(int visualIndex) => sourceOffsets[Math.Clamp(visualIndex, 0, Text.Length)];
+
+    internal int VisualIndexAtSource(int sourceIndex)
+    {
+        var index = Array.BinarySearch(sourceOffsets, sourceIndex);
+        return Math.Clamp(index >= 0 ? index : ~index, 0, Text.Length);
+    }
+
+    internal static HeadingLine FromWords(IReadOnlyList<HeadingWord> words)
+    {
+        var text = string.Join(' ', words.Select(word => word.Text));
+        var offsets = new int[text.Length + 1];
+        var visual = 0;
+        foreach (var (word, index) in words.Select((word, index) => (word, index)))
+        {
+            offsets[visual] = word.Start;
+            for (var character = 1; character <= word.Text.Length; character++)
+                offsets[++visual] = word.Start + character;
+            if (index < words.Count - 1) offsets[++visual] = words[index + 1].Start;
+        }
+        return new HeadingLine(text, words[0].Start, words[^1].End, offsets);
+    }
 }

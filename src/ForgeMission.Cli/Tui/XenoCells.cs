@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using XenoAtom.Terminal.UI;
+using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Geometry;
 using XenoAtom.Terminal.UI.Rendering;
 
@@ -10,13 +11,15 @@ namespace ForgeMission.Cli.Tui;
 // XenoAtom.Terminal.UI internals. XenoAtom 3.10.0's public API cannot read a rendered cell back,
 // cannot say which link is under the pointer, and cannot restart an animation that has gone idle;
 // its translucent overlay also discards a cell's own text colour. The motion overlays (FadeIn,
-// StreamCaret, LinkPointer) need all three, so they read cells here. Six internal members, through
+// StreamCaret, LinkPointer) need all three, so they read cells here. Rich card selection also needs
+// Paragraph's private wrapped-layout point mapping and native range setter. Eight internal members, through
 // [UnsafeAccessor] (resolved at compile time, AOT-safe): CellBuffer.UnsafeScalars, UnsafeCells,
-// UnsafeHyperlinks, CurrentClipRect, TryGetTextElement, and TerminalApp.RequestAnimation.
+// UnsafeHyperlinks, CurrentClipRect, TryGetTextElement, TerminalApp.RequestAnimation,
+// Paragraph.GetTextIndexFromPosition, and Paragraph.SetSelection.
 // XenoInternalsContractTests pins every one of them to XenoAtom 3.10.0, and TuiColourLiteralTests
 // fails if [UnsafeAccessor] appears anywhere else.
-// Removal condition: XenoAtom exposes public cell reads and hit-testing (request raised upstream);
-// then this file goes and the overlays use the public API.
+// Removal condition: XenoAtom exposes public cell reads/hit-testing and Paragraph point/range APIs;
+// then this file goes and the overlays and rich selection use the public API.
 
 /// <summary>What a rendered cell holds: its glyph (a rune, or a multi-code-point text element),
 /// its style, whether it carries a link, and whether it is a kitty image placeholder.</summary>
@@ -62,6 +65,14 @@ internal static class XenoCells
     /// that was idle (long.MaxValue) has a new deadline.</summary>
     public static void RequestAnimation(TerminalApp app) => RequestAnimationCore(app);
 
+    /// <summary>Maps a Paragraph-local point through its own current wrapped layout.</summary>
+    public static int TextIndexAt(Paragraph paragraph, int localX, int localY) =>
+        GetTextIndexFromPosition(paragraph, paragraph.Text ?? string.Empty, localX, localY);
+
+    /// <summary>Applies a native Paragraph range without recreating its layout or rendering.</summary>
+    public static void SetSelection(Paragraph paragraph, int anchor, int active) =>
+        SetParagraphSelection(paragraph, anchor, active);
+
     /// <summary>A cell's glyph as text, for tests and diagnostics.</summary>
     public static string Glyph(CellFacts cell) => cell.Element ?? (cell.Rune >= 0 ? new Rune(cell.Rune).ToString() : "");
 
@@ -82,4 +93,10 @@ internal static class XenoCells
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "RequestAnimation")]
     private static extern void RequestAnimationCore(TerminalApp app);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "GetTextIndexFromPosition")]
+    private static extern int GetTextIndexFromPosition(Paragraph paragraph, string text, int localX, int localY);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "SetSelection")]
+    private static extern void SetParagraphSelection(Paragraph paragraph, int anchor, int active);
 }

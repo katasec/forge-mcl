@@ -38,7 +38,9 @@ Dependencies are exactly XenoAtom.Terminal.UI 3.10.0 and XenoAtom.Terminal 2.2.0
 `ClipboardText.CopySelection(ISelectionOwner, TerminalInstance)` returns NoSelection, Copied or
 CopyFailed. `CopyText(string, TerminalInstance)` copies exact text, including empty strings.
 `TextEditorBase.ConfigureClipboard(Action<ClipboardResult>)` and
-`Paragraph.ConfigureClipboard(Action<ClipboardResult>)` configure the fixed native menus.
+`Paragraph.ConfigureClipboard(Action<ClipboardResult>)` configures the fixed native Paragraph menu.
+Its overload accepting availability and copy callbacks lets a caller retain exact selection composition
+while this package retains the popup, stale-target and clipboard-result contract.
 The editor additionally reports PasteReadSucceeded/PasteReadFailed without taking insertion ownership.
 Configure editors once before attachment. Paragraph configuration replaces its factory.
 Callbacks report synchronous facts and must not mutate editing, focus, menus or the visual tree.

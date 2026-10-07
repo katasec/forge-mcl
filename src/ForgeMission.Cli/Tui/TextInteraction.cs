@@ -7,22 +7,38 @@ using XenoAtom.Terminal.UI.Input;
 
 namespace ForgeMission.Cli.Tui;
 
-// Coordinates only Forge-owned native ranges. Controls keep editing; the extension keeps transport.
+// Coordinates source ownership, card-local ranges, Copy-before-Stop, and clipboard feedback.
 internal sealed class TextInteraction
 {
     private readonly HashSet<Visual> _sources = [];
+    private readonly HashSet<ParagraphSelection> _cards = [];
+    private readonly Dictionary<Paragraph, ParagraphSelection> _paragraphCards = [];
     private Visual? _last;
+    private ParagraphSelection? _activeCard;
+    private ParagraphSelection? _dragCard;
+    private ParagraphSelection? _invalidCard;
     private readonly State<Visual?> _feedbackSource = new(null);
     internal State<string> Feedback { get; } = new("");
     internal int SourceCount => _sources.Count;
 
-    internal void Bind(Visual root) => root.PointerPressedRouted += (_, e) =>
+    internal void Bind(Visual root)
     {
-        if (e.RoutingPhase != RoutingPhase.Preview || e.Button != TerminalMouseButton.Left) return;
-        for (var source = e.OriginalSource as Visual; source is not null; source = source.Parent)
-            if (_sources.Contains(source)) { Claim(source); return; }
-        ClearRanges();
-    };
+        root.PointerPressedRouted += (_, e) => Press(root, e);
+        root.PointerMovedRouted += (_, e) => Drag(root, e);
+        root.PointerReleasedRouted += (_, e) => Release(root, e);
+    }
+
+    internal void RegisterCard(ParagraphSelection card) => _cards.Add(card);
+
+    internal void RetireCard(ParagraphSelection card)
+    {
+        _cards.Remove(card);
+        if (_activeCard == card) _activeCard = null;
+        if (_dragCard == card) _dragCard = null;
+        if (_invalidCard == card) _invalidCard = null;
+        foreach (var paragraph in _paragraphCards.Where(pair => pair.Value == card).Select(pair => pair.Key).ToArray())
+            _paragraphCards.Remove(paragraph);
+    }
 
     internal void Configure(TextEditorBase editor)
     {
@@ -35,23 +51,35 @@ internal sealed class TextInteraction
         Decorate(editor);
     }
 
-    internal void Register(Paragraph paragraph)
+    internal void Register(Paragraph paragraph) => Register(paragraph, null);
+
+    internal void Register(Paragraph paragraph, ParagraphSelection? card)
     {
-        Configure(paragraph);
+        if (card is null) Configure(paragraph);
+        else ConfigureRich(paragraph);
         paragraph.IsEnabled = true;
         _sources.Add(paragraph);
+        if (card is null) return;
+        _paragraphCards[paragraph] = card;
     }
 
-    internal void Configure(Paragraph paragraph)
-    {
-        paragraph.ConfigureClipboard(result => { Claim(paragraph, reset: false); Report(paragraph, result); });
-    }
+    internal void Configure(Paragraph paragraph) => paragraph.ConfigureClipboard(
+        result => { Claim(paragraph, reset: false); Report(paragraph, result); });
+
+    private void ConfigureRich(Paragraph paragraph) => paragraph.ConfigureClipboard(
+        () => CanCopy(paragraph),
+        () => Copy(paragraph),
+        result => ReportParagraph(paragraph, result));
 
     internal void Retire(Visual source)
     {
         _sources.Remove(source);
         ((ISelectionOwner)source).ClearSelection();
-        if (source is Paragraph) source.IsEnabled = false;
+        if (source is Paragraph paragraph)
+        {
+            paragraph.IsEnabled = false;
+            _paragraphCards.Remove(paragraph);
+        }
         if (_last == source) _last = null;
         if (_feedbackSource.Value == source) Reset();
     }
@@ -67,10 +95,23 @@ internal sealed class TextInteraction
     internal bool CopySelection()
     {
         var editor = _sources.OfType<TextEditorBase>().FirstOrDefault(source => source.HasFocus && source.HasSelection && Eligible(source));
-        var target = (Visual?)editor ?? (_last is Paragraph paragraph && paragraph.HasSelection && Eligible(paragraph) ? paragraph : null);
-        if (target is null) return false;
-        Claim(target);
-        Report(target, ClipboardText.CopySelection((ISelectionOwner)target, target.App!.Terminal));
+        if (editor is not null)
+        {
+            Claim(editor);
+            Report(editor, ClipboardText.CopySelection(editor, editor.App!.Terminal));
+            return true;
+        }
+        if (_activeCard is { } card && Eligible(card) && card.TryCopy(out var text))
+        {
+            Report(card, ClipboardText.CopyText(text, card.App!.Terminal));
+            return true;
+        }
+        var paragraph = _last as Paragraph;
+        if (paragraph is null || !paragraph.HasSelection || !Eligible(paragraph))
+            paragraph = _sources.OfType<Paragraph>().FirstOrDefault(source => source.HasSelection && Eligible(source));
+        if (paragraph is null) return false;
+        Claim(paragraph);
+        Report(paragraph, ClipboardText.CopySelection(paragraph, paragraph.App!.Terminal));
         return true;
     }
 
@@ -78,6 +119,7 @@ internal sealed class TextInteraction
     {
         if (!_sources.Contains(source) || !Eligible(source)) return;
         if (reset) Reset();
+        ClearCard();
         foreach (var other in _sources)
             if (other != source) ((ISelectionOwner)other).ClearSelection();
         _last = source;
@@ -107,11 +149,133 @@ internal sealed class TextInteraction
 
     internal string ResultFor(Visual source) => _feedbackSource.Value == source ? Feedback.Value : "";
 
+    private void Press(Visual root, PointerEventArgs e)
+    {
+        if (e.RoutingPhase != RoutingPhase.Preview || e.Button != TerminalMouseButton.Left) return;
+        ClearInvalidCard();
+        if (e.ClickCount >= 2 || e.Kind == TerminalMouseKind.DoubleClick || (e.Modifiers & TerminalModifiers.Shift) != 0)
+        {
+            ClaimSource(e.OriginalSource as Visual);
+            return;
+        }
+        var target = root.HitTest(e.UiX, e.UiY);
+        var card = CardFor(target);
+        if (card is null)
+        {
+            ClaimSource(e.OriginalSource as Visual);
+            return;
+        }
+        Activate(card);
+        if (!card.TryBegin(target!, e.UiX, e.UiY))
+        {
+            ClearCard();
+            ClaimSource(e.OriginalSource as Visual);
+            return;
+        }
+        _dragCard = card;
+        e.Handled = true;
+    }
+
+    private void Drag(Visual root, PointerEventArgs e)
+    {
+        if (e.RoutingPhase != RoutingPhase.Preview || e.Kind != TerminalMouseKind.Drag || _dragCard is not { } card) return;
+        var target = root.HitTest(e.UiX, e.UiY);
+        if (CardFor(target) == card && card.TryExtend(target!, e.UiX, e.UiY))
+        {
+            e.Handled = true;
+            return;
+        }
+        ClearCard();
+        _invalidCard = card;
+        e.Handled = true;
+    }
+
+    private void Release(Visual root, PointerEventArgs e)
+    {
+        if (e.RoutingPhase != RoutingPhase.Preview || e.Button != TerminalMouseButton.Left) return;
+        if (_invalidCard is { } invalid)
+        {
+            invalid.Clear();
+            _invalidCard = null;
+            e.Handled = true;
+            return;
+        }
+        if (_dragCard is not { } card) return;
+        var target = root.HitTest(e.UiX, e.UiY);
+        if (CardFor(target) == card) card.TryExtend(target!, e.UiX, e.UiY);
+        else ClearCard();
+        _dragCard = null;
+        e.Handled = true;
+    }
+
+    private bool CanCopy(Paragraph paragraph) => _paragraphCards.TryGetValue(paragraph, out var card) && card.HasSelection
+        || paragraph.HasSelection;
+
+    private ClipboardResult Copy(Paragraph paragraph)
+    {
+        if (_paragraphCards.TryGetValue(paragraph, out var card) && card.TryCopy(out var text))
+        {
+            _activeCard = card;
+            return ClipboardText.CopyText(text, paragraph.App!.Terminal);
+        }
+        return ClipboardText.CopySelection(paragraph, paragraph.App!.Terminal);
+    }
+
+    private void ReportParagraph(Paragraph paragraph, ClipboardResult result)
+    {
+        if (_paragraphCards.TryGetValue(paragraph, out var card) && card.HasSelection)
+        {
+            _activeCard = card;
+            Report(card, result);
+            return;
+        }
+        Claim(paragraph, reset: false);
+        Report(paragraph, result);
+    }
+
+    private void Activate(ParagraphSelection card)
+    {
+        Reset();
+        ClearCard();
+        foreach (var source in _sources) ((ISelectionOwner)source).ClearSelection();
+        _activeCard = card;
+    }
+
     private void ClearRanges()
     {
         foreach (var source in _sources) ((ISelectionOwner)source).ClearSelection();
+        ClearCard();
+        ClearInvalidCard();
         _last = null;
         Reset();
+    }
+
+    private void ClearInvalidCard()
+    {
+        _invalidCard?.Clear();
+        _invalidCard = null;
+    }
+
+    private void ClearCard()
+    {
+        _dragCard?.Clear();
+        if (_activeCard is { } card && card != _dragCard) card.Clear();
+        _dragCard = null;
+        _activeCard = null;
+    }
+
+    private ParagraphSelection? CardFor(Visual? target)
+    {
+        for (var current = target; current is not null; current = current.Parent)
+            if (current is ParagraphSelection card && _cards.Contains(card)) return card;
+        return null;
+    }
+
+    private void ClaimSource(Visual? source)
+    {
+        for (var current = source; current is not null; current = current.Parent)
+            if (_sources.Contains(current)) { Claim(current); return; }
+        ClearRanges();
     }
 
     private static bool Eligible(Visual source)

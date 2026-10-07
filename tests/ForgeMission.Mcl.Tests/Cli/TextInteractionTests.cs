@@ -300,6 +300,209 @@ public sealed class TextInteractionTests
     }
 
     [Fact]
+    public async Task Rich_assistant_card_drag_copies_one_canonical_range_across_paragraphs()
+    {
+        var policy = New("TextInteraction");
+        var markdown = new MarkdownControl("first paragraph\n\n1. second item\n2. third item\n\n> quoted paragraph\n\n```text\ncode body\n```");
+        var wrapper = (Visual)New("ParagraphSelection", markdown, policy);
+        var root = new Padder(wrapper);
+        Call(policy, "Bind", root);
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var paragraphs = markdown.EnumerateVisualsDepthFirst().OfType<Paragraph>().Where(paragraph => paragraph.App == context.App).ToArray();
+            if (phase == 1)
+            {
+                Assert.True(paragraphs.Length >= 4);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, paragraphs[0]);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, paragraphs[^1], 15);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, paragraphs[^1], 15);
+            }
+            if (phase == 2)
+            {
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Equal("first paragraph\n\nsecond item\nthird item\nquoted paragr", backend.Written);
+            }
+        }, last: 3);
+    }
+
+    [Fact]
+    public async Task Active_chat_assistant_card_drag_copies_real_code_body()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "body text\n\n```text\ncode body\n```", "mission", DateTimeOffset.UnixEpoch, false));
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var paragraphs = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Where(paragraph => paragraph.App == context.App).ToArray();
+            var body = paragraphs.Single(paragraph => paragraph.Text == "body text");
+            var code = paragraphs.Single(paragraph => paragraph.Text == "code body");
+            if (phase == 1)
+            {
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, body);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, code, 4);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, code, 4);
+            }
+            if (phase == 2)
+            {
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Contains("body text", backend.Written);
+                Assert.Contains("code", backend.Written);
+            }
+        }, last: 3);
+    }
+
+    [Fact]
+    public async Task Active_chat_assistant_card_drag_copies_logical_heading_with_selection_overlay()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "## Heading text\n\nbody text", "mission", DateTimeOffset.UnixEpoch, false));
+        var frame = new NativeFrame();
+        await TerminalInteractionTestHost.Run(new ZStack(root, frame), (context, phase, backend) =>
+        {
+            var heading = root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "HeadingImage");
+            var body = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "body text");
+            if (phase == 1)
+            {
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, heading);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, body, 4);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, body, 4);
+            }
+            if (phase == 2)
+            {
+                Assert.True((bool)Property(heading, "HasSelection"));
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Contains("Heading text\n\nbody", backend.Written);
+                var selection = ForgeText.Get<Color>(ForgeText.Theme("Dark"), "Selection").ToHexString();
+                Assert.Contains(selection, string.Join('\n', frame.Lines), StringComparison.OrdinalIgnoreCase);
+            }
+        }, last: 3);
+    }
+
+    [Fact]
+    public async Task Active_chat_wrapped_heading_maps_normalized_whitespace_and_ellipsis_to_source_text()
+    {
+        const string headingText = "first   extraordinarilylongword";
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", $"## {headingText}\n\nbody text", "mission", DateTimeOffset.UnixEpoch, false));
+        var backend = new ClipboardBackend();
+        await TerminalInteractionTestHost.Run(root, (context, phase, _) =>
+        {
+            if (phase == 0) backend.SetSize(new TerminalSize(20, 32), raiseEvent: true);
+            if (phase == 2)
+            {
+                var heading = root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "HeadingImage");
+                var body = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "body text");
+                Assert.True(heading.Bounds.Height >= 4);
+                backend.PushEvent(new TerminalMouseEvent
+                {
+                    Kind = TerminalMouseKind.Down, Button = TerminalMouseButton.Left,
+                    X = heading.Bounds.X, Y = heading.Bounds.Y + 2,
+                });
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, body, 4);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, body, 4);
+            }
+            if (phase == 3)
+            {
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Equal("extraordinarilylongword\n\nbody", backend.Written);
+            }
+        }, last: 4, backend);
+    }
+
+    [Fact]
+    public async Task Active_chat_rich_range_clears_at_invalid_boundary_replacement_and_detach()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        var sent = DateTimeOffset.UnixEpoch;
+        Show(screen, New("ParticipantCard", "Answerer", "first body\n\nfirst tail\n\n```text\npayload\n```", "mission", sent, false));
+        Paragraph[] old = [];
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var paragraphs = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Where(paragraph => paragraph.App == context.App).ToArray();
+            if (phase == 1)
+            {
+                old = paragraphs.Where(paragraph => paragraph.Text is "first body" or "first tail").ToArray();
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, old[0]);
+            }
+            if (phase == 2)
+            {
+                Assert.False((bool)Call(policy, "CopySelection")!);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag,
+                    root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "CodeCopyButton"));
+            }
+            if (phase == 3)
+            {
+                Assert.False((bool)Call(policy, "CopySelection")!);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up,
+                    root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "CodeCopyButton"));
+            }
+            if (phase == 4)
+            {
+                Assert.False((bool)Call(policy, "CopySelection")!);
+                Assert.All(old, paragraph => Assert.False(paragraph.HasSelection));
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, old[0]);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, old[1], 4);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, old[1], 4);
+            }
+            if (phase == 5)
+            {
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Show(screen, New("ParticipantCard", "Answerer", "next body\n\nnext tail", "mission", sent, false));
+            }
+            if (phase == 7)
+            {
+                Assert.All(old, paragraph => Assert.False(paragraph.HasSelection));
+                Assert.False((bool)Call(policy, "CopySelection")!);
+                var next = paragraphs.Where(paragraph => paragraph.Text is "next body" or "next tail").ToArray();
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, next[0]);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, next[1], 4);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, next[1], 4);
+            }
+            if (phase == 8)
+            {
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Contains("next", backend.Written);
+                Show(screen, []);
+            }
+            if (phase == 9)
+            {
+                Assert.All(old, paragraph => { Assert.False(paragraph.HasSelection); Assert.False(paragraph.IsEnabled); });
+                Assert.False((bool)Call(policy, "CopySelection")!);
+            }
+        }, last: 10);
+    }
+
+    [Fact]
+    public async Task Active_chat_rich_range_copy_failure_does_not_stop_turn()
+    {
+        using var session = new CancellationTokenSource();
+        var (tui, screen, _, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "first body\n\nfirst tail", "mission", DateTimeOffset.UnixEpoch, false));
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var paragraphs = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Where(paragraph => paragraph.App == context.App).ToArray();
+            var body = paragraphs.Single(paragraph => paragraph.Text == "first body");
+            var tail = paragraphs.Single(paragraph => paragraph.Text == "first tail");
+            if (phase == 1)
+            {
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, body);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, tail, 4);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, tail, 4);
+                backend.FailWrite = true;
+                TerminalInteractionTestHost.Ctrl(backend, TerminalChar.CtrlC);
+            }
+            if (phase == 2)
+            {
+                Assert.Equal(1, backend.Writes);
+                Assert.False(StopRequested(tui));
+            }
+        }, last: 3);
+    }
+
+    [Fact]
     public async Task Actual_screen_sources_and_chrome_remain_owned_through_outer_recycling()
     {
         var screen = Screen("Dark");
