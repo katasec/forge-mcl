@@ -81,7 +81,7 @@ public sealed class ForgeProjectTests
         Assert.Equal(1, calls);
         Assert.Equal("", error.ToString());
         Assert.Contains($"Project: {Path.Combine(expectedHome, "forge.project.json")}", output.ToString());
-        Assert.Contains(explicitFolder ? $"Run `forge chat --project '{expectedHome}'`." : "Run `forge chat`.", output.ToString());
+        Assert.Contains(explicitFolder ? $"Run `forge chat --project '{Path.Combine(expectedHome, "forge.project.json")}'`." : "Run `forge chat`.", output.ToString());
     }
 
     [Fact]
@@ -94,8 +94,8 @@ public sealed class ForgeProjectTests
             new CreateChatProjectResponse(new CreatedChatProject(Guid.NewGuid(), Guid.NewGuid(), request.HomePath), null)), output, error);
         Assert.Equal(0, result);
         Assert.Equal("", error.ToString());
-        var quotedHome = Path.Combine(Directory.GetCurrentDirectory(), "project $value''s `folder");
-        Assert.Contains($"Run `forge chat --project '{quotedHome}'`.", output.ToString());
+        var quotedFile = Path.Combine(Directory.GetCurrentDirectory(), "project $value''s `folder", "forge.project.json");
+        Assert.Contains($"Run `forge chat --project '{quotedFile}'`.", output.ToString());
     }
 
     [Theory]

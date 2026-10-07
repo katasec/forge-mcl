@@ -126,7 +126,8 @@ flowchart LR
   [Mission Registry](../ForgeMission.MissionRegistry/README.md).
 - **Project creation:** `forge project create [folder]` initializes one portable declaration and one hosted plain Chat conversation. The folder defaults to cwd and must exist. Saved sign-in is required before creation; Projects and Missions own all file, package, admission and retry rules. Explicit retry preserves the same Project and conversation.
 - **Chat modes:** `forge chat` reads `forge.project.json` in the current directory, or the
-  explicit folder selected by `--project`. Missing declarations stop before sign-in or network
+  explicit file selected by `--project <file>`, with any filename. Directories
+  and missing declarations stop before configuration, sign-in or network
   setup; chat creates no Project and searches no ancestors. Plain and `--hands` select separate
   declared missions (`Chat` and `ChatHands`) and reconnect to the latest matching hosted chat.
 - **Portable files:** `forge.project.json` carries the stable `projectId`, mission/version
