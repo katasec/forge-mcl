@@ -194,7 +194,9 @@ static Command BuildRunCommand()
         var options = new PipelineRunOptions(
             firstMission.Name,
             parsedVars,
-            showSteps ? Console.Error : null);
+            showSteps ? Console.Error : null,
+            // CLI global overrides stay process-local and are re-seeded on every tool resume.
+            ContextObjects: parsedVars.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal));
 
         Console.Error.WriteLine($"Running mission '{firstMission.Name}'...");
 

@@ -1,5 +1,9 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
 using ForgeMission.Core.Tools;
@@ -143,12 +147,8 @@ public sealed class ForgeRunTests : IDisposable
     [InlineData("unwritable")]
     public async Task Command_preserves_output_steps_and_nonzero_write_failure(string mode)
     {
-        var expert = Path.Combine(_root, "experts", "Echo");
-        Directory.CreateDirectory(expert);
-        await File.WriteAllTextAsync(Path.Combine(expert, "expert.md"), "---\nname: Echo\nkind: exec\ncommand: python3\ninputs: [goal]\noutputKey: output\nargs: [./echo.py]\ninput: any\noutput: text\n---\n");
-        await File.WriteAllTextAsync(Path.Combine(expert, "echo.py"), "import json\nprint(json.dumps({'output': 'plain output'}))\n");
         var output = mode == "stdout" ? "output(Root)" : $"output(Root, \"{(mode == "file" ? "answer.txt" : "missing/answer.txt")}\")";
-        await File.WriteAllTextAsync(Path.Combine(_root, "mission.mcl"), "let apiKey = \"controlled-unused-key\"\nlet model = \"controlled-unused-model\"\nmission Root = { Echo }\n" + output);
+        await WriteExecMissionAsync(output);
         var initialized = await InvokeAsync("init");
         Assert.True(initialized.ExitCode == 0, initialized.Error);
         var result = await InvokeAsync("run", "--steps");
@@ -159,6 +159,155 @@ public sealed class ForgeRunTests : IDisposable
         Assert.Contains("plain output", result.Error);
         if (mode == "file") Assert.Contains("plain output", await File.ReadAllTextAsync(Path.Combine(_root, "answer.txt")));
         if (mode == "unwritable") Assert.Contains("error", result.Error);
+    }
+
+    [Fact]
+    public async Task Command_overrides_global_let_in_tool_free_mission()
+    {
+        await WriteExecMissionAsync("output(Root)", "let goal = \"default\"\n",
+            "import json, sys\nprint(json.dumps({'output': json.load(sys.stdin)['goal']}))\n");
+        Assert.Equal(0, (await InvokeAsync("init")).ExitCode);
+        var result = await InvokeAsync("run", "--var", "goal=overridden-global");
+        Assert.True(result.ExitCode == 0, result.Error);
+        Assert.Equal("overridden-global", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Command_reseeds_global_overrides_across_successive_hands_calls()
+    {
+        var path = Path.Combine(_root, "greeting.txt");
+        const string content = "global-hands-content";
+        var requests = await RunFileProbeAsync(path, content, async endpoint =>
+        {
+            await WriteAgentMissionAsync(endpoint);
+            Assert.Equal(0, (await InvokeAsync("init")).ExitCode);
+            var result = await InvokeAsync("run", "--var", $"targetPath={path}", "--var", $"fileContent={content}");
+            Assert.True(result.ExitCode == 0, result.Error);
+            Assert.Equal(content, result.Output.Trim());
+            Assert.Equal(content, await File.ReadAllTextAsync(path));
+        });
+        Assert.Equal(3, requests.Count);
+        foreach (var turn in requests)
+        {
+            var prompt = string.Join("\n", turn.GetProperty("messages").EnumerateArray()
+                .Where(message => message.GetProperty("role").GetString() == "system")
+                .Select(message => message.GetProperty("content").GetString()));
+            Assert.Contains(path, prompt);
+            Assert.Contains(content, prompt);
+        }
+        var replies = requests.Last().GetProperty("messages").EnumerateArray()
+            .Where(message => message.GetProperty("role").GetString() == "tool").ToList();
+        Assert.Equal(new[] { "write-global", "read-global" }, replies.Select(reply => reply.GetProperty("tool_call_id").GetString()));
+        Assert.Equal(content, replies[1].GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public async Task Unused_sensitive_process_local_seed_is_absent_from_checkpoint()
+    {
+        const string unused = "unused-sensitive-seed-for-checkpoint-test";
+        var hands = CreateHands();
+        await using var lifetime = (IAsyncDisposable)hands;
+        var declarations = (IReadOnlyList<AITool>)hands.GetType().GetProperty("ToolDeclarations")!.GetValue(hands)!;
+        var options = new PipelineRunOptions("Root", Vars: new Dictionary<string, string> { ["apiKey"] = unused },
+            ContextObjects: new Dictionary<string, object> { ["apiKey"] = unused }, RootTools: declarations.ToList());
+        var runner = new StubExpertRunner((_, context) =>
+        {
+            Assert.Equal(unused, context["apiKey"]);
+            context["tool_calls"] = new List<FunctionCallContent> { Call("Read", ("file_path", "greeting.txt")) };
+            return new StepEnvelope("");
+        });
+        var paused = await new PipelineRunner(runner).RunAsync(MclParser.Parse("mission Root = { Respond }"), Experts, options);
+        var pause = Assert.IsType<PipelineToolPause>(paused.Pause);
+        Assert.DoesNotContain(unused, pause.Continuation.Payload);
+        Assert.DoesNotContain("apiKey", pause.Continuation.Payload);
+    }
+
+    private async Task WriteExecMissionAsync(string output, string bindings = "",
+        string script = "import json\nprint(json.dumps({'output': 'plain output'}))\n")
+    {
+        var expert = Path.Combine(_root, "experts", "Echo");
+        Directory.CreateDirectory(expert);
+        await File.WriteAllTextAsync(Path.Combine(expert, "expert.md"), "---\nname: Echo\nkind: exec\ncommand: python3\ninputs: [goal]\noutputKey: output\nargs: [./echo.py]\ninput: any\noutput: text\n---\n");
+        await File.WriteAllTextAsync(Path.Combine(expert, "echo.py"), script);
+        await File.WriteAllTextAsync(Path.Combine(_root, "mission.mcl"),
+            "let apiKey = \"controlled-unused-key\"\nlet model = \"controlled-unused-model\"\n" + bindings + "mission Root = { Echo }\n" + output);
+    }
+
+    private async Task WriteAgentMissionAsync(string endpoint)
+    {
+        var expert = Path.Combine(_root, "experts", "Respond");
+        Directory.CreateDirectory(expert);
+        await File.WriteAllTextAsync(Path.Combine(expert, "expert.md"), "---\nname: Respond\nrole: agent\ninput: any\noutput: text\n---\nWrite then read {{targetPath}} with content {{fileContent}}.");
+        await File.WriteAllTextAsync(Path.Combine(_root, "mission.mcl"),
+            "let targetPath = \"\"\nlet fileContent = \"\"\nmission Root = { Respond }\noutput(Root)");
+        await File.WriteAllTextAsync(Path.Combine(_root, "forge.toml"),
+            $"[providers.default]\nprovider = \"openai\"\nmodel = \"test-agent\"\napiKey = \"controlled-unused-key\"\nendpoint = \"{endpoint}/v1\"\n");
+    }
+
+    // Fixed three-turn wire fixture; listener cancellation ends pending accepts, and every task is observed.
+    private static async Task<List<JsonElement>> RunFileProbeAsync(string path, string content, Func<string, Task> runCommand)
+    {
+        using var socket = new TcpListener(IPAddress.Loopback, 0);
+        socket.Start();
+        var endpoint = $"http://127.0.0.1:{((IPEndPoint)socket.LocalEndpoint).Port}";
+        socket.Stop();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(endpoint + "/");
+        listener.Start();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var stop = deadline.Token.Register(listener.Stop);
+        var served = ServeFileProbeAsync(listener, path, content, deadline.Token);
+        try
+        {
+            await runCommand(endpoint);
+            return await served;
+        }
+        finally
+        {
+            deadline.Cancel();
+            try { await served; }
+            catch (Exception error) when (deadline.IsCancellationRequested &&
+                error is OperationCanceledException or HttpListenerException or ObjectDisposedException) { }
+        }
+    }
+
+    private static async Task<List<JsonElement>> ServeFileProbeAsync(HttpListener listener, string path, string content, CancellationToken ct)
+    {
+        var requests = new List<JsonElement>();
+        for (var turn = 0; turn < 3; turn++)
+        {
+            var request = await listener.GetContextAsync();
+            try
+            {
+                Assert.Equal("/v1/chat/completions", request.Request.Url!.AbsolutePath);
+                using var body = await JsonDocument.ParseAsync(request.Request.InputStream, cancellationToken: ct);
+                requests.Add(body.RootElement.Clone());
+                request.Response.ContentType = "application/json";
+                var response = Encoding.UTF8.GetBytes(FileProbeResponse(turn, path, content));
+                await request.Response.OutputStream.WriteAsync(response, ct);
+            }
+            finally { request.Response.Close(); }
+        }
+        return requests;
+    }
+
+    private static string FileProbeResponse(int turn, string path, string content)
+    {
+        var toolName = turn == 0 ? "Write" : "Read";
+        var callId = turn == 0 ? "write-global" : "read-global";
+        var arguments = turn == 0
+            ? JsonSerializer.Serialize(new { file_path = path, content })
+            : JsonSerializer.Serialize(new { file_path = path });
+        object message = turn == 2
+            ? new { role = "assistant", content }
+            : new { role = "assistant", content = (string?)null, tool_calls = new[] {
+                new { id = callId, type = "function", function = new { name = toolName, arguments } } } };
+        return JsonSerializer.Serialize(new
+        {
+            id = $"probe-{turn}", @object = "chat.completion", created = 0, model = "test-agent",
+            choices = new[] { new { index = 0, message, finish_reason = turn == 2 ? "stop" : "tool_calls" } },
+            usage = new { prompt_tokens = 0, completion_tokens = 0, total_tokens = 0 },
+        });
     }
 
     private object CreateHands(CancellationToken ct = default) =>
