@@ -326,48 +326,73 @@ public sealed class TextInteractionTests
         }, last: 3);
     }
 
-    [Fact]
-    public async Task Rich_assistant_card_drag_to_same_row_trailing_body_space_copies_nearest_member()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Active_chat_rich_drag_across_a_blank_gap_copies_both_paragraphs_in_either_direction(bool reverse)
     {
-        var policy = New("TextInteraction");
-        var markdown = new MarkdownControl("short body");
-        var wrapper = (Visual)New("ParagraphSelection", markdown, policy);
-        var root = new Padder(wrapper) { HorizontalAlignment = Align.Stretch };
-        Call(policy, "Bind", root);
-        Paragraph? paragraph = null;
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "first body\n\nsecond body", "mission", DateTimeOffset.UnixEpoch, false));
         await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
         {
+            var first = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "first body");
+            var second = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "second body");
             if (phase == 1)
             {
-                paragraph = markdown.EnumerateVisualsDepthFirst().OfType<Paragraph>()
-                    .Single(source => source.App == context.App);
-                paragraph.HorizontalAlignment = Align.Start;
+                Assert.True(first.Bounds.Bottom < second.Bounds.Y);
+                var start = reverse ? second : first;
+                var end = reverse ? first : second;
+                var startIndex = reverse ? start.Text!.Length : 0;
+                var endIndex = reverse ? 0 : end.Text!.Length;
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, start, startIndex);
+                backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left, X = first.Bounds.X, Y = first.Bounds.Bottom });
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, end, endIndex);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, end, endIndex);
             }
             if (phase == 2)
             {
-                Assert.True(paragraph!.Bounds.Right < markdown.Bounds.Right);
-                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, paragraph);
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Equal("first body\n\nsecond body", backend.Written);
+            }
+        }, last: 3);
+    }
+
+    [Fact]
+    public async Task Active_chat_rich_drag_retains_a_range_through_small_vertical_drift()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "first body\n\nsecond body", "mission", DateTimeOffset.UnixEpoch, false));
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var first = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "first body");
+            var second = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "second body");
+            if (phase == 1)
+            {
+                Assert.True(first.Bounds.Bottom < second.Bounds.Y);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, first, 0);
                 backend.PushEvent(new TerminalMouseEvent
                 {
                     Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left,
-                    X = paragraph.Bounds.Right + 1, Y = paragraph.Bounds.Y,
+                    X = first.Bounds.X + first.Text!.Length, Y = first.Bounds.Bottom,
                 });
                 backend.PushEvent(new TerminalMouseEvent
                 {
                     Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left,
-                    X = paragraph.Bounds.Right + 1, Y = paragraph.Bounds.Y,
+                    X = first.Bounds.X + first.Text!.Length, Y = first.Bounds.Bottom,
                 });
             }
-            if (phase == 3)
+            if (phase == 2)
             {
                 Assert.True((bool)Call(policy, "CopySelection")!);
-                Assert.Equal("short body", backend.Written);
+                Assert.Equal("first body", backend.Written);
             }
-        }, last: 4);
+        }, last: 3);
     }
 
     [Fact]
-    public async Task Rich_assistant_card_trailing_fallback_prefers_the_rightmost_same_row_member()
+    public async Task Rich_assistant_card_endpoint_tie_prefers_the_earlier_source_member()
     {
         var policy = New("TextInteraction");
         var markdown = new MarkdownControl("left\n\nright");
@@ -381,16 +406,17 @@ public sealed class TextInteractionTests
                 .Where(paragraph => paragraph.App == context.App).ToArray();
             var left = members.Single(paragraph => paragraph.Text == "left");
             var right = members.Single(paragraph => paragraph.Text == "right");
-            Assert.True((bool)Call(wrapper, "TryBegin", left, left.Bounds.X, left.Bounds.Y)!);
             left.Arrange(new Rectangle(markdown.Bounds.X, markdown.Bounds.Y, left.Text!.Length, 1));
-            right.Arrange(new Rectangle(markdown.Bounds.X + 10, markdown.Bounds.Y, right.Text!.Length, 1));
-            var x = right.Bounds.Right + 1;
+            right.Arrange(new Rectangle(markdown.Bounds.X + 9, markdown.Bounds.Y, right.Text!.Length, 1));
+            var tieX = markdown.Bounds.X + 6;
+            var args = new object?[] { markdown, tieX, left.Bounds.Y, null };
+            var resolve = wrapper.GetType().GetMethod("TryEndpoint", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-            Assert.True(x < markdown.Bounds.Right);
-            Assert.True((bool)Call(wrapper, "TryExtend", markdown, x, right.Bounds.Y)!);
-            Assert.True(right.HasSelection);
-            Assert.True(right.TryCopySelection(out var copied));
-            Assert.Equal("right", copied);
+            Assert.True(tieX < markdown.Bounds.Right);
+            Assert.True((bool)resolve.Invoke(wrapper, args)!);
+            var endpoint = args[3]!;
+            var memberIndex = (int)endpoint.GetType().GetProperty("MemberIndex", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.GetValue(endpoint)!;
+            Assert.Equal(0, memberIndex);
         }, last: 2);
     }
 
@@ -411,35 +437,6 @@ public sealed class TextInteractionTests
                 TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, body);
                 backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left, X = x, Y = body.Bounds.Y });
                 backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left, X = x, Y = body.Bounds.Y });
-            }
-            if (phase == 2) Assert.False((bool)Call(policy, "CopySelection")!);
-        }, last: 3);
-    }
-
-    [Fact]
-    public async Task Active_chat_rich_drag_rejects_inter_block_gap()
-    {
-        using var session = new CancellationTokenSource();
-        var (_, screen, policy, _, root) = ActiveChat(session);
-        Show(screen, New("ParticipantCard", "Answerer", "first body\n\nsecond body", "mission", DateTimeOffset.UnixEpoch, false));
-        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
-        {
-            var first = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "first body");
-            var second = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "second body");
-            var card = root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "ParagraphSelection");
-            var y = first.Bounds.Bottom;
-            if (phase == 1)
-            {
-                Assert.True(y < second.Bounds.Y);
-                var target = root.HitTest(first.Bounds.X, y)!;
-                Assert.True((bool)Call(card, "Owns", target)!);
-                Assert.IsNotType<Paragraph>(target);
-                Assert.True((bool)Call(card, "TryBegin", first, first.Bounds.X, first.Bounds.Y)!);
-                Assert.False((bool)Call(card, "TryExtend", target, first.Bounds.X, y)!);
-                Call(card, "Clear");
-                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, first);
-                backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left, X = first.Bounds.X, Y = y });
-                backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left, X = first.Bounds.X, Y = y });
             }
             if (phase == 2) Assert.False((bool)Call(policy, "CopySelection")!);
         }, last: 3);
@@ -489,6 +486,32 @@ public sealed class TextInteractionTests
                 Assert.True((bool)Call(policy, "CopySelection")!);
                 Assert.Contains("body text", backend.Written);
                 Assert.Contains("code", backend.Written);
+            }
+        }, last: 3);
+    }
+
+    [Fact]
+    public async Task Active_chat_rich_range_copies_heading_body_and_code_as_one_selection()
+    {
+        using var session = new CancellationTokenSource();
+        var (_, screen, policy, _, root) = ActiveChat(session);
+        Show(screen, New("ParticipantCard", "Answerer", "## Heading text\n\nbody text\n\n```csharp\nusing System;\n```", "mission", DateTimeOffset.UnixEpoch, false));
+        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
+        {
+            var heading = root.EnumerateVisualsDepthFirst().Single(visual => visual.GetType().Name == "HeadingImage");
+            var code = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Single(paragraph => paragraph.Text == "using System;");
+            if (phase == 1)
+            {
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, heading, 0);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, code, code.Text!.Length);
+                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, code, code.Text!.Length);
+            }
+            if (phase == 2)
+            {
+                Assert.True((bool)Property(heading, "HasSelection"));
+                Assert.True(code.HasSelection);
+                Assert.True((bool)Call(policy, "CopySelection")!);
+                Assert.Equal("Heading text\n\nbody text\n\nusing System;", backend.Written);
             }
         }, last: 3);
     }

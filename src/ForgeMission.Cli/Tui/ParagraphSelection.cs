@@ -137,44 +137,30 @@ internal sealed class ParagraphSelection : Padder
 
     private bool TryEndpoint(Visual target, int uiX, int uiY, out Endpoint endpoint)
     {
-        if (TryMemberEndpoint(target, uiX, uiY, out endpoint)) return true;
-        return TryTrailingEndpoint(target, uiX, uiY, out endpoint);
-    }
-
-    private bool TryMemberEndpoint(Visual target, int uiX, int uiY, out Endpoint endpoint)
-    {
-        for (var index = 0; index < _members.Count; index++)
-        {
-            var member = _members[index];
-            if (!member.Owns(target)) continue;
-            endpoint = EndpointAt(index, member, uiX, uiY);
-            return true;
-        }
-        endpoint = default;
-        return false;
-    }
-
-    private bool TryTrailingEndpoint(Visual target, int uiX, int uiY, out Endpoint endpoint)
-    {
-        if (Content is null || IsInteractiveDescendant(target) || !Content.Bounds.Contains(uiX, uiY))
+        if (Content is null || IsInteractiveDescendant(target) || !Content.Bounds.Contains(uiX, uiY) || _members.Count == 0)
         {
             endpoint = default;
             return false;
         }
-        var candidate = _members
-            .Select((member, index) => (member, index))
-            .Where(item => item.member.Visual.Bounds.Y <= uiY && uiY < item.member.Visual.Bounds.Bottom
-                && item.member.Visual.Bounds.Right <= uiX)
-            .OrderByDescending(item => item.member.Visual.Bounds.Right)
-            .FirstOrDefault();
-        if (candidate.member is null)
+        var index = 0;
+        var member = _members[0];
+        var distance = Distance(member.Visual.Bounds, uiX, uiY);
+        for (var candidateIndex = 1; candidateIndex < _members.Count; candidateIndex++)
         {
-            endpoint = default;
-            return false;
+            var candidate = _members[candidateIndex];
+            var candidateDistance = Distance(candidate.Visual.Bounds, uiX, uiY);
+            if (candidateDistance.CompareTo(distance) >= 0) continue;
+            (index, member, distance) = (candidateIndex, candidate, candidateDistance);
         }
-        endpoint = EndpointAt(candidate.index, candidate.member, uiX, uiY);
+        endpoint = EndpointAt(index, member, uiX, uiY);
         return true;
     }
+
+    private static (int Vertical, int Horizontal) Distance(Rectangle bounds, int uiX, int uiY) =>
+        (DistanceToRange(uiY, bounds.Y, bounds.Bottom), DistanceToRange(uiX, bounds.X, bounds.Right));
+
+    private static int DistanceToRange(int value, int start, int end) =>
+        value < start ? start - value : value >= end ? value - end + 1 : 0;
 
     private bool IsInteractiveDescendant(Visual target)
     {
