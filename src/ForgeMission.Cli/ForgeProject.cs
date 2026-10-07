@@ -61,9 +61,10 @@ public static class ForgeProject
             return 1;
         }
 
-        output.WriteLine($"Project: {Path.Combine(created.HomePath, "forge.project.json")}");
+        var projectFile = Path.Combine(created.HomePath, "forge.project.json");
+        output.WriteLine($"Project: {projectFile}");
         output.WriteLine(folder is null ? "Run `forge chat`." :
-            $"Run `forge chat --project '{created.HomePath.Replace("'", "''")}'`.");
+            $"Run `forge chat --project '{projectFile.Replace("'", "''")}'`.");
         return 0;
     }
 

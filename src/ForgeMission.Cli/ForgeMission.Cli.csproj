@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="../ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj" />
@@ -15,7 +15,7 @@
     <PackageReference Include="System.CommandLine" Version="2.0.9" />
     <PackageReference Include="Katasec.OciClient" Version="0.2.1" />
     <PackageReference Include="Spectre.Console" Version="0.49.1" />
-    <PackageReference Include="Katasec.Forge.Client" Version="0.9.2" />
+    <PackageReference Include="Katasec.Forge.Client" Version="0.9.3" />
     <PackageReference Include="Katasec.Forge.Client.Contracts" Version="0.2.1" />
     <PackageReference Include="XenoAtom.Terminal.UI" Version="3.10.0" />
     <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />

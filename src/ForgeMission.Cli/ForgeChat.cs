@@ -34,7 +34,7 @@ public static class ForgeChat
         });
         cmd.Add(new Option<string?>(ProjectFlag)
         {
-            Description = "Open the Forge project in this folder instead of the current directory",
+            Description = "Path to a project file (default: ./forge.project.json)",
         });
         cmd.SetAction(async result => await MacChatWindow.RunCommandAsync(
             () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag)),
@@ -47,14 +47,20 @@ public static class ForgeChat
         return cmd;
     }
 
-    public static async Task<int> RunAsync(bool hands, string? projectFolder)
+    public static async Task<int> RunAsync(bool hands, string? projectPath)
     {
-        var home = Path.GetFullPath(projectFolder ?? Directory.GetCurrentDirectory());
-        if (!File.Exists(Path.Combine(home, "forge.project.json")))
+        var projectFile = Path.GetFullPath(projectPath
+            ?? Path.Combine(Directory.GetCurrentDirectory(), "forge.project.json"));
+
+        if (Directory.Exists(projectFile))
         {
-            Console.Error.WriteLine(projectFolder is null
-                ? "No forge.project.json found in the current directory."
-                : $"No forge.project.json found in {home}.");
+            Console.Error.WriteLine("Expected a project file path, not a directory.");
+            return 1;
+        }
+
+        if (!File.Exists(projectFile))
+        {
+            Console.Error.WriteLine($"Project file not found: {projectFile}");
             return 1;
         }
 
@@ -89,7 +95,7 @@ public static class ForgeChat
 
         if (MacChatWindow.ShouldLaunch(OperatingSystem.IsMacOS(), interactive,
             Environment.GetEnvironmentVariable(MacChatWindow.Marker)))
-            return await MacChatWindow.LaunchAsync(Environment.ProcessPath, hands, home,
+            return await MacChatWindow.LaunchAsync(Environment.ProcessPath, hands, projectFile,
                 Directory.GetCurrentDirectory(), Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT"),
                 Console.Out, Console.Error);
 
@@ -102,7 +108,7 @@ public static class ForgeChat
         await using var provider = services.BuildServiceProvider();
         try
         {
-            return await RunApplicationAsync(provider.GetRequiredService<IHttpClientFactory>(), ModeFor(hands), home, theme, fonts);
+            return await RunApplicationAsync(provider.GetRequiredService<IHttpClientFactory>(), ModeFor(hands), projectFile, theme, fonts);
         }
         catch (ChatStoppedException stopped)
         {
@@ -125,7 +131,7 @@ public static class ForgeChat
 
     /// <summary>Owns the client application's joined lifetime and delivers its final notices
     /// after disposal, while preserving the original chat failure.</summary>
-    private static async Task<int> RunApplicationAsync(IHttpClientFactory clients, ChatMode mode, string home,
+    private static async Task<int> RunApplicationAsync(IHttpClientFactory clients, ChatMode mode, string projectFile,
         ForgeTheme theme, TextFonts? fonts)
     {
         var notices = new ConcurrentQueue<string>();
@@ -141,7 +147,7 @@ public static class ForgeChat
         ExceptionDispatchInfo? chatFailure = null;
         ExceptionDispatchInfo? cleanupFailure = null;
         var exitCode = 0;
-        try { exitCode = await ChatInProjectAsync(app, mode, home, theme, fonts, notices); }
+        try { exitCode = await ChatInProjectAsync(app, mode, projectFile, theme, fonts, notices); }
         catch (Exception failure) { chatFailure = ExceptionDispatchInfo.Capture(failure); }
         try { await app.DisposeAsync(); }
         catch (Exception failure) { cleanupFailure = ExceptionDispatchInfo.Capture(failure); }
@@ -178,10 +184,10 @@ public static class ForgeChat
 
     /// <summary>Opens the portable Project, reconnects to its hosted mission, asks fresh hands
     /// consent and presents its complete history in the TUI or line mode.</summary>
-    private static async Task<int> ChatInProjectAsync(ApplicationComposition app, ChatMode mode, string home,
+    private static async Task<int> ChatInProjectAsync(ApplicationComposition app, ChatMode mode, string projectFile,
         ForgeTheme theme, TextFonts? tuiFonts, ConcurrentQueue<string> notices)
     {
-        var session = await OpenProjectAsync(app.Projects, home, mode.MissionName);
+        var session = await OpenProjectAsync(app.Projects, projectFile, mode.MissionName);
         var reconnected = await app.MissionConversations.ReconnectAsync(
             new ReconnectMissionConversationRequest(session.SessionId, mode.MissionName), CancellationToken.None);
         var conversation = reconnected.Conversation ?? throw Stopped(reconnected.Error);
@@ -207,9 +213,9 @@ public static class ForgeChat
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
 
-    private static async Task<ProjectSession> OpenProjectAsync(IProjectService projects, string home, string mission)
+    private static async Task<ProjectSession> OpenProjectAsync(IProjectService projects, string projectFile, string mission)
     {
-        var opened = await projects.OpenChatAsync(new ProjectOpenRequest(home, Mission: mission), CancellationToken.None);
+        var opened = await projects.OpenChatAsync(new ProjectOpenRequest(projectFile, Mission: mission), CancellationToken.None);
         var session = opened.Session ?? throw Stopped(opened.Error);
         Console.WriteLine($"Project: {session.Project.Home}");
         return session;

@@ -33,7 +33,10 @@ forge project create       # initialize the current existing folder
 forge chat
 ```
 
-Use `forge project create <folder>` for another existing folder, then `forge chat --project <folder>`.
+Use `forge project create <folder>` for another existing folder, then
+`forge chat --project <folder>/forge.project.json`. Chat accepts only a project file path;
+the file may have any name. Omitting `--project` opens `./forge.project.json`. A directory or a missing
+file stops with an error.
 On an interactive Mac, the installed native `forge chat` opens a dedicated Ghostty window after
 its startup checks. Cmd+A selects all in the focused composer or `/edit` editor; quitting closes
 the window. Ordinary terminal tabs keep their shortcuts. Additional tabs in the dedicated

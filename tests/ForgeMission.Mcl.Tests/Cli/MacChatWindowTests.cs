@@ -134,8 +134,8 @@ public sealed class MacChatWindowTests
     public void Request_uses_only_locked_process_scoped_overrides_and_separate_project_and_cwd(bool hands)
     {
         var cwd = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "original '雪\" \\ $`  "));
-        var home = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "other project"));
-        var start = Build("/exact/native forge", hands, home, cwd, "https://example.invalid/  ");
+        var projectFile = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "other project", "forge.project.json"));
+        var start = Build("/exact/native forge", hands, projectFile, cwd, "https://example.invalid/  ");
         var initial = start.ArgumentList.Single(arg => arg.StartsWith("--initial-command=", StringComparison.Ordinal));
         var command = start.ArgumentList.Single(arg => arg.StartsWith("--command=", StringComparison.Ordinal));
 
@@ -153,6 +153,7 @@ public sealed class MacChatWindowTests
         Assert.DoesNotContain("shell:exec ", command);
         Assert.Equal(hands, command.Contains("'--hands'", StringComparison.Ordinal));
         Assert.Contains("'--project'", command);
+        Assert.Contains("'" + projectFile + "'", command);
     }
 
     [Theory]
@@ -230,7 +231,7 @@ public sealed class MacChatWindowTests
         Skip.If(OperatingSystem.IsWindows(), "Controlled native shell probe requires POSIX.");
         var home = NewTemporaryDirectory();
         var executable = Path.Combine(home, "forge 雪 ' \" \\ $ ` executable");
-        var project = Path.Combine(home, "project 雪 ' \" \\ $ `");
+        var project = Path.Combine(home, "project 雪 ' \" \\ $ `", "forge.project.json");
         try
         {
             await File.WriteAllTextAsync(executable, "#!/bin/sh\nprintf '%s\\0' \"$0\" \"$@\"\n");

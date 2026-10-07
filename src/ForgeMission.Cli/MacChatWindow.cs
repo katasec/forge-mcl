@@ -35,7 +35,7 @@ internal static class MacChatWindow
         return 1;
     }
 
-    internal static async Task<int> LaunchAsync(string? executable, bool hands, string projectHome,
+    internal static async Task<int> LaunchAsync(string? executable, bool hands, string projectFile,
         string originalCwd, string? apiEndpoint, TextWriter output, TextWriter error,
         Func<ProcessStartInfo, Task<(int ExitCode, string StandardOutput, string StandardError)>>? start = null)
     {
@@ -53,7 +53,7 @@ internal static class MacChatWindow
         try
         {
             var result = await (start ?? StartProcessAsync)(BuildOpenStartInfo(executable, hands,
-                projectHome, originalCwd, apiEndpoint));
+                projectFile, originalCwd, apiEndpoint));
             if (result.ExitCode != 0)
             {
                 error.WriteLine($"forge chat: could not open its window (open exited {result.ExitCode}).");
@@ -106,13 +106,13 @@ internal static class MacChatWindow
         }
     }
 
-    internal static ProcessStartInfo BuildOpenStartInfo(string executable, bool hands, string projectHome,
+    internal static ProcessStartInfo BuildOpenStartInfo(string executable, bool hands, string projectFile,
         string originalCwd, string? apiEndpoint)
     {
         var argv = new List<string> { executable, "chat" };
         if (hands)
             argv.Add("--hands");
-        argv.AddRange(["--project", projectHome]);
+        argv.AddRange(["--project", projectFile]);
         var command = "shell:" + string.Join(" ", argv.Select(QuoteArgument));
         var start = new ProcessStartInfo("/usr/bin/open")
         {

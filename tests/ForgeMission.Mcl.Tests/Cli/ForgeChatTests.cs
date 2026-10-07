@@ -25,50 +25,81 @@ public sealed class ForgeChatTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task Missing_project_file_stops_without_login_network_creation_or_ancestor_search(bool explicitFolder, bool childMarker)
+    public async Task Missing_project_file_stops_without_login_network_creation_or_ancestor_search(bool explicitFile, bool childMarker)
     {
         var parent = Path.Combine(Path.GetTempPath(), "forge-chat-test-" + Guid.NewGuid().ToString("N"));
         var child = Path.Combine(parent, "child");
-        var missing = Path.Combine(parent, "missing");
+        var missing = Path.Combine(parent, "missing", "forge1.project.json");
         Directory.CreateDirectory(child);
         try
         {
             await File.WriteAllTextAsync(Path.Combine(parent, "forge.project.json"),
                 "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
-            var start = new ProcessStartInfo("dotnet")
+            var result = await RunChatAsync(child, Path.Combine(parent, "profile"), explicitFile ? missing : null, childMarker);
+            Assert.Equal(1, result.ExitCode);
+            Assert.Equal("", result.Output);
+            if (explicitFile) Assert.Equal($"Project file not found: {missing}", result.Error.Trim());
+            else
             {
-                WorkingDirectory = child,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            start.ArgumentList.Add(EndsTurn.DeclaringType!.Assembly.Location);
-            start.ArgumentList.Add("chat");
-            if (explicitFolder)
-            {
-                start.ArgumentList.Add("--project");
-                start.ArgumentList.Add(missing);
+                Assert.StartsWith("Project file not found: ", result.Error);
+                Assert.EndsWith(Path.Combine(Path.GetFileName(parent), "child", "forge.project.json"), result.Error.Trim());
             }
-            // Controlled negative proof: any unexpected network setup would fail this test.
-            start.Environment["FORGE_API_ENDPOINT"] = "invalid-endpoint";
-            if (childMarker) start.Environment["FORGE_CHAT_WINDOW"] = "invalid-context-must-be-ignored-when-piped";
-            using var process = Process.Start(start)!;
-            process.StandardInput.Close();
-            var output = process.StandardOutput.ReadToEndAsync();
-            var error = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            try { await process.WaitForExitAsync(timeout.Token); }
-            finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            Assert.Equal(1, process.ExitCode);
-            Assert.Equal("", await output);
-            Assert.Equal(explicitFolder ? $"No forge.project.json found in {missing}." :
-                "No forge.project.json found in the current directory.", (await error).Trim());
             Assert.Empty(Directory.EnumerateFileSystemEntries(child));
-            Assert.False(Directory.Exists(missing));
+            Assert.False(Directory.Exists(Path.GetDirectoryName(missing)));
             Assert.Single(Directory.GetFiles(parent));
         }
         finally { Directory.Delete(parent, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData("directory")]
+    [InlineData("named-directory")]
+    public async Task Directory_inputs_stop_before_configuration(string kind)
+    {
+        var home = Path.Combine(Path.GetTempPath(), "forge-chat-path-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(home);
+        try
+        {
+            var path = Path.Combine(home, kind == "named-directory" ? "forge.project.json" : kind);
+            Directory.CreateDirectory(path);
+            await File.WriteAllTextAsync(Path.Combine(path, "forge.project.json"), "{}");
+            var result = await RunChatAsync(home, Path.Combine(home, "profile"), path);
+            Assert.Equal(1, result.ExitCode);
+            Assert.Equal("", result.Output);
+            Assert.Equal("Expected a project file path, not a directory.", result.Error.Trim());
+        }
+        finally { Directory.Delete(home, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData("omitted")]
+    [InlineData("relative")]
+    [InlineData("absolute")]
+    public async Task Existing_project_file_reaches_configuration(string selection)
+    {
+        var home = Path.Combine(Path.GetTempPath(), "forge-chat-file-" + Guid.NewGuid().ToString("N"));
+        var cwd = Path.Combine(home, "cwd");
+        var projectHome = selection == "omitted" ? cwd : Path.Combine(home, "other project");
+        Directory.CreateDirectory(cwd);
+        Directory.CreateDirectory(projectHome);
+        try
+        {
+            var projectFile = Path.Combine(projectHome, selection == "omitted" ? "forge.project.json" : "forge1.project.json");
+            await File.WriteAllTextAsync(projectFile, "{}");
+            var path = selection switch
+            {
+                "relative" => Path.GetRelativePath(cwd, projectFile),
+                "absolute" => projectFile,
+                _ => null,
+            };
+            var profile = Path.Combine(home, "profile");
+            var result = await RunChatAsync(cwd, profile, path);
+            Assert.Equal(1, result.ExitCode);
+            Assert.Equal("", result.Output);
+            Assert.Equal($"forge chat: Unknown theme \"startup-test\" in {Path.Combine(profile, ".forge", "config.json")}. Valid themes: light, dark.", result.Error.Trim());
+            Assert.Equal("{}", await File.ReadAllTextAsync(projectFile));
+        }
+        finally { Directory.Delete(home, recursive: true); }
     }
 
     [Theory]
@@ -83,7 +114,8 @@ public sealed class ForgeChatTests
         Directory.CreateDirectory(home);
         try
         {
-            await File.WriteAllTextAsync(Path.Combine(home, "forge.project.json"),
+            var projectFile = Path.Combine(home, "forge1.project.json");
+            await File.WriteAllTextAsync(projectFile,
                 "{\"projectId\":\"" + projectId + "\",\"missions\":[\"" + mission + "@1\"],\"folders\":[]}");
             using var host = new PinnedHost(projectId, mission, profile);
             var chat = LoadForgeChatMethod("ChatInProjectAsync");
@@ -97,7 +129,7 @@ public sealed class ForgeChatTests
             var theme = EndsTurn.DeclaringType!.Assembly.GetType("ForgeMission.Cli.Tui.ForgeTheme")!
                 .GetProperty("Dark", BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
             var failure = await Assert.ThrowsAnyAsync<Exception>(() => (Task<int>)chat.Invoke(null,
-                [app, ModeFor.Invoke(null, [hands]), home, theme, null, new ConcurrentQueue<string>()])!);
+                [app, ModeFor.Invoke(null, [hands]), projectFile, theme, null, new ConcurrentQueue<string>()])!);
             Assert.Equal("ChatStoppedException", failure.GetType().Name);
             Assert.Contains("does not match this chat mode", failure.Message, StringComparison.Ordinal);
             Assert.Equal(["/api/ListMissionConversations", "/api/GetConversation"], host.Requests);
@@ -335,6 +367,41 @@ public sealed class ForgeChatTests
         var attempt = Guid.NewGuid();
 
         Assert.False(Ends("ParticipantMessage", attempt, null, attempt));
+    }
+
+    private static async Task<(int ExitCode, string Output, string Error)> RunChatAsync(
+        string cwd, string profile, string? projectPath, bool childMarker = false)
+    {
+        Directory.CreateDirectory(Path.Combine(profile, ".forge"));
+        await File.WriteAllTextAsync(Path.Combine(profile, ".forge", "config.json"), "{\"theme\":\"startup-test\"}");
+        var start = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = cwd,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add(EndsTurn.DeclaringType!.Assembly.Location);
+        start.ArgumentList.Add("chat");
+        if (projectPath is not null)
+        {
+            start.ArgumentList.Add("--project");
+            start.ArgumentList.Add(projectPath);
+        }
+        // Isolated invalid configuration/endpoint proves selection precedes all downstream work.
+        start.Environment["HOME"] = profile;
+        start.Environment["USERPROFILE"] = profile;
+        start.Environment["FORGE_API_ENDPOINT"] = "invalid-endpoint";
+        if (childMarker) start.Environment["FORGE_CHAT_WINDOW"] = "invalid-context-must-be-ignored-when-piped";
+        using var process = Process.Start(start)!;
+        process.StandardInput.Close();
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+        return (process.ExitCode, await output, await error);
     }
 
     private static bool Ends(string kind, Guid? runId, string? status, Guid attemptId)
