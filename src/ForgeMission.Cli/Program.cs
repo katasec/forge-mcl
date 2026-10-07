@@ -149,7 +149,7 @@ static Command BuildRunCommand()
     cmd.Add(verboseOpt);
     cmd.Add(varOpt);
 
-    cmd.SetAction(async result =>
+    cmd.SetAction(async (result, ct) =>
     {
         var mission    = ResolveMission(result.GetValue(missionArg));
         var showSteps  = result.GetValue(stepsOpt);
@@ -161,43 +161,35 @@ static Command BuildRunCommand()
         if (!File.Exists(lockPath))
         {
             Die("MCL007 Mission not initialised — run 'forge init' first.");
-            return;
+            return 1;
         }
 
         var parsedVars = ParseVars(vars);
-        if (parsedVars is null) return;
+        if (parsedVars is null) return 1;
 
         var source = await TryReadFile(mission.FullName);
-        if (source is null) return;
+        if (source is null) return 1;
 
         var ast = TryParse(source, mission.FullName);
-        if (ast is null) return;
+        if (ast is null) return 1;
 
         ForgeManifest? manifest = null;
         try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
-        catch (ForgeTomlException ex) { Die(ex.Message); return; }
+        catch (ForgeTomlException ex) { Die(ex.Message); return 1; }
 
-        LockFile lockFile;
-        try { lockFile = LockFileIO.Read(lockPath); }
-        catch (Exception ex) { Die($"Cannot read mcl.lock: {ex.Message}"); return; }
-
-        Dictionary<string, ExpertDefinition> expertDefs;
-        try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose ? Console.Error : null, Console.Error); }
-        catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) ReportExpertDiagnostic(e); Environment.Exit(1); return; }
-        catch (ExpertLoadException ex)           { ReportExpertDiagnostic(ex); Environment.Exit(1); return; }
-
-        if (!TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
+        var expertDefs = LoadRunExperts(ast, lockPath, mission, verbose);
+        if (expertDefs is null) return 1;
 
         Dictionary<string, object> seedContext;
         try { seedContext = ContextBuilder.Seed(ast, parsedVars); }
-        catch (InvalidOperationException ex) { Die(ex.Message); return; }
+        catch (InvalidOperationException ex) { Die(ex.Message); return 1; }
 
         // Build runner per profile from forge.toml; fall back to let-binding config for "default".
         var runners = BuildRunners(manifest, seedContext);
-        if (runners is null) return;
+        if (runners is null) return 1;
 
         var firstMission = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault();
-        if (firstMission is null) { Die("No mission declaration found in mission file."); return; }
+        if (firstMission is null) { Die("No mission declaration found in mission file."); return 1; }
 
         var options = new PipelineRunOptions(
             firstMission.Name,
@@ -206,37 +198,62 @@ static Command BuildRunCommand()
 
         Console.Error.WriteLine($"Running mission '{firstMission.Name}'...");
 
-        MissionResult missionResult;
         try
         {
-            missionResult = await new PipelineRunner(runners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch()).RunAsync(ast, expertDefs, options);
-        }
-        catch (InvalidOperationException ex)
-        {
-            Die(ex.Message);
-            return;
-        }
+            var runner = new PipelineRunner(runners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch());
+            var missionResult = await ForgeRun.RunAsync(ast, expertDefs, runner, options,
+                ForgeRun.CreateHands(Environment.CurrentDirectory, ct), ct);
+            if (missionResult.Status == MissionStatus.Fail)
+            {
+                Console.Error.WriteLine($"{BoldRed("error")}{Bold($": mission failed — {missionResult.FailReason}")}");
+                return 1;
+            }
 
-        if (missionResult.Status == MissionStatus.Fail)
-        {
-            Console.Error.WriteLine($"{BoldRed("error")}{Bold($": mission failed — {missionResult.FailReason}")}");
-            Environment.Exit(1);
-            return;
+            await WriteRunOutputAsync(ast, firstMission.Name, missionResult.Text, ct);
+            return 0;
         }
-
-        var outputDecl = ast.Outputs.FirstOrDefault(o => o.MissionName == firstMission.Name);
-        if (outputDecl?.FilePath is { } filePath)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            await File.WriteAllTextAsync(filePath, missionResult.Text);
-            Console.Error.WriteLine($"Output written to {filePath}");
+            Console.Error.WriteLine("Mission cancelled.");
+            return 130;
         }
-        else
+        catch (Exception ex)
         {
-            Console.WriteLine(missionResult.Text);
+            Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {ex.Message}")}");
+            return 1;
         }
     });
 
     return cmd;
+}
+
+// Loading remains a CLI diagnostic boundary, before any capability session exists.
+static Dictionary<string, ExpertDefinition>? LoadRunExperts(
+    MclProgram ast, string lockPath, FileInfo mission, bool verbose)
+{
+    LockFile lockFile;
+    try { lockFile = LockFileIO.Read(lockPath); }
+    catch (Exception ex) { Die($"Cannot read mcl.lock: {ex.Message}"); return null; }
+
+    Dictionary<string, ExpertDefinition> experts;
+    try { experts = ExpertResolver.ResolveAll(lockFile, mission.DirectoryName!, verbose ? Console.Error : null, Console.Error); }
+    catch (AggregateExpertLoadException ex) { foreach (var error in ex.Errors) ReportExpertDiagnostic(error); Environment.Exit(1); return null; }
+    catch (ExpertLoadException ex) { ReportExpertDiagnostic(ex); Environment.Exit(1); return null; }
+    return TryValidate(ast, experts, contractErrorsAreFatal: true, mission.FullName) ? experts : null;
+}
+
+// Final output is published only after the Hands lifetime has ended successfully.
+static async Task WriteRunOutputAsync(MclProgram ast, string missionName, string text, CancellationToken ct)
+{
+    ct.ThrowIfCancellationRequested();
+    var output = ast.Outputs.FirstOrDefault(declaration => declaration.MissionName == missionName);
+    if (output?.FilePath is not { } filePath)
+    {
+        Console.WriteLine(text);
+        return;
+    }
+    await File.WriteAllTextAsync(filePath, text, ct);
+    Console.Error.WriteLine($"Output written to {filePath}");
 }
 
 // ---------------------------------------------------------------------------

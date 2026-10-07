@@ -45,6 +45,7 @@ behavior in forge-client.
 | Piece | Responsibility |
 |---|---|
 | [Program](Program.cs) | Executable entry point, command registration, and command handlers. |
+| [ForgeRun](ForgeRun.cs) | Local mission composition: one file-scoped Hands lifetime and Core tool pause/resume loop. |
 | [ForgeExec](ForgeExec.cs) | One-shot hosted mission execution, artifact input/output, and ForgeAPI endpoint selection. |
 | [PlatformLogin](PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
 | [ProviderClientBuilder](ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
@@ -118,6 +119,15 @@ flowchart LR
 ```
 
 ## Important flows and constraints
+
+- **Local run:** Every `forge run` creates one Hands session rooted at the current working
+  directory, even when the mission file is elsewhere or no tools are requested. Invoking the
+  command grants agent experts Read/Write/Edit within that workspace, including scripted runs.
+  Terminal capability is unavailable. Hands owns path/symlink containment and policy; Core owns
+  tool continuation. Single tool calls execute successively, with errors returned to the model.
+  Ctrl-C cancels execution and disposes Hands before a nonzero result. Final output follows
+  disposal. Trusted `kind: exec` experts and explicit output-file declarations retain their
+  existing authority; Hands does not sandbox the whole mission.
 
 - **Composition:** `Program` wires existing owners. Provider, Docker, search, and HTTP behavior
   belong in [Chat Clients](../ForgeMission.ChatClients/README.md),

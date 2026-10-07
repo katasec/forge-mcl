@@ -16,6 +16,7 @@
     <PackageReference Include="Katasec.OciClient" Version="0.2.1" />
     <PackageReference Include="Spectre.Console" Version="0.49.1" />
     <PackageReference Include="Katasec.Forge.Client" Version="0.9.3" />
+    <PackageReference Include="Katasec.Forge.Hands" Version="0.1.0" />
     <PackageReference Include="Katasec.Forge.Client.Contracts" Version="0.2.1" />
     <PackageReference Include="XenoAtom.Terminal.UI" Version="3.10.0" />
     <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />

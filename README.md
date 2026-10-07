@@ -17,6 +17,18 @@ dotnet run --project src/ForgeMission.Cli -- --help
 
 Use `make install` to publish the current-platform Native AOT CLI locally.
 
+## Run a local mission
+
+```sh
+forge init mission.mcl
+forge run mission.mcl
+```
+
+Every run includes Hands. Agent experts can Read/Write/Edit files inside the current working
+directory; invoking the command grants this file access in interactive and scripted runs.
+Selecting a mission in another folder does not change that workspace. Terminal tools are not
+granted. See [local run boundaries](src/ForgeMission.Cli/README.md#important-flows-and-constraints).
+
 ## Terminal clipboard component
 
 [Forge Terminal Extensions](src/ForgeMission.Terminal.Extensions/README.md) owns truthful clipboard
