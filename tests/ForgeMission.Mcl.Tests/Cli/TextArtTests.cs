@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Collections;
+using System.Reflection;
 using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
@@ -88,18 +90,45 @@ public sealed class TextArtTests
     public void A_heading_wraps_at_words_and_cuts_an_overlong_word_with_an_ellipsis()
     {
         var art = Art("Light", 10, 21);
-        var lines = (IReadOnlyList<string>)Call(art, "Wrap", Kind("Heading2"), "Hello World in Pascal and a bit more", 12)!;
-        var single = (IReadOnlyList<string>)Call(art, "Wrap", Kind("Heading2"), "Supercalifragilisticexpialidocious", 12)!;
+        const string wrapped = "Hello   World in Pascal and a bit more";
+        const string longWord = "Supercalifragilisticexpialidocious";
+        var lines = HeadingLines(art, wrapped, 12);
+        var single = HeadingLines(art, longWord, 12);
 
         Assert.True(lines.Count > 1);
-        Assert.Equal("Hello World in Pascal and a bit more", string.Join(' ', lines));
-        Assert.All(lines, line => Assert.True(Cols(art, line) <= 12, $"'{line}' is wider than 12 columns"));
+        Assert.Equal("Hello World in Pascal and a bit more", string.Join(' ', lines.Select(Text)));
+        Assert.All(lines, line => Assert.True(Cols(art, Text(line)) <= 12, $"'{Text(line)}' is wider than 12 columns"));
+        Assert.Equal(0, Start(lines[0]));
+        Assert.Equal(wrapped.Length, End(lines[^1]));
+        Assert.All(lines, line => Assert.Equal(Normalize(wrapped[Start(line)..End(line)]), Text(line)));
+        Assert.All(lines, line => Assert.Equal(Start(line), Boundary(line, "SourceIndexAtVisual", 0)));
+        Assert.True(lines.Zip(lines.Skip(1)).All(pair => End(pair.First) <= Start(pair.Second)));
         var cut = Assert.Single(single);
-        Assert.EndsWith("…", cut);
-        Assert.True(Cols(art, cut) <= 12);
+        Assert.EndsWith("…", Text(cut));
+        Assert.Equal((0, longWord.Length), (Start(cut), End(cut)));
+        Assert.True(Cols(art, Text(cut)) <= 12);
+        Assert.Equal(longWord.Length, Boundary(cut, "SourceIndexAtVisual", Text(cut).Length));
+        Assert.Equal(Text(cut).Length, Boundary(cut, "VisualIndexAtSource", longWord.Length));
     }
 
     private static int Cols(object art, string line) => Get<int>(Call(art, "Render", Request("Heading2", line))!, "Cols");
+
+    private static List<object> HeadingLines(object art, string text, int cols) =>
+        ((IEnumerable)Call(art, "Wrap", Kind("Heading2"), text, cols)!).Cast<object>().ToList();
+
+    private static string Text(object line) => Value<string>(line, "Text");
+
+    private static int Start(object line) => Value<int>(line, "SourceStart");
+
+    private static int End(object line) => Value<int>(line, "SourceEnd");
+
+    private static T Value<T>(object line, string property) => (T)line.GetType()
+        .GetProperty(property, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.GetValue(line)!;
+
+    private static int Boundary(object line, string method, int index) => (int)line.GetType()
+        .GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.Invoke(line, [index])!;
+
+    private static string Normalize(string text) => string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>The left and right pixel columns, and the top and bottom rows when asked.</summary>
     private static List<(byte, byte, byte)> Edges(object image, bool top)

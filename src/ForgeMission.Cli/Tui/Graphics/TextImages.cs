@@ -44,7 +44,7 @@ internal sealed class TextImages
 
     /// <summary>A heading's lines at <paramref name="maxCols"/> (TextArt.Wrap), never wider than a
     /// placeholder row can address.</summary>
-    public IReadOnlyList<string> WrapHeading(TextKind kind, string text, int maxCols) =>
+    public IReadOnlyList<HeadingLine> WrapHeading(TextKind kind, string text, int maxCols) =>
         _art.Wrap(kind, text, Math.Clamp(maxCols, 1, PlaceholderDiacritics.Values.Length));
 
     /// <summary>The text id for <paramref name="hash"/>: bit 23 plus its low 23 bits, or the next id

@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using ForgeMission.Tests.TerminalInteraction;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.Backends;
 using XenoAtom.Terminal.UI;
@@ -11,7 +13,7 @@ using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
-// Phase 56 Task 5, the XenoCells Type-2 exception: forge reads six XenoAtom internals through
+// Phase 56 Task 5 and Phase 70.2, the XenoCells Type-2 exception: forge reads eight XenoAtom internals through
 // [UnsafeAccessor]. This pins them, and the public behaviour the motion overlays rely on, to
 // XenoAtom.Terminal.UI 3.10.0: a package bump fails here first, before any overlay misbehaves.
 [Collection(XenoAtomUiCollection.Name)]
@@ -28,6 +30,38 @@ public sealed class XenoInternalsContractTests
     {
         var version = typeof(CellBuffer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
         Assert.StartsWith("3.10.0", version, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_UnsafeAccessor_allowlist_is_exact()
+    {
+        var names = Cells.GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
+            .Select(method => method.GetCustomAttribute<UnsafeAccessorAttribute>()?.Name)
+            .Where(name => name is not null)
+            .Select(name => name!)
+            .Order()
+            .ToArray();
+
+        Assert.Equal([
+            "get_CurrentClipRect", "get_UnsafeCells", "get_UnsafeHyperlinks", "get_UnsafeScalars",
+            "GetTextIndexFromPosition", "RequestAnimation", "SetSelection", "TryGetTextElement",
+        ], names);
+    }
+
+    [Fact]
+    public async Task Paragraph_bridges_map_and_apply_a_wrapped_native_range()
+    {
+        var paragraph = new Paragraph("alpha beta gamma") { MaxWidth = 7 };
+        await TerminalInteractionTestHost.Run(paragraph, (_, phase, _) =>
+        {
+            if (phase != 1) return;
+            Assert.True(paragraph.Bounds.Width <= 7);
+            var start = (int)Cells.GetMethod("TextIndexAt")!.Invoke(null, [paragraph, 0, 0])!;
+            var end = (int)Cells.GetMethod("TextIndexAt")!.Invoke(null, [paragraph, paragraph.Bounds.Width, paragraph.Bounds.Height - 1])!;
+            Cells.GetMethod("SetSelection")!.Invoke(null, [paragraph, start, end]);
+            Assert.True(paragraph.TryCopySelection(out var selected));
+            Assert.Equal("alpha beta gamma", selected);
+        }, last: 2);
     }
 
     [Fact]

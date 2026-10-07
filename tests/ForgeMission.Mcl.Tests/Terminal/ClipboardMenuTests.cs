@@ -229,4 +229,35 @@ public sealed class ClipboardMenuTests
             }
         }, last: 3);
     }
+
+    [Fact]
+    public async Task Paragraph_menu_delegates_availability_and_exact_text_while_retaining_stale_guard()
+    {
+        var paragraph = new Paragraph("native text");
+        var available = false;
+        var results = new List<ClipboardResult>();
+        paragraph.ConfigureClipboard(() => available,
+            () => ClipboardText.CopyText("card text", paragraph.App!.Terminal), results.Add);
+        Command? copy = null;
+        await TerminalInteractionTestHost.Run(paragraph, (context, phase, backend) =>
+        {
+            if (phase == 1)
+            {
+                copy = paragraph.ContextMenuFactory!(paragraph).Single().Command!;
+                Assert.False(copy.CanExecute!(paragraph));
+                available = true;
+                Assert.True(copy.CanExecute(paragraph));
+                copy.Execute(paragraph);
+            }
+            if (phase == 2)
+            {
+                Assert.Equal("card text", backend.Written);
+                Assert.Equal([ClipboardResult.Copied], results);
+                paragraph.Text = "replacement";
+                Assert.False(copy!.CanExecute!(paragraph));
+                copy.Execute(paragraph);
+                Assert.Equal(1, backend.Writes);
+            }
+        }, last: 3);
+    }
 }

@@ -75,7 +75,7 @@ with native controls; text-source coordination and visual feedback stay here.
 | [ChatLink](Tui/ChatLink.cs) | Live-stream ownership, cursor, reconnect, idle sleep, and catch-up on wake. |
 | [Transcript](Tui/Transcript.cs) | Event-to-block mapping for replay/live turns and duplicate final-reply suppression. |
 | [ChatScreen](Tui/ChatScreen.cs), [ComposerEditor](Tui/ComposerEditor.cs) | Screen layout, composer sizing, and editor/start-page slots. |
-| [TextInteraction](Tui/TextInteraction.cs), [ParagraphSelection](Tui/ParagraphSelection.cs) | Owned native text targeting, source claims, truthful feedback and bounded realized-source lifetime. |
+| [TextInteraction](Tui/TextInteraction.cs), [ParagraphSelection](Tui/ParagraphSelection.cs) | Owned native text targeting, one-card rich ranges, source claims, truthful feedback and bounded realized-source lifetime. |
 | [CodeCopyControl](Tui/CodeCopyControl.cs) | Reserved snippet header and native Button with immutable complete code payload and lifecycle reset. |
 | [StartPage](Tui/StartPage.cs) | Initial mission choices; **Chat with a mission** opens chat, **Create a mission** is a placeholder. |
 | [EditFile](Tui/EditFile.cs), [FileEditor](Tui/FileEditor.cs) | `/edit <path>` rules and editor view; Ctrl+S saves, Esc closes or guards unsaved changes. |
@@ -163,8 +163,9 @@ flowchart LR
   stand aside while the editor is open; typing there currently wakes an idle chat link.
 - **AOT and boundaries:** Preserve source-generated JSON and reflection safety. Under `Tui/`,
   only `RawStdout` writes raw escapes; `GlyphText` is the unsafe font adapter. `XenoCells` isolates
-  a temporary `[UnsafeAccessor]` exception pinned to XenoAtom 3.10.0; remove it when public APIs replace
-  the required cell reads, hit-testing, and animation access.
+  a temporary `[UnsafeAccessor]` exception pinned to XenoAtom 3.10.0; it covers cell reads,
+  hit-testing, animation access, and Paragraph point/range access for rich selection. Remove it when
+  public APIs replace those operations.
 
 ## Tests
 
