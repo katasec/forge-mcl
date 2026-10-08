@@ -15,7 +15,11 @@ dotnet test ForgeMission.slnx
 dotnet run --project src/ForgeMission.Cli -- --help
 ```
 
-Use `make install` to publish the current-platform Native AOT CLI locally.
+Use `make install` to publish and verify the current-platform Native AOT CLI locally. Local and
+CI builds share the PowerShell scripts behind Make; install PowerShell 7, Make, Git and .NET 10.
+Full Git history and CLI version tags are required. Local builds print
+`X.Y.Z-dev.N+<commit>` (plus `.dirty` for uncommitted changes), based on the nearest reachable
+CLI tag and the number of commits since it. Rebuilding a clean commit keeps the same identity.
 
 ## Run a local mission
 
@@ -63,15 +67,18 @@ the same command safely retries setup with the same Project and conversation ide
 
 ## CLI releases
 
-The manual [Release CLI workflow](.github/workflows/release.yml) builds the exact dispatched
-`main` commit for macOS ARM64, Linux x64, Linux ARM64 and Windows ARM64. Dispatch with an unused
-`major.minor.patch` version:
+The [Release CLI workflow](.github/workflows/release.yml) runs automatically when a PR merges into
+`main`. It reserves one immutable `vX.Y.Z` tag at the exact merge commit and calls the same Make
+build path for macOS ARM64, Linux x64, Linux ARM64 and Windows ARM64. By default each merge bumps
+minor and resets patch; label a bug-fix PR `release:patch` before merging to bump patch instead.
+Major bumps are never automatic: `release:major` stops with an operator-approval requirement;
+a deliberate major-release operation requires a separately approved change.
 
-```sh
-gh workflow run release.yml --repo katasec/forge-mcl --ref main -f version=0.9.3
-```
-
-The workflow publishes automatically after all four native builds and help/version checks pass.
+The workflow publishes after all four native builds and help/version checks pass. A released
+binary prints `X.Y.Z+<full-commit>`, matching its tag and source. Ordinary CI and laptop builds
+retain the development suffix, even when building an exact release tag. The scripts under
+[`scripts/`](scripts/README.md) own all CLI version/build/release logic; affected Make targets
+and workflow steps only delegate to them.
 Each `forge-<rid>.zip` contains
 the entire Native AOT publish output, including native sidecars, and has a `.zip.sha256`
 checksum. Extract the whole archive and keep those files beside `forge` (`forge.exe` on Windows).
@@ -95,7 +102,9 @@ unzip forge-osx-arm64.zip -d forge-osx-arm64
 ./forge-osx-arm64/forge --version
 ```
 
-Existing tags, releases and assets are never overwritten. A failed native build prevents
-publication. GitHub CLI uploads all eight assets before publishing; create/upload errors fail the
-job. Recover through a safe failed-job rerun or a new version, without deleting or forcing existing
-release state. The original repository's history and releases are preserved.
+Tags and published releases/assets are never overwritten. Releases run serially without cancelling
+queued merges. A failed native build leaves its reserved tag and prevents publication; rerun the
+original workflow to reuse that tag/source. Uploads stage in a draft: retries replace the complete
+eight-asset draft set, verify downloaded checksums, then publish. A successful-release rerun
+verifies the published set and makes no changes. An older source never replaces a newer source as
+the latest release. The original history and releases are preserved.
