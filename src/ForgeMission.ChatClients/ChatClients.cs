@@ -5,6 +5,7 @@ using ForgeMission.Core.Manifest;
 using ForgeMission.Core.Runtime;
 using Microsoft.Extensions.AI;
 using OpenAI;
+using OpenAI.Responses;
 
 namespace ForgeMission.ChatClients;
 
@@ -16,7 +17,8 @@ public static class ChatClients
     public static IChatClient BuildChatClient(ProviderProfile profile) =>
         profile.Provider.ToLowerInvariant() switch
         {
-            "openai" or "azure" => BuildOpenAiClient(profile),
+            "openai"            => BuildOpenAiClient(profile),
+            "azure"             => BuildAzureClient(profile),
             "ollama"            => BuildOllamaClient(profile),
             "anthropic"         => BuildAnthropicClient(profile),
             "xai"               => BuildXaiClient(profile),
@@ -24,6 +26,21 @@ public static class ChatClients
         };
 
     private static IChatClient BuildOpenAiClient(ProviderProfile profile)
+    {
+        var options = new OpenAIClientOptions();
+        if (!string.IsNullOrWhiteSpace(profile.Endpoint))
+            options.Endpoint = new Uri(profile.Endpoint);
+#pragma warning disable OPENAI001 // Existing SDK Responses adapter is the selected OpenAI protocol.
+        return new OpenAIClient(new ApiKeyCredential(profile.ApiKey ?? string.Empty), options)
+            .GetResponsesClient().AsIChatClient(profile.Model)
+            .AsBuilder().ConfigureOptions(chatOptions => chatOptions.RawRepresentationFactory = _ =>
+                new CreateResponseOptions { StoredOutputEnabled = false, IncludedProperties = { "reasoning.encrypted_content" } })
+            .Use(OpenAiResponseFailures.GetResponseAsync, OpenAiResponseFailures.GetStreamingResponseAsync)
+            .Build();
+#pragma warning restore OPENAI001
+    }
+
+    private static IChatClient BuildAzureClient(ProviderProfile profile)
     {
         var options = new OpenAIClientOptions();
         if (!string.IsNullOrWhiteSpace(profile.Endpoint))

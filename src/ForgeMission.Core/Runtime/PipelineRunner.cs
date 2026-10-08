@@ -504,6 +504,7 @@ public class PipelineRunner
         AttachTools(expert, context, options, run, turn, inParallel);
 
         StepEnvelope envelope;
+        object? responseMessages = null;
         try
         {
             envelope = inParallel
@@ -520,15 +521,22 @@ public class PipelineRunner
             context.Remove("tools");
             context.Remove(PipelineRuntimeInstructions.AllowMultipleToolCalls);
             context.Remove(PipelineToolContinuationInstructions.TurnMessages);
+            context.Remove(PipelineToolContinuationInstructions.ResponseMessages, out responseMessages);
         }
 
         if (run.Scope is not null && expert.IsAgent
             && context.Remove("tool_calls", out var raw) && raw is IReadOnlyList<FunctionCallContent> calls)
-            return new StepInvocation(envelope, Replayed: false, calls, turn ?? []);
+            return new StepInvocation(envelope, Replayed: false, calls, NormalizeToolTurn(turn, responseMessages, calls));
 
         run.Record(new PipelineStepLogEntry(key, envelope.Text, envelope.Status, envelope.Reason, StepWrites(before, context)));
         return new StepInvocation(envelope, Replayed: false, null, []);
     }
+
+    // Existing call-only runners and complete provider replies converge before checkpointing.
+    private static IReadOnlyList<ChatMessage> NormalizeToolTurn(IReadOnlyList<ChatMessage>? turn,
+        object? responseMessages, IReadOnlyList<FunctionCallContent> calls) =>
+        [.. turn ?? [], .. responseMessages is IReadOnlyList<ChatMessage> messages
+            ? messages : [new ChatMessage(ChatRole.Assistant, [.. calls])]];
 
     // Tools attach to the agent expert's call only (42.3) — enrichment and verification experts
     // never see them. Root tools (and a resumed tool turn) reach agents at every depth; per-call
@@ -590,7 +598,7 @@ public class PipelineRunner
         var checkpoint = new PipelineContinuationCheckpoint(PipelineCheckpointCodec.CheckpointVersion,
             Guid.NewGuid().ToString("N"), scope.RootExecutionId, ordinal, scope.RootMissionName,
             scope.DefinitionFingerprint, scope.ToolScopeFingerprint, scope.Declarations, missionPath, step.ExpertName,
-            attempt, [.. invocation.Turn, new ChatMessage(ChatRole.Assistant, [.. calls])], scope.RootInputs,
+            attempt, invocation.Turn, scope.RootInputs,
             run.LogSnapshot(), key);
         var pause = new PipelineToolPause(scope.RootMissionName, missionPath, step.ExpertName, attempt, call,
             new PipelineContinuation(PipelineCheckpointCodec.EnvelopeVersion, PipelineCheckpointCodec.Write(checkpoint)));

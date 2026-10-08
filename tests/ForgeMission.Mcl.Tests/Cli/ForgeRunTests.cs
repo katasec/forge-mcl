@@ -189,16 +189,17 @@ public sealed class ForgeRunTests : IDisposable
         Assert.Equal(3, requests.Count);
         foreach (var turn in requests)
         {
-            var prompt = string.Join("\n", turn.GetProperty("messages").EnumerateArray()
-                .Where(message => message.GetProperty("role").GetString() == "system")
-                .Select(message => message.GetProperty("content").GetString()));
+            var prompt = string.Join("\n", turn.GetProperty("input").EnumerateArray()
+                .Where(message => message.TryGetProperty("role", out var role) && role.GetString() == "system")
+                .SelectMany(message => message.GetProperty("content").EnumerateArray())
+                .Select(part => part.GetProperty("text").GetString()));
             Assert.Contains(path, prompt);
             Assert.Contains(content, prompt);
         }
-        var replies = requests.Last().GetProperty("messages").EnumerateArray()
-            .Where(message => message.GetProperty("role").GetString() == "tool").ToList();
-        Assert.Equal(new[] { "write-global", "read-global" }, replies.Select(reply => reply.GetProperty("tool_call_id").GetString()));
-        Assert.Equal(content, replies[1].GetProperty("content").GetString());
+        var replies = requests.Last().GetProperty("input").EnumerateArray()
+            .Where(message => message.GetProperty("type").GetString() == "function_call_output").ToList();
+        Assert.Equal(new[] { "write-global", "read-global" }, replies.Select(reply => reply.GetProperty("call_id").GetString()));
+        Assert.Equal(content, replies[1].GetProperty("output").GetString());
     }
 
     [Fact]
@@ -279,7 +280,7 @@ public sealed class ForgeRunTests : IDisposable
             var request = await listener.GetContextAsync();
             try
             {
-                Assert.Equal("/v1/chat/completions", request.Request.Url!.AbsolutePath);
+                Assert.Equal("/v1/responses", request.Request.Url!.AbsolutePath);
                 using var body = await JsonDocument.ParseAsync(request.Request.InputStream, cancellationToken: ct);
                 requests.Add(body.RootElement.Clone());
                 request.Response.ContentType = "application/json";
@@ -299,14 +300,14 @@ public sealed class ForgeRunTests : IDisposable
             ? JsonSerializer.Serialize(new { file_path = path, content })
             : JsonSerializer.Serialize(new { file_path = path });
         object message = turn == 2
-            ? new { role = "assistant", content }
-            : new { role = "assistant", content = (string?)null, tool_calls = new[] {
-                new { id = callId, type = "function", function = new { name = toolName, arguments } } } };
+            ? new { type = "message", id = "msg-final", role = "assistant", status = "completed",
+                content = new[] { new { type = "output_text", text = content, annotations = Array.Empty<object>() } } }
+            : new { type = "function_call", id = $"fc-{turn}", call_id = callId, name = toolName, arguments, status = "completed" };
         return JsonSerializer.Serialize(new
         {
-            id = $"probe-{turn}", @object = "chat.completion", created = 0, model = "test-agent",
-            choices = new[] { new { index = 0, message, finish_reason = turn == 2 ? "stop" : "tool_calls" } },
-            usage = new { prompt_tokens = 0, completion_tokens = 0, total_tokens = 0 },
+            id = $"probe-{turn}", @object = "response", created_at = 1, model = "test-agent", status = "completed",
+            output = new[] { message },
+            usage = new { input_tokens = 0, output_tokens = 0, total_tokens = 0 },
         });
     }
 

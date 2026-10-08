@@ -81,13 +81,12 @@ Or on failure:
         }
 
         var response = await chatClient.GetResponseAsync(messages, options, cancellationToken: ct);
+        ThrowIfProviderError(response.Messages.SelectMany(message => message.Contents));
 
         // The model called a tool: hand the calls back through the bag — the pipeline returns them
         // to the client (which executes) instead of running any further steps.
-        var toolCalls = response.Messages.LastOrDefault()?.Contents.OfType<FunctionCallContent>().ToList();
-        if (toolCalls is { Count: > 0 })
+        if (CaptureToolResponse(response, context))
         {
-            context["tool_calls"] = toolCalls;
             var text = response.Messages.LastOrDefault()?.Contents
                 .OfType<TextContent>().Select(c => c.Text).FirstOrDefault() ?? string.Empty;
             return new StepEnvelope(text);
@@ -139,6 +138,7 @@ Or on failure:
         var updates = new List<ChatResponseUpdate>();
         await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options, ct))
         {
+            ThrowIfProviderError(update.Contents);
             updates.Add(update);
             if (!string.IsNullOrEmpty(update.Text))
                 yield return update.Text;
@@ -147,9 +147,24 @@ Or on failure:
         if (!toolMode) yield break;
 
         var response = ChatResponseExtensions.ToChatResponse(updates);
-        var toolCalls = response.Messages.LastOrDefault()?.Contents.OfType<FunctionCallContent>().ToList();
-        if (toolCalls is { Count: > 0 })
-            context["tool_calls"] = toolCalls;
+        CaptureToolResponse(response, context);
+    }
+
+    private static void ThrowIfProviderError(IEnumerable<AIContent> contents)
+    {
+        if (contents.OfType<ErrorContent>().FirstOrDefault() is not { } error) return;
+        throw new InvalidOperationException(string.IsNullOrEmpty(error.Message)
+            ? "The model provider returned a failed response." : error.Message);
+    }
+
+    // Calls and complete messages come from the same response, preserving protected reasoning.
+    private static bool CaptureToolResponse(ChatResponse response, Dictionary<string, object> context)
+    {
+        var calls = response.Messages.LastOrDefault()?.Contents.OfType<FunctionCallContent>().ToList();
+        if (calls is not { Count: > 0 }) return false;
+        context["tool_calls"] = calls;
+        context[PipelineToolContinuationInstructions.ResponseMessages] = response.Messages.ToArray();
+        return true;
     }
 
     // A resumed agent step: every tool call and result so far in this turn follows the step's own

@@ -17,6 +17,43 @@ namespace ForgeMission.Tests.Runtime;
 /// </summary>
 public sealed class AgentToolPipelineTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ToolResponseMetadata_IsConsumedOnNormalAndExceptionalExit(bool fail)
+    {
+        const string responseKey = "__pipeline_tool_response_messages";
+        Dictionary<string, object>? captured = null;
+        var call = new FunctionCallContent("read-once", "Read", new Dictionary<string, object?>());
+        var modelReply = new ChatMessage(ChatRole.Assistant,
+            [new TextReasoningContent("reason") { ProtectedData = "protected" }, call]);
+        var runner = new PipelineRunner(new StubExpertRunner((_, context) =>
+        {
+            captured = context;
+            context[responseKey] = new ChatMessage[] { modelReply };
+            if (fail) throw new InvalidOperationException("fixture failure");
+            context["tool_calls"] = new List<FunctionCallContent> { call };
+            return new StepEnvelope("");
+        }));
+        var ast = MclParser.Parse("mission Root = { Respond }");
+        var experts = new Dictionary<string, ExpertDefinition>
+        { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
+        if (fail)
+            await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ast, experts,
+                new PipelineRunOptions("Root", RootTools: ClientTools())));
+        else
+        {
+            var pause = Assert.IsType<PipelineToolPause>((await runner.RunAsync(ast, experts,
+                new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+            using var checkpoint = JsonDocument.Parse(pause.Continuation.Payload);
+            var message = Assert.Single(checkpoint.RootElement.GetProperty("turnMessages").EnumerateArray());
+            Assert.Equal(2, message.GetProperty("contents").GetArrayLength());
+            Assert.Equal("protected", message.GetProperty("contents")[0].GetProperty("protectedData").GetString());
+        }
+        Assert.NotNull(captured);
+        Assert.False(captured.ContainsKey(responseKey));
+    }
+
     private static readonly Program Ast = MclParser.Parse("""
         mission Task(goal) = {
             Enrich
