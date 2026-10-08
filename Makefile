@@ -1,26 +1,3 @@
-UNAME_S := $(shell uname -s)
-UNAME_M := $(shell uname -m)
-
-ifeq ($(UNAME_S),Darwin)
-  ifeq ($(UNAME_M),arm64)
-    RID := osx-arm64
-  else
-    RID := osx-x64
-  endif
-else ifeq ($(UNAME_S),Linux)
-  ifeq ($(UNAME_M),aarch64)
-    RID := linux-arm64
-  else
-    RID := linux-x64
-  endif
-endif
-
-ifeq ($(OS),Windows_NT)
-  RID := win-arm64
-endif
-
-INSTALL_DIR := $(HOME)/.local/bin
-CLI := src/ForgeMission.Cli
 TERMINAL_EXTENSIONS_PROJECT := src/ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj
 TERMINAL_EXTENSIONS_COMMIT := $(shell git rev-parse HEAD)
 PARSER_PROJECT := src/ForgeMission.Parser/ForgeMission.Parser.csproj
@@ -62,7 +39,7 @@ DOCKER_COMMIT := $(shell git rev-parse HEAD)
 .PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package test-serve pack-serve verify-serve-package test-docker pack-docker verify-docker-package install build-linux clean
 
 build:
-	dotnet build ForgeMission.slnx
+	pwsh -NoProfile -File scripts/build.ps1 -Action build
 
 .PHONY: test-terminal-extensions pack-terminal-extensions verify-terminal-extensions-package
 
@@ -76,7 +53,7 @@ verify-terminal-extensions-package: test-terminal-extensions pack-terminal-exten
 	bash ./eng/verify-terminal-extensions-package.sh artifacts/packages $(TERMINAL_EXTENSIONS_COMMIT)
 
 test:
-	dotnet test ForgeMission.slnx
+	pwsh -NoProfile -File scripts/build.ps1 -Action test
 
 test-parser:
 	dotnet test $(PARSER_TEST_PROJECT) -c Release --filter "FullyQualifiedName~Parser"
@@ -142,10 +119,27 @@ verify-docker-package: test-docker pack-docker
 	bash ./eng/verify-docker-package.sh $(DOCKER_PACKAGE_DIR) $(DOCKER_COMMIT)
 
 install:
-	dotnet publish $(CLI) -c Release -r $(RID) -o $(INSTALL_DIR)
+	pwsh -NoProfile -File scripts/build.ps1 -Action install
 
 build-linux:
-	dotnet publish $(CLI) -c Release -r linux-x64 -o . --self-contained
+	pwsh -NoProfile -File scripts/build.ps1 -Action publish -Rid linux-x64
 
 clean:
-	dotnet clean ForgeMission.slnx
+	pwsh -NoProfile -File scripts/build.ps1 -Action clean
+
+.PHONY: cli-verify cli-package cli-script-test release-prepare release-publish
+
+cli-verify:
+	pwsh -NoProfile -File scripts/build.ps1 -Action verify
+
+cli-package:
+	pwsh -NoProfile -File scripts/build.ps1 -Action package
+
+cli-script-test:
+	pwsh -NoProfile -File scripts/tests.ps1
+
+release-prepare:
+	pwsh -NoProfile -File scripts/release.ps1 -Action prepare
+
+release-publish:
+	pwsh -NoProfile -File scripts/release.ps1 -Action publish

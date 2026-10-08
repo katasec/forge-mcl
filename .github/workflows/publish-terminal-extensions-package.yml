@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -33,37 +34,8 @@ jobs:
         run: brew install openssl@3 brotli
 
       - name: Verify current product and package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/verification
-          git rev-parse HEAD > artifacts/verification/source.txt
-          { make build; dotnet test ForgeMission.slnx --filter 'FullyQualifiedName!~ForgeMission.Tests.Cli.StartPageTests&FullyQualifiedName!~ForgeMission.Tests.Cli.ChatScreenLiveMotionTests'; make verify-terminal-extensions-package; } 2>&1 | tee artifacts/verification/checks.log
-
-      - name: Publish native CLI and enforce zero warnings
-        shell: bash
-        run: |
-          set -euo pipefail
-          set +e
-          dotnet publish src/ForgeMission.Cli -c Release -r osx-arm64 -o artifacts/verification/native \
-            -p:SourceRevisionId="$GITHUB_SHA" -warnaserror 2>&1 | tee artifacts/verification/native-publish.log
-          publish_status=("${PIPESTATUS[@]}")
-          set -e
-          if (( publish_status[0] != 0 )); then exit "${publish_status[0]}"; fi
-          if (( publish_status[1] != 0 )); then exit "${publish_status[1]}"; fi
-          if grep -Ei '(^|[[:space:]])warning([[:space:]]+[A-Z]+[0-9]+)?[[:space:]]*:' artifacts/verification/checks.log artifacts/verification/native-publish.log; then
-            echo "Actual compiler or linker warnings fail verification." >&2
-            exit 1
-          fi
-
-      - name: Check native identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          artifacts/verification/native/forge --help > artifacts/verification/native-help.txt
-          artifacts/verification/native/forge --version > artifacts/verification/native-version.txt
-          test "$(cat artifacts/verification/native-version.txt)" = "1.0.0+$GITHUB_SHA"
-          shasum -a 256 artifacts/verification/native/forge > artifacts/verification/native-sha256.txt
+        shell: pwsh
+        run: make cli-script-test cli-verify verify-terminal-extensions-package
 
       - name: Preserve full verification evidence
         if: always()
