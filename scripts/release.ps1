@@ -58,16 +58,19 @@ function Publish-Release {
         return
     }
     if (-not $release) {
-        Invoke-Gh release create $ReleaseTag --repo $Repository --target $Source --verify-tag --title $ReleaseTag --generate-notes --draft | Write-Host
-        $release = Find-Release $ReleaseTag
+        # Draft discovery can lag behind creation; retain the returned identity.
+        $create = @('api', "repos/$Repository/releases", '--method', 'POST',
+            '-f', "tag_name=$ReleaseTag", '-f', "target_commitish=$Source", '-f', "name=$ReleaseTag",
+            '-F', 'draft=true', '-F', 'generate_release_notes=true')
+        $release = Invoke-Gh @create | ConvertFrom-Json
     }
     if (-not $release.draft) { throw 'Asset replacement is permitted only for an unpublished draft.' }
     $files = @(Get-ExpectedAssetNames | ForEach-Object { Join-Path $Assets $_ })
     Invoke-Gh release upload $ReleaseTag --repo $Repository @files --clobber | Write-Host
-    Assert-RemoteAssets (Find-Release $ReleaseTag)
+    Assert-RemoteAssets (Get-Release $release.id)
     $latest = Test-LatestDescendant
     Invoke-Gh release edit $ReleaseTag --repo $Repository --draft=false "--latest=$($latest.ToString().ToLowerInvariant())" | Write-Host
-    $published = Find-Release $ReleaseTag
+    $published = Get-Release $release.id
     if ($published.draft) { throw 'Release remained draft after publication.' }
     Write-Host "Published $ReleaseTag at $Source (latest=$latest)."
 }
@@ -121,6 +124,11 @@ function Find-Release {
     param([string]$Tag)
     $pages = Invoke-Gh api "repos/$Repository/releases?per_page=100" --paginate --slurp | ConvertFrom-Json
     return $pages | ForEach-Object { $_ } | Where-Object { $_.tag_name -ceq $Tag } | Select-Object -First 1
+}
+
+function Get-Release {
+    param([long]$Id)
+    return Invoke-Gh api "repos/$Repository/releases/$Id" | ConvertFrom-Json
 }
 
 function Test-LatestDescendant {
