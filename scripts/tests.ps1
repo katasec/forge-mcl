@@ -59,6 +59,7 @@ function Test-ReleaseBoundaries {
     $script:failUpload = $true
     Assert-Fails { . "$script:fixture/scripts/release.ps1" -Action publish -Repository test/forge-mcl -ReleaseTag v0.10.0 -Source $testSource -Assets $fixtureAssets } 'gh operation failed' 'Failed upload stays draft'
     Assert-True $script:mockRelease.draft 'No publication after partial upload'
+    Assert-Equal $script:uploadCount 1 'New draft reaches upload before appearing in lists'
     . "$script:fixture/scripts/release.ps1" -Action publish -Repository test/forge-mcl -ReleaseTag v0.10.0 -Source $testSource -Assets $fixtureAssets
     Assert-True (-not $script:mockRelease.draft) 'Complete draft retry publishes'
     Assert-Equal $script:uploadCount 2 'Retry replaces entire draft asset set'
@@ -150,10 +151,6 @@ function gh {
     $global:LASTEXITCODE = 0
     $arguments = @($args)
     if ($arguments[0] -eq 'api') { Invoke-FakeApi $arguments; return }
-    if ($arguments[1] -eq 'create') {
-        $script:mockRelease = [pscustomobject]@{ tag_name = $arguments[2]; draft = $true; assets = @() }
-        return
-    }
     if ($arguments[1] -eq 'upload') { Invoke-FakeUpload $arguments; return }
     if ($arguments[1] -eq 'download') {
         $destination = $arguments[[Array]::IndexOf($arguments, '--dir') + 1]
@@ -170,6 +167,15 @@ function gh {
 
 function Invoke-FakeApi {
     param([object[]]$Arguments)
+    if ($Arguments[1] -eq 'repos/test/forge-mcl/releases') {
+        if ($Arguments -notcontains 'POST') { throw 'Expected draft creation POST' }
+        $tag = ($Arguments | Where-Object { $_ -like 'tag_name=*' }).Substring(9)
+        $script:mockRelease = [pscustomobject]@{ id = 1; tag_name = $tag; draft = $true; assets = @() }
+        return ConvertTo-Json -InputObject $script:mockRelease -Depth 5 -Compress
+    }
+    if ($Arguments[1] -eq 'repos/test/forge-mcl/releases/1') {
+        return ConvertTo-Json -InputObject $script:mockRelease -Depth 5 -Compress
+    }
     if ($Arguments[1] -like '*/git/refs') {
         $ref = ($Arguments | Where-Object { $_ -like 'ref=*' }).Substring(4)
         $sha = ($Arguments | Where-Object { $_ -like 'sha=*' }).Substring(4)
@@ -179,6 +185,7 @@ function Invoke-FakeApi {
     if ($Arguments[1] -like '*/releases/latest') { return (@{ tag_name = $script:latestTag } | ConvertTo-Json -Compress) }
     if ($Arguments[1] -like '*/releases?per_page=*') {
         if (-not $script:mockRelease) { return '[[]]' }
+        if ($script:uploadCount -eq 0) { return '[[]]' }
         return ConvertTo-Json -InputObject @(,@($script:mockRelease)) -Depth 5 -Compress
     }
     throw "Unexpected API operation: $($Arguments[1])"
