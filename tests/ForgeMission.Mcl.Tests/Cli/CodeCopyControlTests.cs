@@ -13,6 +13,23 @@ namespace ForgeMission.Tests.Cli;
 public sealed class CodeCopyControlTests
 {
     [Theory]
+    [InlineData("Light", 169, 201, 245, 1.70, 1.60, 9.91)]
+    [InlineData("Dark", 36, 85, 138, 2.16, 2.37, 5.11)]
+    public void Selection_token_has_the_locked_values_and_surface_contrast(string theme, byte red, byte green, byte blue,
+        double cardContrast, double codeContrast, double textContrast)
+    {
+        var selection = ForgeText.Get<Color>(ForgeText.Theme(theme), "Selection");
+        var card = ForgeText.Get<Color>(ForgeText.Theme(theme), "CardSurface");
+        var code = ForgeText.Get<Color>(ForgeText.Theme(theme), "CodeBlockFill");
+        var text = ForgeText.Get<Color>(ForgeText.Theme(theme), "Text");
+
+        Assert.Equal((red, green, blue), (selection.R, selection.G, selection.B));
+        Assert.Equal(cardContrast, Math.Round(Contrast(selection, card), 2));
+        Assert.Equal(codeContrast, Math.Round(Contrast(selection, code), 2));
+        Assert.Equal(textContrast, Math.Round(Contrast(selection, text), 2));
+    }
+
+    [Theory]
     [InlineData("Light")]
     [InlineData("Dark")]
     public async Task Actual_native_button_paints_combined_hover_focus_press_and_result_states(string theme)
@@ -163,6 +180,22 @@ public sealed class CodeCopyControlTests
                 Console.WriteLine($"Native selected {theme}/{language} selection={selection} foregrounds={string.Join(',', foregrounds)}: {line}");
             }
         }, last: 3);
+    }
+
+    private static double Contrast(Color first, Color second)
+    {
+        var light = RelativeLuminance(first);
+        var dark = RelativeLuminance(second);
+        return (Math.Max(light, dark) + 0.05) / (Math.Min(light, dark) + 0.05);
+    }
+
+    private static double RelativeLuminance(Color color) =>
+        0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+
+    private static double Linear(byte channel)
+    {
+        var value = channel / 255d;
+        return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
     }
 
     [Theory]

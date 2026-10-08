@@ -137,16 +137,40 @@ internal sealed class ParagraphSelection : Padder
 
     private bool TryEndpoint(Visual target, int uiX, int uiY, out Endpoint endpoint)
     {
-        for (var index = 0; index < _members.Count; index++)
+        if (Content is null || IsInteractiveDescendant(target) || !Content.Bounds.Contains(uiX, uiY) || _members.Count == 0)
         {
-            var member = _members[index];
-            if (!member.Owns(target)) continue;
-            endpoint = new Endpoint(index, member.TextIndexAt(uiX - member.Visual.Bounds.X, uiY - member.Visual.Bounds.Y));
-            return true;
+            endpoint = default;
+            return false;
         }
-        endpoint = default;
+        var index = 0;
+        var member = _members[0];
+        var distance = Distance(member.Visual.Bounds, uiX, uiY);
+        for (var candidateIndex = 1; candidateIndex < _members.Count; candidateIndex++)
+        {
+            var candidate = _members[candidateIndex];
+            var candidateDistance = Distance(candidate.Visual.Bounds, uiX, uiY);
+            if (candidateDistance.CompareTo(distance) >= 0) continue;
+            (index, member, distance) = (candidateIndex, candidate, candidateDistance);
+        }
+        endpoint = EndpointAt(index, member, uiX, uiY);
+        return true;
+    }
+
+    private static (int Vertical, int Horizontal) Distance(Rectangle bounds, int uiX, int uiY) =>
+        (DistanceToRange(uiY, bounds.Y, bounds.Bottom), DistanceToRange(uiX, bounds.X, bounds.Right));
+
+    private static int DistanceToRange(int value, int start, int end) =>
+        value < start ? start - value : value >= end ? value - end + 1 : 0;
+
+    private bool IsInteractiveDescendant(Visual target)
+    {
+        for (Visual? current = target; current is not null && current != Content; current = current.Parent)
+            if (current is Button) return true;
         return false;
     }
+
+    private static Endpoint EndpointAt(int index, Member member, int uiX, int uiY) =>
+        new(index, member.TextIndexAt(uiX - member.Visual.Bounds.X, uiY - member.Visual.Bounds.Y));
 
     private void ApplyRange()
     {
