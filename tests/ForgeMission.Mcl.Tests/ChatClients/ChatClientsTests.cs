@@ -14,6 +14,207 @@ namespace ForgeMission.Tests.ChatClients;
 
 public sealed class ChatClientsTests
 {
+    [Fact]
+    public async Task OpenAi_SerializedToolPauses_PreserveCompleteResponses()
+    {
+        var replies = new[] { ResponsesToolReply("one"), ResponsesToolReply("two"), ResponsesReply("completed", [ResponseText("done")]) };
+        var requests = await ServeOpenAiAsync(replies.Select(body => (200, "application/json", body)).ToArray(), async client =>
+        {
+            var ast = MclParser.Parse("mission Root = { Respond }");
+            var experts = new Dictionary<string, ExpertDefinition>
+            { ["Respond"] = new("Respond", "any", "text", "Read.", Role: "agent") };
+            var runner = new PipelineRunner(new DirectExpertRunner(client));
+            var result = await runner.RunAsync(ast, experts, new PipelineRunOptions("Root", RootTools: [ReadTool()]));
+            foreach (var id in new[] { "one", "two" })
+            {
+                var pause = Assert.IsType<PipelineToolPause>(result.Pause);
+                Assert.Equal(id, pause.ToolCall.CallId);
+                var restored = new PipelineContinuation(pause.Continuation.FormatVersion, pause.Continuation.Payload);
+                result = await runner.ResumeAsync(ast, experts, new PipelineResumeRequest(restored,
+                    new PipelineToolResult(id, PipelineToolResultStatus.Succeeded, $"result-{id}")), new PipelineRunOptions("ignored"));
+            }
+            Assert.Null(result.Pause);
+            Assert.Equal("done", result.Text);
+        });
+        Assert.Equal(3, requests.Count); // All exchanges completed before checking the replay regression.
+        foreach (var request in requests) AssertResponsesOptions(request);
+        var input = requests[^1].GetProperty("input").EnumerateArray().ToList();
+        Assert.Equal(new[] { "protected-one", "protected-two" }, input.Where(item => item.GetProperty("type").GetString() == "reasoning")
+            .Select(item => item.GetProperty("encrypted_content").GetString()));
+        Assert.Equal(new[] { "reason-one", "reason-two" }, input.Where(item => item.GetProperty("type").GetString() == "reasoning")
+            .Select(item => item.GetProperty("summary")[0].GetProperty("text").GetString()));
+        Assert.Equal(new[] { "text-one", "text-two" }, input.Skip(2).Where(item => item.GetProperty("type").GetString() == "message")
+            .Select(item => item.GetProperty("content")[0].GetProperty("text").GetString()));
+        Assert.Equal(new[] { "one", "two" }, input.Where(item => item.GetProperty("type").GetString() == "function_call")
+            .Select(item => item.GetProperty("call_id").GetString()));
+        // The older result is rehydrated as JsonElement and JSON-encoded by the SDK; the newest is a raw string.
+        Assert.Equal(new[] { "\"result-one\"", "result-two" }, input.Where(item => item.GetProperty("type").GetString() == "function_call_output")
+            .Select(item => item.GetProperty("output").GetString()));
+        Assert.Equal(new[] { "one", "two" }, input.Where(item => item.GetProperty("type").GetString() == "function_call_output")
+            .Select(item => item.GetProperty("call_id").GetString()));
+        Assert.Equal(new[] { "reasoning", "message", "function_call", "function_call_output", "reasoning", "message", "function_call", "function_call_output" },
+            input.Skip(2).Select(item => item.GetProperty("type").GetString()));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenAi_FailedResponse_ThrowsThroughGenericRunner(bool stream)
+    {
+        var failed = ResponsesReply("failed", [], new { code = "server_error", message = "fixture provider failed" });
+        var body = stream ? ResponsesEvent("response.failed", new { type = "response.failed", sequence_number = 0, response = JsonSerializer.Deserialize<JsonElement>(failed) }) : failed;
+        var requests = await ServeOpenAiAsync([(200, stream ? "text/event-stream" : "application/json", body)], async client =>
+        {
+            var runner = new DirectExpertRunner(client);
+            var expert = new ExpertDefinition("Respond", "any", "text", "Respond.");
+            var context = new Dictionary<string, object>();
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            {
+                if (!stream) { await runner.RunAsync(expert, context); return; }
+                await foreach (var chunk in runner.StreamAsync(expert, context)) Assert.Fail($"Unexpected success output: {chunk}");
+            });
+            Assert.Equal("fixture provider failed", error.Message);
+        });
+        Assert.Single(requests);
+    }
+
+    [Theory]
+    [InlineData("azure")]
+    [InlineData("ollama")]
+    [InlineData("xai")]
+    public async Task ExistingCompatibleProviders_KeepChatCompletions(string provider)
+    {
+        var request = await CaptureRequestAsync(provider, client =>
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]));
+        Assert.True(request.TryGetProperty("messages", out _));
+        Assert.False(request.TryGetProperty("input", out _));
+    }
+
+    [Fact]
+    public async Task OpenAi_ToolFreeStep_UsesClosedStructuredSchema()
+    {
+        var reply = ResponsesReply("completed", [ResponseText("{\"text\":\"answer\",\"status\":\"pass\",\"reason\":null}")]);
+        var requests = await ServeOpenAiAsync([(200, "application/json", reply)], async client =>
+        {
+            var result = await new DirectExpertRunner(client).RunAsync(
+                new ExpertDefinition("Respond", "any", "text", "Respond."), new Dictionary<string, object>());
+            Assert.Equal("answer", result.Text);
+        });
+        var request = Assert.Single(requests);
+        var format = request.GetProperty("text").GetProperty("format");
+        Assert.Equal("json_schema", format.GetProperty("type").GetString());
+        Assert.Equal("step_envelope", format.GetProperty("name").GetString());
+        Assert.False(format.GetProperty("schema").GetProperty("additionalProperties").GetBoolean());
+        Assert.False(request.GetProperty("store").GetBoolean());
+    }
+
+    [Fact]
+    public async Task OpenAi_Stream_PreservesReasoningCallsAndUsage()
+    {
+        var completed = JsonSerializer.Deserialize<JsonElement>(ResponsesReply("completed", []));
+        var body = ResponsesEvent("response.created", new { type = "response.created", sequence_number = 0, response = completed })
+            + ResponsesEvent("response.output_text.delta", new { type = "response.output_text.delta", sequence_number = 1, item_id = "msg-stream", output_index = 0, content_index = 0, delta = "hello" })
+            + ResponsesEvent("response.output_item.done", new { type = "response.output_item.done", sequence_number = 2, output_index = 1,
+                item = new { type = "reasoning", id = "rs-stream", summary = Array.Empty<object>(), encrypted_content = "protected-stream" } })
+            + ResponsesEvent("response.output_item.done", new { type = "response.output_item.done", sequence_number = 3, output_index = 2,
+                item = new { type = "function_call", id = "fc-stream", call_id = "call-stream", name = "Read", arguments = "{\"path\":\"fixture.txt\"}", status = "completed" } })
+            + ResponsesEvent("response.completed", new { type = "response.completed", sequence_number = 4, response = completed });
+        var usage = new UsageAccumulator();
+        await ServeOpenAiAsync([(200, "text/event-stream", body)], async client =>
+        {
+            using var tracked = new UsageTrackingChatClient(client, usage);
+            var updates = new List<ChatResponseUpdate>();
+            await foreach (var update in tracked.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "Read")], OneToolCallOptions()))
+                updates.Add(update);
+            var response = updates.ToChatResponse();
+            var contents = response.Messages.SelectMany(message => message.Contents).ToList();
+            Assert.Equal("hello", response.Text);
+            Assert.Equal("protected-stream", Assert.Single(contents.OfType<TextReasoningContent>()).ProtectedData);
+            Assert.Equal("call-stream", Assert.Single(contents.OfType<FunctionCallContent>()).CallId);
+        });
+        Assert.Equal(2, usage.InputTokens);
+        Assert.Equal(3, usage.OutputTokens);
+    }
+
+    [Fact]
+    public async Task OpenAi_FailedStatusWithoutMessage_UsesSummary()
+    {
+        await ServeOpenAiAsync([(200, "application/json", ResponsesReply("failed", []))], async client =>
+        {
+            var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+            Assert.Equal("The model provider returned a failed response.",
+                Assert.Single(response.Messages.SelectMany(message => message.Contents).OfType<ErrorContent>()).Message);
+        });
+    }
+
+    [Fact]
+    public async Task OpenAi_HttpFailure_PropagatesWithoutRetry()
+    {
+        var requests = await ServeOpenAiAsync([(400, "application/json", "{\"error\":{\"message\":\"wire rejected\",\"type\":\"invalid_request_error\"}}")], async client =>
+        {
+            var error = await Assert.ThrowsAnyAsync<Exception>(() => new DirectExpertRunner(client).RunAsync(
+                new ExpertDefinition("Respond", "any", "text", "Respond."), new Dictionary<string, object>()));
+            Assert.Contains("wire rejected", error.Message);
+        });
+        Assert.Single(requests);
+    }
+
+    [Fact]
+    public async Task OpenAi_StreamErrorContent_IsNotDuplicated()
+    {
+        var body = ResponsesEvent("error", new { type = "error", sequence_number = 0, code = "server_error", message = "existing stream error", param = (string?)null });
+        await ServeOpenAiAsync([(200, "text/event-stream", body)], async client =>
+        {
+            var updates = new List<ChatResponseUpdate>();
+            await foreach (var update in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hello")])) updates.Add(update);
+            Assert.Equal("existing stream error", Assert.Single(updates.SelectMany(update => update.Contents).OfType<ErrorContent>()).Message);
+        });
+    }
+
+    [Fact]
+    public async Task OpenAi_FailedStreamWithoutResponseStatus_UsesSummary()
+    {
+        var body = ResponsesEvent("response.failed", new
+        {
+            type = "response.failed", sequence_number = 0,
+            response = new { id = "response-failed", @object = "response", created_at = 1, model = "test-model", output = Array.Empty<object>() },
+        });
+        await ServeOpenAiAsync([(200, "text/event-stream", body)], async client =>
+        {
+            var updates = new List<ChatResponseUpdate>();
+            await foreach (var update in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hello")])) updates.Add(update);
+            Assert.Equal("The model provider returned a failed response.",
+                Assert.Single(updates.SelectMany(update => update.Contents).OfType<ErrorContent>()).Message);
+        });
+    }
+
+    [Fact]
+    public async Task OpenAi_ExistingGenericError_IsNotDuplicated()
+    {
+        var reply = ResponsesReply("failed", [ResponseText("partial")], new { code = "server_error", message = "already projected" });
+        await ServeOpenAiAsync([(200, "application/json", reply)], async client =>
+        {
+            var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+            Assert.Equal("already projected", Assert.Single(response.Messages.SelectMany(message => message.Contents).OfType<ErrorContent>()).Message);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenAi_Cancellation_Propagates(bool stream)
+    {
+        await ServeOpenAiAsync([], async client =>
+        {
+            var ct = new CancellationToken(canceled: true);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            {
+                if (!stream) { await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], cancellationToken: ct); return; }
+                await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hello")], cancellationToken: ct)) { }
+            });
+        });
+    }
+
     [Theory]
     [InlineData("openai")]
     [InlineData("azure")]
@@ -115,7 +316,7 @@ public sealed class ChatClientsTests
     {
         var body = await CaptureRequestAsync("openai", StreamHistoryStepAsync);
 
-        var messages = body.GetProperty("messages").EnumerateArray().ToList();
+        var messages = body.GetProperty("input").EnumerateArray().ToList();
         Assert.Equal("system", messages[0].GetProperty("role").GetString());
         Assert.Equal("You are a critic.", ContentText(messages[0]));
         AssertStructuredTurns(messages.Skip(1).ToList());
@@ -222,6 +423,82 @@ public sealed class ChatClientsTests
         Assert.IsAssignableFrom<Anthropic.ApiException>(error.InnerException);
     }
 
+    private static void AssertResponsesOptions(JsonElement request)
+    {
+        Assert.False(request.GetProperty("store").GetBoolean());
+        Assert.Contains("reasoning.encrypted_content", request.GetProperty("include").EnumerateArray().Select(item => item.GetString()));
+        Assert.False(request.GetProperty("parallel_tool_calls").GetBoolean());
+        Assert.Equal("Read", Assert.Single(request.GetProperty("tools").EnumerateArray()).GetProperty("name").GetString());
+    }
+
+    private static string ResponsesToolReply(string id) => ResponsesReply("completed",
+    [
+        new { type = "reasoning", id = $"rs-{id}", summary = new[] { new { type = "summary_text", text = $"reason-{id}" } }, encrypted_content = $"protected-{id}" },
+        ResponseText($"text-{id}"),
+        new { type = "function_call", id = $"fc-{id}", call_id = id, name = "Read", arguments = "{\"path\":\"fixture.txt\"}", status = "completed" },
+    ]);
+
+    private static object ResponseText(string text) => new
+    {
+        type = "message", id = $"msg-{text}", role = "assistant", status = "completed",
+        content = new[] { new { type = "output_text", text, annotations = Array.Empty<object>() } },
+    };
+
+    private static string ResponsesReply(string status, object[] output, object? error = null) => JsonSerializer.Serialize(new
+    {
+        id = "response-fixture", @object = "response", created_at = 1, model = "test-model", status, output, error,
+        usage = new { input_tokens = 2, output_tokens = 3, total_tokens = 5 },
+    });
+
+    private static string ResponsesEvent(string name, object body) => $"event: {name}\ndata: {JsonSerializer.Serialize(body)}\n\n";
+
+    private static async Task<List<JsonElement>> ServeOpenAiAsync(
+        (int Status, string ContentType, string Body)[] replies, Func<IChatClient, Task> call)
+    {
+        var port = FreePort();
+        using var listener = new HttpListener();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        var served = ServeResponsesAsync(listener, replies, deadline.Token);
+        using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
+        { Provider = "openai", Model = "test-model", ApiKey = "test-key", Endpoint = $"http://127.0.0.1:{port}/" });
+        try
+        {
+            await call(client).WaitAsync(deadline.Token);
+            return await served.WaitAsync(deadline.Token);
+        }
+        finally
+        {
+            deadline.Cancel();
+            listener.Close();
+            try { await served; }
+            catch (Exception error) when (deadline.IsCancellationRequested &&
+                error is OperationCanceledException or HttpListenerException or ObjectDisposedException) { }
+        }
+    }
+
+    private static async Task<List<JsonElement>> ServeResponsesAsync(HttpListener listener,
+        (int Status, string ContentType, string Body)[] replies, CancellationToken ct)
+    {
+        var requests = new List<JsonElement>();
+        foreach (var reply in replies)
+        {
+            var context = await listener.GetContextAsync().WaitAsync(ct);
+            try
+            {
+                Assert.Equal("/responses", context.Request.Url!.AbsolutePath);
+                using var body = await JsonDocument.ParseAsync(context.Request.InputStream, cancellationToken: ct);
+                requests.Add(body.RootElement.Clone());
+                context.Response.StatusCode = reply.Status;
+                context.Response.ContentType = reply.ContentType;
+                await context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(reply.Body), ct);
+            }
+            finally { context.Response.Close(); }
+        }
+        return requests;
+    }
+
     private static async Task<InvalidOperationException> ProviderErrorAsync(int statusCode, string body, string callShape)
     {
         InvalidOperationException? error = null;
@@ -316,6 +593,8 @@ public sealed class ChatClientsTests
             var json = await reader.ReadToEndAsync();
             context.Response.StatusCode = 400;
             context.Response.Close();
+            if (provider != "anthropic")
+                Assert.Equal(provider == "openai" ? "/responses" : "/chat/completions", context.Request.Url!.AbsolutePath);
             return json;
         });
 

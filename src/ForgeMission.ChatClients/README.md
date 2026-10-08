@@ -19,7 +19,8 @@ Provider SDKs and their protocol differences must stay below MCL execution. This
 ## Owns
 
 - [`ChatClients.Build`](ChatClients.cs) and [`ChatClients.BuildChatClient`](ChatClients.cs) for supported profile values.
-- OpenAI-compatible OpenAI/Azure, Ollama, and xAI client construction.
+- OpenAI Responses client construction and missing SDK failure-content normalization in [`OpenAiResponseFailures`](OpenAiResponseFailures.cs).
+- Azure, Ollama, and xAI Chat Completions client construction.
 - Anthropic response-format and one-tool-call (`disable_parallel_tool_use`) adaptation in [`AnthropicResponseFormatChatClient`](ChatClients.cs).
 - Anthropic plain-text streaming with token usage in [`AnthropicTextStream`](AnthropicTextStream.cs).
 - Anthropic provider-error translation in [`AnthropicProviderError`](AnthropicProviderError.cs).
@@ -52,6 +53,9 @@ flowchart LR
 ## Important flows and constraints
 
 - Provider names are normalized by the factory; unknown values fail explicitly.
+- Every OpenAI model uses the existing SDK Responses adapter with `store=false` and encrypted reasoning included. Tool-free and tool-capable experts use the same injected `IChatClient` execution path.
+- OpenAI native failed responses without generic error content are projected to `ErrorContent` at this boundary; Core rejects that content. HTTP errors and cancellation propagate unchanged.
+- Generic protected reasoning survives Core's serialized tool continuation. The pinned SDK does not persist native reasoning item IDs; Azure Foundry project-scoped Responses endpoints requiring those IDs are not supported. Azure retains its existing Chat Completions endpoint contract.
 - Ollama and xAI use the OpenAI-compatible client with their own default endpoints.
 - Anthropic structured output is translated at this boundary; do not leak native provider types into Core.
 - Every Anthropic call sends `MaxOutputTokens` 4096 unless the caller sets one; the SDK otherwise sends 250, which cut streamed and tool-mode replies short.

@@ -13,7 +13,7 @@ namespace ForgeMission.Tests.Adapters;
 public class DirectExpertRunnerTests
 {
     // Stub that returns a predetermined StepEnvelope JSON response.
-    private sealed class StubChatClient(string status, string text = "stub output") : IChatClient
+    private sealed class StubChatClient(string status, string text = "stub output", ChatResponse? response = null) : IChatClient
     {
         public ChatClientMetadata Metadata => new("stub", null, null);
         public List<IReadOnlyList<ChatMessage>> Requests { get; } = [];
@@ -24,6 +24,7 @@ public class DirectExpertRunnerTests
             CancellationToken cancellationToken = default)
         {
             Requests.Add(messages.ToList());
+            if (response is not null) return Task.FromResult(response);
             var json = status == "fail"
                 ? $$$"""{"text":"{{{text}}}","status":"fail","reason":"stub reason"}"""
                 : $$$"""{"text":"{{{text}}}","status":"pass"}""";
@@ -41,6 +42,11 @@ public class DirectExpertRunnerTests
         private async IAsyncEnumerable<ChatResponseUpdate> Stream(IEnumerable<ChatMessage> messages)
         {
             Requests.Add(messages.ToList());
+            if (response is not null)
+            {
+                foreach (var update in response.ToChatResponseUpdates()) yield return update;
+                yield break;
+            }
             yield return new ChatResponseUpdate(ChatRole.Assistant, "{\"text\":\"stub output\",\"status\":\"pass\"}");
             await Task.CompletedTask;
         }
@@ -57,6 +63,45 @@ public class DirectExpertRunnerTests
 
     private static Dictionary<string, object> EmptyContext() =>
         new Dictionary<string, object> { ["output"] = "some input" };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ToolResponse_PreservesCompleteGenericMessages(bool stream)
+    {
+        var response = new ChatResponse([new ChatMessage(ChatRole.Assistant, "first-message") { MessageId = "first" }, new ChatMessage(ChatRole.Assistant,
+            [new TextReasoningContent("reason") { ProtectedData = "protected" }, new TextContent("before-tool"),
+             new FunctionCallContent("call-one", "Read", new Dictionary<string, object?>())]) { MessageId = "second" }]);
+        var runner = new DirectExpertRunner(new StubChatClient("pass", response: response));
+        var context = EmptyContext();
+        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "", "Read") };
+        if (stream) { await foreach (var _ in runner.StreamAsync(CriticExpert(), context)) { } }
+        else await runner.RunAsync(CriticExpert(), context);
+        var messages = Assert.IsAssignableFrom<IReadOnlyList<ChatMessage>>(context["__pipeline_tool_response_messages"]);
+        Assert.Equal(2, messages.Count);
+        Assert.Equal("first-message", messages[0].Text);
+        var contents = messages[^1].Contents;
+        Assert.Equal("protected", Assert.Single(contents.OfType<TextReasoningContent>()).ProtectedData);
+        Assert.Equal("before-tool", Assert.Single(contents.OfType<TextContent>()).Text);
+        Assert.Equal("call-one", Assert.Single(contents.OfType<FunctionCallContent>()).CallId);
+    }
+
+    [Theory]
+    [InlineData(false, "provider rejected")]
+    [InlineData(true, "provider rejected")]
+    [InlineData(false, null)]
+    [InlineData(true, "")]
+    public async Task GenericProviderError_AlwaysThrows(bool stream, string? message)
+    {
+        var response = new ChatResponse([new ChatMessage(ChatRole.Assistant, [new ErrorContent(message)])]);
+        var runner = new DirectExpertRunner(new StubChatClient("pass", response: response));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            if (!stream) { await runner.RunAsync(CriticExpert(), EmptyContext()); return; }
+            await foreach (var _ in runner.StreamAsync(CriticExpert(), EmptyContext())) { }
+        });
+        Assert.Equal(string.IsNullOrEmpty(message) ? "The model provider returned a failed response." : message, error.Message);
+    }
 
     [Fact]
     public async Task NonJudge_LlmReturnsFail_RunnerForcesPass()
