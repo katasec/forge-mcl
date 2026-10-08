@@ -120,10 +120,7 @@ function Assert-RemoteAssets {
 function Find-Release {
     param([string]$Tag)
     $pages = Invoke-Gh api "repos/$Repository/releases?per_page=100" --paginate --slurp | ConvertFrom-Json
-    foreach ($page in $pages) {
-        foreach ($release in $page) { if ($release.tag_name -ceq $Tag) { return $release } }
-    }
-    return $null
+    return $pages | ForEach-Object { $_ } | Where-Object { $_.tag_name -ceq $Tag } | Select-Object -First 1
 }
 
 function Test-LatestDescendant {

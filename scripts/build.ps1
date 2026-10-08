@@ -12,8 +12,9 @@ param(
 function Invoke-CliBuild {
     if ($Action -eq 'clean') { Invoke-Checked dotnet @('clean', 'ForgeMission.slnx'); return }
     $identity = Get-CliVersion $ReleaseTag
-    if ($Action -eq 'build') { Invoke-Checked dotnet @('build', 'ForgeMission.slnx', "-p:Version=$($identity.Version)"); return }
-    if ($Action -eq 'test') { Invoke-Checked dotnet @('test', 'ForgeMission.slnx'); return }
+    $properties = @(Get-IdentityProperties $identity)
+    if ($Action -eq 'build') { Invoke-Checked dotnet (@('build', 'ForgeMission.slnx') + $properties); return }
+    if ($Action -eq 'test') { Invoke-Checked dotnet (@('test', 'ForgeMission.slnx') + $properties); return }
     $runtime = Resolve-Runtime $Rid
     $destination = Resolve-Destination
     if ($Action -eq 'verify') { Invoke-ManagedVerification $destination $identity }
@@ -45,20 +46,25 @@ function Invoke-ManagedVerification {
     param([string]$Destination, $Identity)
     New-Item -ItemType Directory -Force $Destination | Out-Null
     Set-Content (Join-Path $Destination 'source.txt') $Identity.Source
-    Invoke-Checked dotnet @('build', 'ForgeMission.slnx', "-p:Version=$($Identity.Version)", '-warnaserror') (Join-Path $Destination 'managed-build.log')
+    $properties = @(Get-IdentityProperties $Identity)
+    Invoke-Checked dotnet (@('build', 'ForgeMission.slnx', '-warnaserror') + $properties) (Join-Path $Destination 'managed-build.log')
     # Existing live-UI exclusions: these tests require physical terminal animation/input.
     $filter = 'FullyQualifiedName!~ForgeMission.Tests.Cli.StartPageTests&FullyQualifiedName!~ForgeMission.Tests.Cli.ChatScreenLiveMotionTests'
-    Invoke-Checked dotnet @('test', 'ForgeMission.slnx', '--filter', $filter, '-warnaserror') (Join-Path $Destination 'managed-tests.log')
+    Invoke-Checked dotnet (@('test', 'ForgeMission.slnx', '--filter', $filter, '-warnaserror') + $properties) (Join-Path $Destination 'managed-tests.log')
 }
 
 function Publish-Native {
     param([string]$Destination, [string]$Runtime, $Identity)
     if (Test-Path $Destination) { Remove-Item $Destination -Recurse -Force }
     New-Item -ItemType Directory -Force $Destination | Out-Null
-    $arguments = @('publish', 'src/ForgeMission.Cli', '-c', 'Release', '-r', $Runtime, '-o', $Destination,
-        "-p:Version=$($Identity.Version)", "-p:InformationalVersion=$($Identity.Identity)",
-        '-p:IncludeSourceRevisionInInformationalVersion=false', "-p:SourceRevisionId=$($Identity.Source)", '-warnaserror')
+    $arguments = @('publish', 'src/ForgeMission.Cli', '-c', 'Release', '-r', $Runtime, '-o', $Destination, '-warnaserror') + @(Get-IdentityProperties $Identity)
     Invoke-Checked dotnet $arguments (Join-Path (Split-Path $Destination -Parent) 'native-publish.log')
+}
+
+function Get-IdentityProperties {
+    param($Identity)
+    return @("-p:Version=$($Identity.Version)", "-p:InformationalVersion=$($Identity.Identity)",
+        '-p:IncludeSourceRevisionInInformationalVersion=false', "-p:SourceRevisionId=$($Identity.Source)")
 }
 
 function Assert-NativeIdentity {

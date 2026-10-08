@@ -86,6 +86,14 @@ function Test-ReleaseBoundaries {
 
 function Test-BuildFailure {
     $before = $script:uploadCount
+    function dotnet { $script:capturedCompile = @($args); $global:LASTEXITCODE = 0 }
+    Set-Content (Join-Path $script:fixture 'untracked.txt') dirty
+    $expectedIdentity = (Get-CliVersion).Identity
+    . "$script:fixture/scripts/build.ps1" -Action build -ReleaseTag ''
+    Assert-True ($script:capturedCompile -contains "-p:InformationalVersion=$expectedIdentity") 'Managed build preserves complete dirty identity'
+    . "$script:fixture/scripts/build.ps1" -Action test -ReleaseTag ''
+    Assert-True ($script:capturedCompile -contains "-p:InformationalVersion=$expectedIdentity") 'Managed test recompilation shares identity'
+    Remove-Item (Join-Path $script:fixture 'untracked.txt')
     function dotnet { $global:LASTEXITCODE = 1; 'Controlled compiler failure' }
     Assert-Fails { . "$script:fixture/scripts/build.ps1" -Action publish -Rid linux-x64 -Output (Join-Path $script:testRoot 'failed-build') -ReleaseTag '' } 'dotnet failed' 'Compiler error propagates'
     Assert-Equal $script:uploadCount $before 'Build failure cannot publish'
