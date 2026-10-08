@@ -58,7 +58,8 @@ function Publish-Native {
     if (Test-Path $Destination) { Remove-Item $Destination -Recurse -Force }
     New-Item -ItemType Directory -Force $Destination | Out-Null
     $arguments = @('publish', 'src/ForgeMission.Cli', '-c', 'Release', '-r', $Runtime, '-o', $Destination, '-warnaserror') + @(Get-IdentityProperties $Identity)
-    Invoke-Checked dotnet $arguments (Join-Path (Split-Path $Destination -Parent) 'native-publish.log')
+    # Preserve existing laptop install diagnostics; canonical verify/package retain the raw zero-warning gate.
+    Invoke-Checked dotnet $arguments (Join-Path (Split-Path $Destination -Parent) 'native-publish.log') ($Action -ne 'install')
 }
 
 function Get-IdentityProperties {
@@ -99,13 +100,13 @@ function Write-Package {
 }
 
 function Invoke-Checked {
-    param([string]$Command, [string[]]$Arguments, [string]$Log)
+    param([string]$Command, [string[]]$Arguments, [string]$Log, [bool]$RejectRawWarnings = $true)
     $lines = [Collections.Generic.List[string]]::new()
     & $Command @Arguments 2>&1 | ForEach-Object { $line = "$_"; $lines.Add($line); Write-Host $line }
     $code = $LASTEXITCODE
     if ($Log) { Set-Content $Log $lines -Encoding utf8 }
     if ($code -ne 0) { throw "$Command failed ($code)." }
-    if ($lines | Where-Object { $_ -match '(^|\s)warning(\s+[A-Z]+[0-9]+)?\s*:' }) { throw "$Command produced compiler/linker warnings; see $Log." }
+    if ($RejectRawWarnings -and ($lines | Where-Object { $_ -match '(^|\s)warning(\s+[A-Z]+[0-9]+)?\s*:' })) { throw "$Command produced compiler/linker warnings; see $Log." }
 }
 
 Push-Location $script:repositoryRoot

@@ -31,3 +31,8 @@ Preparation consumes the frozen `GITHUB_EVENT_PATH` for a merged PR into `main` 
 outputs via `GITHUB_OUTPUT`. Publication consumes its `RELEASE_TAG`/`SOURCE_SHA`, all eight
 downloaded assets in `CLI_OUTPUT`, and the scoped `GH_TOKEN`. Only unpublished draft assets may be
 replaced. Package versions and unrelated component publication targets remain independent.
+
+Native `install` preserves the existing visible host-linker diagnostics on the maintainer's
+macOS 27/Homebrew setup; compiler warnings still fail through `-warnaserror`. Native verification
+and packaging additionally reject all raw compiler/linker warnings. This temporary install-only
+exception is recorded in Phase 75 and is removed when those supported prerequisites link cleanly.
