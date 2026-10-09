@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using ForgeMission.Core.Experts;
 using ForgeMission.Parser;
 using MclProgram = ForgeMission.Parser.Program;
@@ -14,13 +16,8 @@ namespace ForgeMission.Core.Runtime;
 public static class DurableMissionPackageValidator
 {
     public const int CurrentFormatVersion = 1;
-    // The complete package travels in the one Host start command/checkpoint. These deliberately
-    // small content limits, plus Host's exact serialized-command guard, make that invariant true
-    // rather than claiming an image-sized package can fit in a 32 KiB durable command.
-    public const int MaxPackageUtf8Bytes = 8 * 1024;
-    private const int MaxMissionChars = 4 * 1024;
-    private const int MaxExpertChars = 8 * 1024;
-    private const int MaxExperts = 2;
+    /// <summary>Packages are staged as one bounded Host body, not embedded in a command.</summary>
+    public const int MaxPackageUtf8Bytes = 4 * 1024 * 1024;
 
     /// <summary>The profile an llm step runs on when it omits <c>using</c>.</summary>
     public const string DefaultProviderProfile = "default";
@@ -39,8 +36,8 @@ public static class DurableMissionPackageValidator
         validated = null;
         reason = null;
         if (package.FormatVersion != CurrentFormatVersion || string.IsNullOrWhiteSpace(package.MissionSource) ||
-            package.MissionSource.Length > MaxMissionChars || string.IsNullOrWhiteSpace(package.RootMissionName) ||
-            string.IsNullOrWhiteSpace(package.RootInputName) || package.ResolvedExperts.Count is 0 or > MaxExperts ||
+            string.IsNullOrWhiteSpace(package.RootMissionName) || string.IsNullOrWhiteSpace(package.RootInputName) ||
+            package.ResolvedExperts is null || package.ResolvedExperts.Count == 0 ||
             PackageContentUtf8Bytes(package) > MaxPackageUtf8Bytes)
         {
             reason = "The durable package shape is invalid.";
@@ -59,7 +56,7 @@ public static class DurableMissionPackageValidator
             foreach (var entry in package.ResolvedExperts.OrderBy(e => e.Name, StringComparer.Ordinal))
             {
                 if (string.IsNullOrWhiteSpace(entry.Name) || string.IsNullOrWhiteSpace(entry.LockSource) ||
-                    string.IsNullOrWhiteSpace(entry.LockPath) || entry.ExpertMarkdown.Length > MaxExpertChars ||
+                    string.IsNullOrWhiteSpace(entry.LockPath) ||
                     !IsContentHash(entry.LockHash, entry.ExpertMarkdown) || !experts.TryAdd(entry.Name,
                         ExpertLoader.ParseContent($"durable/{entry.Name}/expert.md", entry.ExpertMarkdown)))
                 {
@@ -127,6 +124,45 @@ public static class DurableMissionPackageValidator
         return "sha256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()))).ToLowerInvariant();
     }
 
+    /// <summary>Writes the package transport body in the one AOT-safe canonical JSON shape.</summary>
+    public static byte[] Serialize(DurableMissionPackageInput package)
+    {
+        if (!TryValidate(package, out _, out var reason))
+            throw new ArgumentException(reason ?? "The durable package is invalid.", nameof(package));
+        var canonical = package with
+        {
+            ResolvedExperts = package.ResolvedExperts.OrderBy(expert => expert.Name, StringComparer.Ordinal).ToArray(),
+        };
+        return JsonSerializer.SerializeToUtf8Bytes(canonical, DurableMissionPackageJsonContext.Default.DurableMissionPackageInput);
+    }
+
+    /// <summary>Reads and validates a package body before it reaches provider execution.</summary>
+    public static bool TryDeserialize(
+        ReadOnlySpan<byte> bytes,
+        out DurableMissionPackageInput? package,
+        out string? reason)
+    {
+        package = null;
+        reason = null;
+        try
+        {
+            var parsed = JsonSerializer.Deserialize(bytes, DurableMissionPackageJsonContext.Default.DurableMissionPackageInput);
+            if (parsed is null)
+            {
+                reason = "The durable package body is empty.";
+                return false;
+            }
+            if (!TryValidate(parsed, out _, out reason)) return false;
+            package = parsed;
+            return true;
+        }
+        catch (JsonException)
+        {
+            reason = "The durable package body is not valid JSON.";
+            return false;
+        }
+    }
+
     private static void Append(StringBuilder target, string value) => target.Append(value.Length).Append(':').Append(value);
     private static int PackageContentUtf8Bytes(DurableMissionPackageInput package) =>
         Encoding.UTF8.GetByteCount(package.MissionSource) + Encoding.UTF8.GetByteCount(package.RootMissionName) +
@@ -159,3 +195,8 @@ public sealed record DurableMissionPackageInput(int FormatVersion, string Packag
 /// <see cref="DurableMissionPackageValidator.DefaultProviderProfile"/> or an allowed name.</summary>
 public sealed record ValidatedDurableMissionPackage(DurableMissionPackageInput Input, MclProgram Ast,
     Dictionary<string, ExpertDefinition> Experts, string ProviderProfile);
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(DurableMissionPackageInput))]
+[JsonSerializable(typeof(DurableResolvedExpertInput))]
+internal partial class DurableMissionPackageJsonContext : JsonSerializerContext { }
