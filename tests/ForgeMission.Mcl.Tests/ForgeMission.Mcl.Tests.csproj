@@ -39,6 +39,7 @@
     <ProjectReference Include="..\..\src\ForgeMission.Docker\ForgeMission.Docker.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.MissionRegistry\ForgeMission.MissionRegistry.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.Cli\ForgeMission.Cli.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../ForgeMission.Exec.Probe/ForgeMission.Exec.Probe.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

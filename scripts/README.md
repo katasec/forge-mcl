@@ -36,3 +36,12 @@ Native `install` preserves the existing visible host-linker diagnostics on the m
 macOS 27/Homebrew setup; compiler warnings still fail through `-warnaserror`. Native verification
 and packaging additionally reject all raw compiler/linker warnings. This temporary install-only
 exception is recorded in Phase 75 and is removed when those supported prerequisites link cleanly.
+
+Normal `cli-verify` and `cli-package` also publish and run the public-Core-API native exec probe
+on the current host. It checks literal arguments/cwd, declined stdin, early-root-exit descendants,
+timeout/cancellation and unrelated .NET child ownership. Logs and the probe publish live in the
+verification output beside the CLI logs; the probe is excluded from the shipped CLI ZIP.
+The normal Linux x64 GitHub Actions package gate additionally runs that native probe as PID 1
+in the Runner's `mcr.microsoft.com/dotnet/aspnet:10.0` runtime image, without `--init`, and checks
+owned adopted-child reaping. Docker/image/probe failures fail this gate. Image digests and logs
+are recorded in `exec-pid1-*`; these library facts do not prove later hosted deployment acceptance.

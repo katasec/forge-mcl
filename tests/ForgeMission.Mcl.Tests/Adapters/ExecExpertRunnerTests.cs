@@ -10,6 +10,103 @@ namespace ForgeMission.Tests.Adapters;
 
 public class ExecExpertRunnerTests : IDisposable
 {
+    [Fact]
+    public async Task Native_owner_public_probe_joins_early_exit_descendants()
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
+        var name = OperatingSystem.IsWindows() ? "ForgeMission.Exec.Probe.exe" : "ForgeMission.Exec.Probe";
+        var probe = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../ForgeMission.Exec.Probe/bin", configuration, "net10.0", name));
+        using var process = Process.Start(new ProcessStartInfo(probe)
+        { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true })!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(deadline.Token); }
+        catch { process.Kill(true); await process.WaitForExitAsync(); await Task.WhenAll(output, error); throw; }
+        Assert.True(process.ExitCode == 0, await output + "\n" + await error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Cleanup_error_precedes_cancellation_without_sabotaging_a_live_process(bool cancellation)
+    {
+        var selector = typeof(ExecExpertRunner).GetMethod("ThrowExchangeFailure", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        using var source = new CancellationTokenSource();
+        if (cancellation) source.Cancel();
+        Exception original = cancellation ? new OperationCanceledException(source.Token) : new IOException("original pipe error");
+        var cleanup = new IOException("controlled OS reap failure");
+        var thrown = Assert.Throws<System.Reflection.TargetInvocationException>(() => selector.Invoke(null,
+            [original, new IOException[] { cleanup }, source.Token]));
+        var failure = Assert.IsAssignableFrom<IOException>(thrown.InnerException);
+        Assert.Contains("controlled OS reap failure", failure.ToString());
+        Assert.Contains(original.Message, failure.ToString());
+        thrown = Assert.Throws<System.Reflection.TargetInvocationException>(() => selector.Invoke(null,
+            [original, Array.Empty<IOException>(), source.Token]));
+        if (cancellation) Assert.IsAssignableFrom<OperationCanceledException>(thrown.InnerException);
+        else Assert.Same(original, thrown.InnerException);
+    }
+
+    [Fact]
+    public void Declined_input_classifier_preserves_other_IO_failures_and_cancellation()
+    {
+        var classify = typeof(ExecExpertRunner).GetMethod("DeclinedInput", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        Assert.Equal(false, classify.Invoke(null, [new IOException("unrelated storage failure"), CancellationToken.None]));
+        var closed = OperatingSystem.IsWindows() ? new IOException("closed", unchecked((int)0x8007006D))
+            : new IOException("closed", new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.Shutdown));
+        Assert.Equal(true, classify.Invoke(null, [closed, CancellationToken.None]));
+        Assert.Equal(false, classify.Invoke(null, [closed, new CancellationToken(true)]));
+    }
+
+    [SkippableFact]
+    public async Task Caller_registration_is_live_in_the_same_workspace_and_process_local()
+    {
+        var relative = "inputs/later/content";
+        var registry = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+        var workspace = new PipelineExecutionWorkspace(_dir, registry);
+        var script = Script("import json,sys,os\nd=json.load(sys.stdin)\nprint(json.dumps({'result':d['input']+'|'+os.environ.get('FORGE_INPUT_input','')}))\n");
+        var ast = MclParser.Parse("mission Root(input) = { TestExec -> Pause -> TestExec }");
+        var input = new Dictionary<string, string> { ["input"] = relative };
+        var fake = new StubExpertRunner((_, context) =>
+        {
+            if (!context.Values.OfType<IReadOnlyList<Microsoft.Extensions.AI.ChatMessage>>().SelectMany(turn => turn)
+                .SelectMany(message => message.Contents).OfType<Microsoft.Extensions.AI.FunctionResultContent>().Any())
+                context["tool_calls"] = new List<Microsoft.Extensions.AI.FunctionCallContent> { new("call", "Read", new Dictionary<string, object?>()) };
+            return new StepEnvelope("continued");
+        });
+        var tools = new List<Microsoft.Extensions.AI.AITool> { Microsoft.Extensions.AI.AIFunctionFactory.Create(() => "", "Read") };
+        var options = new PipelineRunOptions("Root", input, RootTools: tools) { ExecutionWorkspace = workspace };
+        var experts = new Dictionary<string, ExpertDefinition> { ["TestExec"] = ExecExpert(script),
+            ["Pause"] = new("Pause", "text", "text", "", Role: "agent") };
+        var runner = new PipelineRunner(fake);
+        var pause = Assert.IsType<PipelineToolPause>((await runner.RunAsync(ast, experts, options)).Pause);
+        Assert.Equal(relative + "|", fake.Calls[0].Context["output"]);
+        using var checkpoint = JsonDocument.Parse(pause.Continuation.Payload);
+        Assert.Equal(relative, checkpoint.RootElement.GetProperty("rootInputs").GetProperty("input").GetString());
+        Assert.DoesNotContain(_dir, pause.Continuation.Payload);
+        var absolute = Path.Combine(_dir, "inputs", "later", "content");
+        Directory.CreateDirectory(Path.GetDirectoryName(absolute)!);
+        await File.WriteAllTextAsync(absolute, "verified");
+        registry[relative] = "verified-digest";
+        var after = await runner.ResumeAsync(ast, experts, new(pause.Continuation,
+            new(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)), options);
+        Assert.Equal(absolute + "|" + absolute, after.Text);
+        Assert.Equal(relative, input["input"]);
+        Assert.Equal(relative, fake.Calls[^1].Context["input"]);
+        Assert.Same(registry, workspace.ArtifactPaths);
+    }
+    [SkippableTheory]
+    [InlineData(1)]
+    [InlineData(262144)]
+    [InlineData(4194292)]
+    public async Task Child_may_decline_stdin_without_an_IO_failure(int length)
+    {
+        var script = Script("import os,json\nos.close(0)\nprint(json.dumps({'result':'declined'}))\n");
+        var result = await new ExecExpertRunner().RunAsync(ExecExpert(script), new() { ["input"] = new string('x', length) });
+        Assert.True(result.Status == "pass", result.Reason);
+        Assert.Equal("declined", result.Text);
+    }
+
     [SkippableFact]
     public async Task Workspace_bindings_are_process_local_expert_relative_and_alias_aware()
     {
@@ -256,7 +353,7 @@ public class ExecExpertRunnerTests : IDisposable
 
         var envelope = await runner.RunAsync(expert, context);
 
-        Assert.Equal("pass", envelope.Status);
+        Assert.True(envelope.Status == "pass", envelope.Reason);
         Assert.Equal("wrote proof", envelope.Text);
         Assert.Equal("artifact proof", File.ReadAllText(Path.Combine(outputDir, "proof.txt")));
     }

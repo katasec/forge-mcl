@@ -17,6 +17,54 @@ namespace ForgeMission.Tests.Runtime;
 /// </summary>
 public sealed class AgentToolPipelineTests
 {
+    [Theory]
+    [InlineData("rootInputs")]
+    [InlineData("rootExecutionId")]
+    [InlineData("rootMissionName")]
+    [InlineData("rootDefinitionFingerprint")]
+    [InlineData("rootToolScopeFingerprint")]
+    [InlineData("expertName")]
+    [InlineData("missionPath")]
+    [InlineData("toolDeclarations")]
+    [InlineData("turnMessages")]
+    [InlineData("admittedInputNames")]
+    [InlineData("log")]
+    public async Task Malformed_current_checkpoint_is_rejected_before_any_invocation(string field)
+    {
+        var ast = MclParser.Parse("mission Root = { Enrich -> Respond }");
+        var runner = new StubExpertRunner(Scripted);
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        var count = runner.Calls.Count;
+        foreach (var missing in new[] { false, true })
+        {
+            var checkpoint = System.Text.Json.Nodes.JsonNode.Parse(pause.Continuation.Payload)!.AsObject();
+            if (missing) checkpoint.Remove(field);
+            else checkpoint[field] = null;
+            var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
+            Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
+            Assert.Equal(count, runner.Calls.Count);
+        }
+    }
+
+    [Theory]
+    [InlineData("rootInputs", "input")]
+    [InlineData("toolDeclarations", "name")]
+    [InlineData("log", "writes")]
+    public async Task Malformed_checkpoint_collection_entries_are_rejected(string field, string property)
+    {
+        var ast = MclParser.Parse("mission Root(input) = { Enrich -> Respond }");
+        var runner = new StubExpertRunner(Scripted);
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Root", new Dictionary<string, string> { ["input"] = "x" }, RootTools: ClientTools()))).Pause);
+        var checkpoint = System.Text.Json.Nodes.JsonNode.Parse(pause.Continuation.Payload)!;
+        if (field == "rootInputs") checkpoint[field]![property] = null;
+        else checkpoint[field]![0]![property] = null;
+        var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
+        Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
+        Assert.Equal(2, runner.Calls.Count);
+    }
+
     [Fact]
     public async Task Parameterless_declared_inputs_and_completed_writes_survive_nested_resume_under_new_workspace()
     {

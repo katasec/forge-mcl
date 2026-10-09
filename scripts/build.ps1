@@ -23,7 +23,26 @@ function Invoke-CliBuild {
     if ($IsMacOS) { Invoke-Checked codesign @('--force', '--sign', '-', (Join-Path $native 'forge')) }
     Assert-NativeIdentity $native $identity $destination
     if ($Action -eq 'install') { Install-Payload $native; return }
+    if ($Action -in @('verify', 'package')) { Test-NativeExec $destination $runtime $identity }
     if ($Action -eq 'package') { Write-Package $native $runtime $destination }
+}
+
+function Test-NativeExec {
+    param([string]$Destination, [string]$Runtime, $Identity)
+    $proof = Join-Path $Destination 'exec-probe'
+    $arguments = @('publish', 'tests/ForgeMission.Exec.Probe', '-c', 'Release', '-r', $Runtime,
+        '-p:PublishAot=true', '-warnaserror', '-o', $proof) + @(Get-IdentityProperties $Identity)
+    Invoke-Checked dotnet $arguments (Join-Path $Destination 'exec-probe-publish.log')
+    $name = 'ForgeMission.Exec.Probe'
+    if ($IsWindows) { $name += '.exe' }
+    Invoke-Checked (Join-Path $proof $name) @() (Join-Path $Destination 'exec-probe-run.log')
+    if ($Runtime -eq 'linux-x64' -and $env:GITHUB_ACTIONS -eq 'true') {
+        $image = 'mcr.microsoft.com/dotnet/aspnet:10.0'
+        Invoke-Checked docker @('pull', $image) (Join-Path $Destination 'exec-pid1-image-pull.log')
+        Invoke-Checked docker @('image', 'inspect', '--format', '{{json .RepoDigests}}', $image) (Join-Path $Destination 'exec-pid1-image.txt')
+        Invoke-Checked docker @('run', '--rm', '--mount', "type=bind,source=$([IO.Path]::GetFullPath($proof)),target=/proof,readonly",
+            '--entrypoint', '/proof/ForgeMission.Exec.Probe', $image, '--verify-pid1') (Join-Path $Destination 'exec-pid1-run.log')
+    }
 }
 
 function Resolve-Runtime {

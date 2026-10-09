@@ -30,180 +30,149 @@ public static class ForgeTomlReader
 
     private static ForgeManifest Parse(string[] lines, string path, bool distributionOnly)
     {
-        var experts       = new Dictionary<string, string>(StringComparer.Ordinal);
-        var providers     = new Dictionary<string, ProviderProfile>(StringComparer.Ordinal);
-        var executionRows = new Dictionary<string, string>(StringComparer.Ordinal);
-        IReadOnlyList<string> assets = [];
-        var artifactInputs = new Dictionary<string, Dictionary<string, TomlValue>>(StringComparer.Ordinal);
-        var artifactModes  = new Dictionary<string, Dictionary<string, TomlValue>>(StringComparer.Ordinal);
-
-        // Track current section: "experts", "providers.<name>", "execution",
-        // "capabilities.artifacts.inputs.<name>", "capabilities.artifacts.modes.<mode>", or null.
-        string? section       = null;
-        string? profileName   = null;
-        string? capabilityKey = null;
-        var     profileRows   = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
-
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var raw  = lines[i];
-            var line = raw.Split('#')[0].Trim(); // strip inline comments
-            if (line.Length == 0) continue;
-
-            // Section header
-            if (line.StartsWith('['))
-            {
-                if (!line.EndsWith(']'))
-                    throw new ForgeTomlException($"Line {i + 1}: malformed section header", path);
-
-                var header = line[1..^1].Trim();
-                if (distributionOnly)
-                {
-                    section = header;
-                    continue;
-                }
-                if (header.StartsWith("providers.", StringComparison.Ordinal))
-                {
-                    profileName = header["providers.".Length..].Trim();
-                    if (profileName.Length == 0)
-                        throw new ForgeTomlException($"Line {i + 1}: empty provider name", path);
-                    profileRows[profileName] = new Dictionary<string, string>(StringComparer.Ordinal);
-                    section = "providers";
-                }
-                else if (header.StartsWith("capabilities.artifacts.inputs.", StringComparison.Ordinal))
-                {
-                    capabilityKey = header["capabilities.artifacts.inputs.".Length..].Trim();
-                    if (capabilityKey.Length == 0)
-                        throw new ForgeTomlException($"Line {i + 1}: empty artifact input name", path);
-                    artifactInputs[capabilityKey] = new Dictionary<string, TomlValue>(StringComparer.Ordinal);
-                    section = "artifactInput";
-                    profileName = null;
-                }
-                else if (header.StartsWith("capabilities.artifacts.modes.", StringComparison.Ordinal))
-                {
-                    capabilityKey = header["capabilities.artifacts.modes.".Length..].Trim();
-                    if (capabilityKey.Length == 0)
-                        throw new ForgeTomlException($"Line {i + 1}: empty artifact mode name", path);
-                    artifactModes[capabilityKey] = new Dictionary<string, TomlValue>(StringComparer.Ordinal);
-                    section = "artifactMode";
-                    profileName = null;
-                }
-                else
-                {
-                    section       = header;
-                    profileName   = null;
-                    capabilityKey = null;
-                }
-                continue;
-            }
-
-            if (distributionOnly && section is not ("experts" or "package")) continue;
-
-            // Key = value
-            var eq = line.IndexOf('=');
-            if (eq <= 0)
-                throw new ForgeTomlException($"Line {i + 1}: expected key = value", path);
-
-            var key      = line[..eq].Trim();
-            var rawValue = line[(eq + 1)..].Trim();
-            if (rawValue.StartsWith('[') && !rawValue.EndsWith(']'))
-                rawValue = ReadMultilineArray(rawValue, lines, ref i, path);
-            if ((distributionOnly || section == "package") && rawValue.StartsWith("env(", StringComparison.Ordinal))
-                throw new ForgeTomlException($"Line {i + 1}: distribution metadata must be literal", path);
-            var value = ResolveValue(rawValue, i + 1, path);
-
-            switch (section)
-            {
-                case "experts":
-                    experts[key] = value.AsString(i + 1, path);
-                    break;
-                case "package":
-                    if (key != "assets")
-                        throw new ForgeTomlException($"[package] unknown field \"{key}\"", path);
-                    assets = value.AsStringArray("[package].assets", path);
-                    break;
-                case "providers" when profileName is not null:
-                    profileRows[profileName][key] = value.AsString(i + 1, path);
-                    break;
-                case "execution":
-                    var knownExecutionKeys = new[] { "backend", "defaultTimeout" };
-                    if (!knownExecutionKeys.Contains(key))
-                        throw new ForgeTomlException($"[execution] unknown field \"{key}\"", path);
-                    executionRows[key] = value.AsString(i + 1, path);
-                    break;
-                case "artifactInput" when capabilityKey is not null:
-                    AddKnownArtifactField(artifactInputs[capabilityKey], key, value, i + 1, path,
-                        ["content_types", "max_size_mb"]);
-                    break;
-                case "artifactMode" when capabilityKey is not null:
-                    AddKnownArtifactField(artifactModes[capabilityKey], key, value, i + 1, path,
-                        ["output_content_type", "output_extension", "default"]);
-                    break;
-                default:
-                    // top-level keys — ignore for now (reserved for future use)
-                    break;
-            }
-        }
-
-        // Build ProviderProfile objects from rows
-        foreach (var (name, rows) in profileRows)
-        {
-            AssertField(rows, "provider", $"[providers.{name}]", path);
-            AssertField(rows, "model",    $"[providers.{name}]", path);
-
-            var knownProviders = new[] { "openai", "anthropic", "azure", "ollama", "xai" };
-            if (!knownProviders.Contains(rows["provider"]))
-                throw new ForgeTomlException(
-                    $"[providers.{name}] provider \"{rows["provider"]}\" is not recognised. " +
-                    $"Known providers: {string.Join(", ", knownProviders)}", path);
-
-            foreach (var k in rows.Keys)
-            {
-                var known = new[] { "provider", "model", "apiKey", "endpoint" };
-                if (!known.Contains(k))
-                    throw new ForgeTomlException($"[providers.{name}] unknown field \"{k}\"", path);
-            }
-
-            providers[name] = new ProviderProfile
-            {
-                Provider = rows["provider"],
-                Model    = rows["model"],
-                ApiKey   = rows.GetValueOrDefault("apiKey"),
-                Endpoint = rows.GetValueOrDefault("endpoint"),
-            };
-        }
-
-        // Validate and build ExecutionConfig
-        if (executionRows.TryGetValue("backend", out var backend))
-        {
-            var knownBackends = new[] { "process" };
-            if (!knownBackends.Contains(backend))
-                throw new ForgeTomlException(
-                    $"[execution] backend \"{backend}\" is not recognised. " +
-                    $"Known backends: {string.Join(", ", knownBackends)}", path);
-        }
-
-        var execution = new ExecutionConfig
-        {
-            Backend        = executionRows.GetValueOrDefault("backend",        "process"),
-            DefaultTimeout = executionRows.GetValueOrDefault("defaultTimeout", "30s"),
-        };
-
-        var capabilities = new CapabilityConfig
-        {
-            Artifacts = BuildArtifactCapabilities(artifactInputs, artifactModes, path),
-        };
-
+        var rows = ReadRows(lines, path, distributionOnly);
         return new ForgeManifest
         {
-            Experts = experts,
-            Providers = providers,
-            Execution = execution,
-            Capabilities = capabilities,
-            Package = new PackageConfig(assets),
+            Experts = rows.Experts,
+            Providers = BuildProviders(rows.Profiles, path),
+            Execution = BuildExecution(rows.Execution, path),
+            Capabilities = new CapabilityConfig { Artifacts = BuildArtifactCapabilities(rows.Inputs, rows.Modes, path) },
+            Package = new PackageConfig(rows.Assets),
         };
     }
 
+    private static ManifestRows ReadRows(string[] lines, string path, bool distributionOnly)
+    {
+        var rows = new ManifestRows();
+        var section = new ManifestSection("");
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index].Split('#')[0].Trim();
+            if (line.Length == 0) continue;
+            if (line.StartsWith('['))
+            {
+                section = ReadSection(line, rows, distributionOnly, index + 1, path);
+                continue;
+            }
+            if (distributionOnly && section.Name is not ("experts" or "package")) continue;
+            var (key, value) = ReadAssignment(line, lines, ref index, section, distributionOnly, path);
+            AddRow(rows, section, key, value, index + 1, path);
+        }
+        return rows;
+    }
+
+    private static ManifestSection ReadSection(string line, ManifestRows rows, bool distributionOnly, int number, string path)
+    {
+        if (!line.EndsWith(']')) throw new ForgeTomlException($"Line {number}: malformed section header", path);
+        var header = line[1..^1].Trim();
+        if (distributionOnly) return new(header);
+        if (header.StartsWith("providers.", StringComparison.Ordinal))
+        {
+            var name = SectionName(header, "providers.", "provider", number, path);
+            rows.Profiles[name] = new(StringComparer.Ordinal);
+            return new("providers", name);
+        }
+        if (header.StartsWith("capabilities.artifacts.inputs.", StringComparison.Ordinal))
+        {
+            var name = SectionName(header, "capabilities.artifacts.inputs.", "artifact input", number, path);
+            rows.Inputs[name] = new(StringComparer.Ordinal);
+            return new("artifactInput", name);
+        }
+        if (header.StartsWith("capabilities.artifacts.modes.", StringComparison.Ordinal))
+        {
+            var name = SectionName(header, "capabilities.artifacts.modes.", "artifact mode", number, path);
+            rows.Modes[name] = new(StringComparer.Ordinal);
+            return new("artifactMode", name);
+        }
+        return new(header);
+    }
+
+    private static string SectionName(string header, string prefix, string kind, int number, string path)
+    {
+        var name = header[prefix.Length..].Trim();
+        if (name.Length == 0) throw new ForgeTomlException($"Line {number}: empty {kind} name", path);
+        return name;
+    }
+
+    private static (string Key, TomlValue Value) ReadAssignment(string line, string[] lines, ref int index,
+        ManifestSection section, bool distributionOnly, string path)
+    {
+        var equals = line.IndexOf('=');
+        if (equals <= 0) throw new ForgeTomlException($"Line {index + 1}: expected key = value", path);
+        var raw = line[(equals + 1)..].Trim();
+        if (raw.StartsWith('[') && !raw.EndsWith(']')) raw = ReadMultilineArray(raw, lines, ref index, path);
+        if ((distributionOnly || section.Name == "package") && raw.StartsWith("env(", StringComparison.Ordinal))
+            throw new ForgeTomlException($"Line {index + 1}: distribution metadata must be literal", path);
+        return (line[..equals].Trim(), ResolveValue(raw, index + 1, path));
+    }
+
+    private static void AddRow(ManifestRows rows, ManifestSection section, string key, TomlValue value, int number, string path)
+    {
+        switch (section.Name)
+        {
+            case "experts": rows.Experts[key] = value.AsString(number, path); break;
+            case "package":
+                if (key != "assets") throw new ForgeTomlException($"[package] unknown field \"{key}\"", path);
+                rows.Assets = value.AsStringArray("[package].assets", path);
+                break;
+            case "providers" when section.Key is not null:
+                rows.Profiles[section.Key][key] = value.AsString(number, path);
+                break;
+            case "execution":
+                if (key is not ("backend" or "defaultTimeout")) throw new ForgeTomlException($"[execution] unknown field \"{key}\"", path);
+                rows.Execution[key] = value.AsString(number, path);
+                break;
+            case "artifactInput" when section.Key is not null:
+                AddKnownArtifactField(rows.Inputs[section.Key], key, value, number, path, ["content_types", "max_size_mb"]);
+                break;
+            case "artifactMode" when section.Key is not null:
+                AddKnownArtifactField(rows.Modes[section.Key], key, value, number, path, ["output_content_type", "output_extension", "default"]);
+                break;
+        }
+    }
+
+    private static Dictionary<string, ProviderProfile> BuildProviders(Dictionary<string, Dictionary<string, string>> profiles, string path)
+    {
+        var providers = new Dictionary<string, ProviderProfile>(StringComparer.Ordinal);
+        foreach (var (name, rows) in profiles)
+        {
+            AssertField(rows, "provider", $"[providers.{name}]", path);
+            AssertField(rows, "model", $"[providers.{name}]", path);
+            var knownProviders = new[] { "openai", "anthropic", "azure", "ollama", "xai" };
+            if (!knownProviders.Contains(rows["provider"]))
+                throw new ForgeTomlException($"[providers.{name}] provider \"{rows["provider"]}\" is not recognised. Known providers: {string.Join(", ", knownProviders)}", path);
+            ValidateProviderFields(rows, name, path);
+            providers[name] = new ProviderProfile { Provider = rows["provider"], Model = rows["model"],
+                ApiKey = rows.GetValueOrDefault("apiKey"), Endpoint = rows.GetValueOrDefault("endpoint") };
+        }
+        return providers;
+    }
+
+    private static void ValidateProviderFields(Dictionary<string, string> rows, string name, string path)
+    {
+        foreach (var key in rows.Keys)
+            if (key is not ("provider" or "model" or "apiKey" or "endpoint"))
+                throw new ForgeTomlException($"[providers.{name}] unknown field \"{key}\"", path);
+    }
+
+    private static ExecutionConfig BuildExecution(Dictionary<string, string> rows, string path)
+    {
+        if (rows.TryGetValue("backend", out var backend) && backend != "process")
+            throw new ForgeTomlException($"[execution] backend \"{backend}\" is not recognised. Known backends: process", path);
+        return new ExecutionConfig { Backend = rows.GetValueOrDefault("backend", "process"),
+            DefaultTimeout = rows.GetValueOrDefault("defaultTimeout", "30s") };
+    }
+
+    private sealed record ManifestSection(string Name, string? Key = null);
+    private sealed class ManifestRows
+    {
+        internal Dictionary<string, string> Experts { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, Dictionary<string, string>> Profiles { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, string> Execution { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, Dictionary<string, TomlValue>> Inputs { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, Dictionary<string, TomlValue>> Modes { get; } = new(StringComparer.Ordinal);
+        internal IReadOnlyList<string> Assets { get; set; } = [];
+    }
     // Parses "string value", env("VAR") or env("VAR", "default"), strips surrounding quotes.
     private static TomlValue ResolveValue(string raw, int lineNum, string path)
     {

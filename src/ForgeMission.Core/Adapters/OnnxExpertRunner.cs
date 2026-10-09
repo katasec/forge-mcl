@@ -43,6 +43,15 @@ public class OnnxExpertRunner : IExpertRunner
         return new StepEnvelope(score.ToString("F4"), status, reason);
     }
 
+    public async IAsyncEnumerable<string> StreamAsync(
+        ExpertDefinition expert,
+        Dictionary<string, object> context,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var envelope = await RunAsync(expert, context, ct);
+        yield return envelope.Text;
+    }
+
     private static float[] ReadFeatures(ExpertDefinition expert, Dictionary<string, object> context)
     {
         var inputs = expert.Inputs ?? [];
@@ -70,12 +79,5 @@ public class OnnxExpertRunner : IExpertRunner
         return scores.Length >= 2 ? scores[1] : scores[0];
     }
 
-    public async IAsyncEnumerable<string> StreamAsync(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var envelope = await RunAsync(expert, context, ct);
-        yield return envelope.Text;
-    }
+
 }

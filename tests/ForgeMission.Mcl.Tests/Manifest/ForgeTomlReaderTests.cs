@@ -5,6 +5,34 @@ namespace ForgeMission.Tests.Manifest;
 public class ForgeTomlReaderTests
 {
     [Fact]
+    public void Repeated_named_sections_reset_rows_and_unknown_section_preserves_line_validation()
+    {
+        var path = WriteTempManifest("""
+            [providers.default]
+            provider = "openai"
+            model = "old"
+            apiKey = "discarded"
+            [providers.default]
+            provider = "ollama"
+            model = "new"
+            [experts]
+            Reader = "local-reader"
+            [ignored]
+            marker = "literal"
+            """);
+        try
+        {
+            var manifest = ForgeTomlReader.TryRead(path)!;
+            Assert.Equal("new", manifest.Providers["default"].Model);
+            Assert.Null(manifest.Providers["default"].ApiKey);
+            Assert.Equal("local-reader", manifest.Experts["Reader"]);
+            File.AppendAllText(Path.Combine(Path.GetDirectoryName(path)!, "forge.toml"), "\ninvalid assignment\n");
+            Assert.Contains("expected key = value", Assert.Throws<ForgeTomlException>(() => ForgeTomlReader.TryRead(path)).Message);
+        }
+        finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
+    }
+
+    [Fact]
     public void Distribution_excludes_provider_execution_and_capabilities_without_environment_evaluation()
     {
         var path = WriteTempManifest("""
