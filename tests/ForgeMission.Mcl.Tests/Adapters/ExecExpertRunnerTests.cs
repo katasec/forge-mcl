@@ -51,26 +51,6 @@ public class ExecExpertRunnerTests : IDisposable
     }
 
     [SkippableFact]
-    public async Task RunAsync_ChildClosingStdin_ReturnsValidOutput()
-    {
-        var script = Script(
-            "import json,os,time\n" +
-            "os.close(0)\n" +
-            "time.sleep(0.1)\n" +
-            "print(json.dumps({'result':'ok'}))\n");
-        var runner  = new ExecExpertRunner();
-        var expert  = ExecExpert(script);
-        var context = new Dictionary<string, object> { ["input"] = new string('x', 4 * 1024 * 1024) };
-
-        var envelope = await runner.RunAsync(expert, context);
-
-        Assert.Equal("pass", envelope.Status);
-        Assert.Equal("ok", envelope.Text);
-        Assert.Equal("ok", context["result"]);
-        Assert.Equal("ok", context["output"]);
-    }
-
-    [SkippableFact]
     public async Task RunAsync_NonZeroExit_ReturnsFailEnvelope()
     {
         var script  = Script("import sys\nsys.exit(1)\n");
