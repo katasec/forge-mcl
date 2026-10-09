@@ -45,12 +45,9 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
             return new StepEnvelope("", "fail", $"Failed to start '{expert.Command}': {ex.Message}");
         }
 
-        // Write input and close stdin; read stdout and stderr concurrently to avoid deadlock.
-        await process.StandardInput.WriteAsync(inputJson);
-        process.StandardInput.Close();
-
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cts.Token);
         var stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
+        await WriteInputAndCloseAsync(process, inputJson);
 
         try
         {
@@ -105,6 +102,29 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         }
 
         return new StepEnvelope(outputText, status ?? "pass", reason);
+    }
+
+    private static async Task WriteInputAndCloseAsync(Process process, string inputJson)
+    {
+        try
+        {
+            await process.StandardInput.WriteAsync(inputJson);
+        }
+        catch (IOException)
+        {
+            // A command may finish without consuming stdin. Its exit code and stdout contract decide the result.
+        }
+        finally
+        {
+            try
+            {
+                process.StandardInput.Close();
+            }
+            catch (IOException)
+            {
+                // The child has already closed stdin.
+            }
+        }
     }
 
     public async IAsyncEnumerable<string> StreamAsync(
