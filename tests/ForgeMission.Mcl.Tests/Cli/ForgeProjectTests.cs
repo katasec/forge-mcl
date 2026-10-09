@@ -1,14 +1,15 @@
 using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Reflection;
 using ForgeMission.Application.Transport;
-using ForgeMission.Core.Resolution;
 
 namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeProjectTests
 {
     private static readonly MethodInfo RunCore = LoadRunCore();
-    private static readonly PlatformCredential SignedIn = new() { Key = "controlled-platform-key" };
+    private static readonly Type PlatformCredentialType = RunCore.GetParameters()[1].ParameterType;
+    private static readonly object SignedIn = Platform("controlled-platform-key");
 
     [Theory]
     [InlineData("root")]
@@ -47,7 +48,7 @@ public sealed class ForgeProjectTests
         var calls = 0;
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var platform = key is null ? null : new PlatformCredential { Key = key };
+        var platform = key is null ? null : Platform(key);
         var result = await RunAsync(null, platform, (_, _) =>
         {
             calls++;
@@ -112,10 +113,25 @@ public sealed class ForgeProjectTests
         Assert.Equal(message, error.ToString().Trim());
     }
 
-    private static Task<int> RunAsync(string? folder, PlatformCredential? platform,
-        Func<CreateChatProjectRequest, PlatformCredential, Task<CreateChatProjectResponse>> create,
+    private static Task<int> RunAsync(string? folder, object? platform,
+        Func<CreateChatProjectRequest, object, Task<CreateChatProjectResponse>> create,
         TextWriter output, TextWriter error) =>
-        (Task<int>)RunCore.Invoke(null, [folder, platform, create, output, error])!;
+        (Task<int>)RunCore.Invoke(null, [folder, platform, CreateCallback(create), output, error])!;
+
+    private static object Platform(string key)
+    {
+        var platform = Activator.CreateInstance(PlatformCredentialType)!;
+        PlatformCredentialType.GetProperty("Key")!.SetValue(platform, key);
+        return platform;
+    }
+
+    private static Delegate CreateCallback(Func<CreateChatProjectRequest, object, Task<CreateChatProjectResponse>> create)
+    {
+        var request = Expression.Parameter(typeof(CreateChatProjectRequest));
+        var platform = Expression.Parameter(PlatformCredentialType);
+        var body = Expression.Invoke(Expression.Constant(create), request, Expression.Convert(platform, typeof(object)));
+        return Expression.Lambda(RunCore.GetParameters()[2].ParameterType, body, request, platform).Compile();
+    }
 
     private static async Task<(int ExitCode, string Output, string Error)> InvokeAsync(string[] args)
     {

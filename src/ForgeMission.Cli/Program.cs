@@ -101,7 +101,9 @@ static Command BuildInitCommand()
             {
                 try
                 {
-                    var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh);
+                    var registry = OciReference.Parse(ociRef).Registry;
+                    var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh,
+                        CredentialStore.GetToken(registry));
                     var lockPath2           = OciExpertPuller.ToLockPath(cachePath);
                     var hash                = LockFileIO.ComputeHash(cachePath);
                     lockFile.Experts[name]  = new LockFileExpert { Source = "oci", Path = lockPath2, Hash = hash };
