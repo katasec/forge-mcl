@@ -7,6 +7,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ForgeMission.Core.Resolution;
+
 namespace ForgeMission.Cli;
 
 // forge login (42.5): platform sign-in via loopback auth-code + PKCE against Entra External ID.

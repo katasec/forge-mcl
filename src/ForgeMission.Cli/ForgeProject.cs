@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Net.Http.Headers;
 using ForgeMission.Application;
 using ForgeMission.Application.Transport;
+using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 using Microsoft.Extensions.DependencyInjection;
 

@@ -27,6 +27,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Katasec.OciClient" Version="0.4.0" />
+    <PackageReference Include="Katasec.OciClient" Version="0.2.1" />
   </ItemGroup>
 </Project>

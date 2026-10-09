@@ -8,7 +8,6 @@ public static class OciExpertPuller
     public static async Task<(string Path, string Status)> PullAsync(
         string ociReference,
         bool refresh,
-        string? credential,
         CancellationToken cancellationToken = default)
     {
         var reference = OciReference.Parse(ociReference);
@@ -16,7 +15,7 @@ public static class OciExpertPuller
         if (!refresh && File.Exists(cachePath))
             return (cachePath, "cached");
 
-        using var client = new OciClient(credential);
+        using var client = new OciClient(credential: RegistryCredentialStore.GetToken(reference.Registry));
         var content = await client.PullExpertAsync(reference.Registry, reference.Name, reference.Reference);
 
         Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);

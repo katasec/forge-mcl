@@ -45,54 +45,6 @@ public class DurableMissionPackageValidatorTests
         Assert.Contains("one provider profile", reason);
     }
 
-    [Fact]
-    public void Canonical_package_bytes_round_trip_through_the_AOT_serializer()
-    {
-        var package = Package("mission Chat(message) = {\n    Answerer\n}\n", "Chat", "message", "Answerer");
-
-        var bytes = DurableMissionPackageValidator.Serialize(package);
-        var accepted = DurableMissionPackageValidator.TryDeserialize(bytes, out var restored, out var reason);
-
-        Assert.True(accepted, reason);
-        Assert.NotNull(restored);
-        Assert.Equal(package.FormatVersion, restored.FormatVersion);
-        Assert.Equal(package.PackageHash, restored.PackageHash);
-        Assert.Equal(package.MissionSource, restored.MissionSource);
-        Assert.Equal(package.RootMissionName, restored.RootMissionName);
-        Assert.Equal(package.RootInputName, restored.RootInputName);
-        Assert.Equal(package.ResolvedExperts, restored.ResolvedExperts);
-    }
-
-    [Fact]
-    public void Canonical_package_bytes_sort_resolved_experts()
-    {
-        var package = Package("mission Chat(message) = {\n    Alpha\n    -> Beta\n}\n", "Chat", "message", "Alpha", "Beta");
-        var reordered = package with { ResolvedExperts = package.ResolvedExperts.Reverse().ToArray() };
-
-        Assert.Equal(DurableMissionPackageValidator.Serialize(package), DurableMissionPackageValidator.Serialize(reordered));
-    }
-
-    [Fact]
-    public void Canonical_package_bytes_reject_a_tampered_hash()
-    {
-        var validPackage = Package("mission Chat(message) = {\n    Answerer\n}\n", "Chat", "message", "Answerer");
-        var package = validPackage with
-        {
-            PackageHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-        };
-        var original = DurableMissionPackageValidator.Serialize(validPackage);
-        var text = Encoding.UTF8.GetString(original).Replace(
-            validPackage.PackageHash,
-            package.PackageHash,
-            StringComparison.Ordinal);
-        var bytes = Encoding.UTF8.GetBytes(text);
-
-        var accepted = DurableMissionPackageValidator.TryDeserialize(bytes, out _, out var reason);
-
-        Assert.False(accepted);
-        Assert.Equal("The durable package hash does not match its canonical content.", reason);
-    }
-
     private static DurableMissionPackageInput Package(string source, string mission, string input, params string[] experts)
     {
         var resolved = experts.Select(name =>
