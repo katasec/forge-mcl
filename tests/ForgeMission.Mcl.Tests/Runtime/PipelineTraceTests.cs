@@ -13,6 +13,21 @@ namespace ForgeMission.Tests.Runtime;
 /// </summary>
 public class PipelineTraceTests
 {
+    [Fact]
+    public async Task Step_keys_distinguish_parallel_nested_and_repeated_calls()
+    {
+        var ast = MclParser.Parse("mission Root = { parallel { Child Child } -> Draft }\nmission Child = { Draft }");
+        var events = new System.Collections.Concurrent.ConcurrentBag<PipelineTraceEvent>();
+        await new PipelineRunner(new StubExpertRunner((_, _) => new StepEnvelope("done")))
+            .RunAsync(ast, Experts("Draft"), new PipelineRunOptions("Root", OnTrace: (fact, _) => { events.Add(fact); return Task.CompletedTask; }) { StreamLlmDeltas = true });
+        Assert.Equal(["Root@1#0.0/Child@1#0", "Root@1#0.1/Child@1#0", "Root@1#1"],
+            events.OfType<PipelineStepCompleted>().Select(e => e.StepKey).Order(StringComparer.Ordinal));
+        Assert.All(events, fact => Assert.False(string.IsNullOrWhiteSpace(fact.StepKey)));
+        Assert.Equal(["Root@1#0.0/Child@1#0", "Root@1#0.1/Child@1#0", "Root@1#1"],
+            events.OfType<PipelineStepDelta>().Select(e => e.StepKey).Order(StringComparer.Ordinal));
+        foreach (var started in events.OfType<PipelineStepStarted>())
+            Assert.Single(events.OfType<PipelineStepCompleted>(), completed => completed.StepKey == started.StepKey);
+    }
     private static ExpertDefinition Expert(string name) =>
         new(name, "Input", "Output", $"You are {name}.");
 
@@ -73,6 +88,7 @@ public class PipelineTraceTests
         Assert.All(proposerCompleted, e => Assert.Equal(negotiatePath, e.MissionPath));
         Assert.Equal(2, approverCompleted.Count);
         Assert.All(approverCompleted, e => Assert.Equal(negotiatePath, e.MissionPath));
+        Assert.Equal(["Janus@1#0/Negotiate@1#1", "Janus@1#0/Negotiate@2#1"], approverCompleted.Select(e => e.StepKey));
 
         // The first Approver completion carries the failed verdict at attempt 1; the second
         // negotiation attempt then occurs and approves at attempt 2.
@@ -188,6 +204,7 @@ public class PipelineTraceTests
 
         // Never a raw provider-SDK object on the trace — only the closed PipelineToolCall shape.
         var toolRequested = Assert.Single(events.OfType<PipelineToolRequested>());
+        Assert.Equal("ToolTask@1#1", toolRequested.StepKey);
         var respondCompletedIndex = events.IndexOf(
             events.OfType<PipelineStepCompleted>().Single(e => e.ExpertName == "Respond"));
         Assert.True(events.IndexOf(toolRequested) > respondCompletedIndex,

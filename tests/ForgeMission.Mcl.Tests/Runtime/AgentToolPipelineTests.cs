@@ -17,6 +17,80 @@ namespace ForgeMission.Tests.Runtime;
 /// </summary>
 public sealed class AgentToolPipelineTests
 {
+    [Fact]
+    public async Task Parameterless_declared_inputs_and_completed_writes_survive_nested_resume_under_new_workspace()
+    {
+        var ast = MclParser.Parse("let mode = \"default\"\nmission Root = { Child(source_file: source_file, mode: mode, token_count: token_count) }\nmission Child = { Enrich -> Respond }");
+        var experts = Experts();
+        experts["Enrich"] = experts["Enrich"] with { Inputs = ["source_file", "mode", "token_count"] };
+        var effects = 0;
+        var runner = new StubExpertRunner((name, context) =>
+        {
+            if (name == "Enrich") { effects++; context["saved_file"] = context["source_file"]; }
+            return Scripted(name, context);
+        });
+        var firstRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var secondRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, experts,
+            new PipelineRunOptions("Root", new Dictionary<string, string> { ["source_file"] = "inputs/source_file/content.bin",
+                ["mode"] = "explicit", ["token_count"] = "7", ["apiKey"] = "excluded", ["undeclared"] = "excluded" }, RootTools: ClientTools())
+            { ExecutionWorkspace = new(firstRoot, new Dictionary<string, string>()) })).Pause);
+        Assert.DoesNotContain(firstRoot, pause.Continuation.Payload);
+        Assert.DoesNotContain("excluded", pause.Continuation.Payload);
+        var completed = await new PipelineRunner(runner).ResumeAsync(ast, experts,
+            new(pause.Continuation, new(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
+            new PipelineRunOptions("ignored") { ExecutionWorkspace = new(secondRoot, new Dictionary<string, string>()) });
+        Assert.Null(completed.Failure);
+        Assert.Equal(1, effects);
+        Assert.Equal("7", runner.Calls[^1].Context["token_count"]);
+        Assert.Equal("explicit", runner.Calls[^1].Context["mode"]);
+        Assert.Equal("inputs/source_file/content.bin", runner.Calls[^1].Context["saved_file"]);
+    }
+
+    [Theory]
+    [InlineData("command")]
+    [InlineData("args")]
+    [InlineData("timeout")]
+    [InlineData("model")]
+    [InlineData("endpoint")]
+    [InlineData("inputs")]
+    [InlineData("typed")]
+    public async Task Resume_refuses_changed_expert_execution_semantics(string field)
+    {
+        var ast = MclParser.Parse("mission Root = { Enrich -> Respond }");
+        var experts = Experts();
+        var runner = new StubExpertRunner(Scripted);
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, experts,
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        var original = experts["Enrich"];
+        experts["Enrich"] = field switch
+        {
+            "command" => original with { Command = "changed" }, "args" => original with { Args = ["changed"] },
+            "timeout" => original with { Timeout = "1s" }, "model" => original with { Model = "changed" },
+            "endpoint" => original with { Endpoint = "changed" }, "inputs" => original with { Inputs = ["added"] },
+            _ => original with { InputKeys = new Dictionary<string, string> { ["goal"] = "string" } },
+        };
+        var resumed = await Resume(new PipelineRunner(runner), ast, experts, pause);
+        Assert.Equal(PipelineFailure.InvalidContinuation, resumed.Failure);
+        Assert.Equal(2, runner.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Resume_rejects_old_inner_format_and_changed_admitted_set()
+    {
+        var ast = MclParser.Parse("mission Root = { Respond }");
+        var runner = new StubExpertRunner(Scripted);
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        var checkpoint = System.Text.Json.Nodes.JsonNode.Parse(pause.Continuation.Payload)!;
+        checkpoint["formatVersion"] = 2;
+        var old = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
+        Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), old)).Failure);
+        checkpoint["formatVersion"] = 3;
+        checkpoint["admittedInputNames"] = new System.Text.Json.Nodes.JsonArray("extra");
+        var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
+        Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -204,15 +278,17 @@ public sealed class AgentToolPipelineTests
         };
         var client = new ContinuationClient();
         var runner = new PipelineRunner(new DirectExpertRunner(client));
-
+        var facts = new List<PipelineTraceEvent>();
         var paused = await runner.RunAsync(ast, experts,
-            new PipelineRunOptions("Root", new Dictionary<string, string> { ["apiKey"] = "never-persist" }, RootTools: ClientTools()));
+            new PipelineRunOptions("Root", new Dictionary<string, string> { ["apiKey"] = "never-persist" }, RootTools: ClientTools(),
+                OnTrace: (fact, _) => { facts.Add(fact); return Task.CompletedTask; }));
 
         var pause = Assert.IsType<PipelineToolPause>(paused.Pause);
         Assert.Equal(["Root", "Child"], pause.MissionPath);
         Assert.Equal("Respond", pause.ExpertName);
         Assert.Equal("Read", pause.ToolCall.Name);
         Assert.Equal(1, pause.Continuation.FormatVersion);
+        Assert.Equal("Root@1#0/Child@1#1", Assert.Single(facts.OfType<PipelineRootToolCheckpointed>()).StepKey);
         Assert.DoesNotContain("dispatcher", pause.Continuation.Payload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("credential", pause.Continuation.Payload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("never-persist", pause.Continuation.Payload, StringComparison.Ordinal);

@@ -2,6 +2,7 @@ namespace ForgeMission.Core.Manifest;
 
 public sealed class ForgeManifest
 {
+    public PackageConfig Package { get; init; } = new([]);
     // Expert name → OCI reference (e.g. "ghcr.io/katasec/forge-k8s-architect@0.1.0")
     // Only OCI experts are declared here. Local experts are resolved by name, no declaration needed.
     public IReadOnlyDictionary<string, string> Experts { get; init; }
@@ -17,6 +18,8 @@ public sealed class ForgeManifest
     // [capabilities.*] sections — package/catalog/runtime capability metadata.
     public CapabilityConfig Capabilities { get; init; } = new();
 }
+
+public sealed record PackageConfig(IReadOnlyList<string> Assets);
 
 public sealed class ExecutionConfig
 {

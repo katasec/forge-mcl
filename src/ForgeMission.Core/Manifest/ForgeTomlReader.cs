@@ -12,7 +12,11 @@ public static class ForgeTomlReader
 {
     public static readonly string FileName = "forge.toml";
 
-    public static ForgeManifest? TryRead(string missionFilePath)
+    public static ForgeManifest? TryRead(string missionFilePath) => Read(missionFilePath, distributionOnly: false);
+
+    public static ForgeManifest? TryReadDistribution(string missionFilePath) => Read(missionFilePath, distributionOnly: true);
+
+    private static ForgeManifest? Read(string missionFilePath, bool distributionOnly)
     {
         var dir      = Path.GetDirectoryName(Path.GetFullPath(missionFilePath))!;
         var tomlPath = Path.Combine(dir, FileName);
@@ -21,14 +25,15 @@ public static class ForgeTomlReader
             return null;
 
         var lines = File.ReadAllLines(tomlPath);
-        return Parse(lines, tomlPath);
+        return Parse(lines, tomlPath, distributionOnly);
     }
 
-    private static ForgeManifest Parse(string[] lines, string path)
+    private static ForgeManifest Parse(string[] lines, string path, bool distributionOnly)
     {
         var experts       = new Dictionary<string, string>(StringComparer.Ordinal);
         var providers     = new Dictionary<string, ProviderProfile>(StringComparer.Ordinal);
         var executionRows = new Dictionary<string, string>(StringComparer.Ordinal);
+        IReadOnlyList<string> assets = [];
         var artifactInputs = new Dictionary<string, Dictionary<string, TomlValue>>(StringComparer.Ordinal);
         var artifactModes  = new Dictionary<string, Dictionary<string, TomlValue>>(StringComparer.Ordinal);
 
@@ -52,6 +57,11 @@ public static class ForgeTomlReader
                     throw new ForgeTomlException($"Line {i + 1}: malformed section header", path);
 
                 var header = line[1..^1].Trim();
+                if (distributionOnly)
+                {
+                    section = header;
+                    continue;
+                }
                 if (header.StartsWith("providers.", StringComparison.Ordinal))
                 {
                     profileName = header["providers.".Length..].Trim();
@@ -87,6 +97,8 @@ public static class ForgeTomlReader
                 continue;
             }
 
+            if (distributionOnly && section is not ("experts" or "package")) continue;
+
             // Key = value
             var eq = line.IndexOf('=');
             if (eq <= 0)
@@ -96,12 +108,19 @@ public static class ForgeTomlReader
             var rawValue = line[(eq + 1)..].Trim();
             if (rawValue.StartsWith('[') && !rawValue.EndsWith(']'))
                 rawValue = ReadMultilineArray(rawValue, lines, ref i, path);
+            if ((distributionOnly || section == "package") && rawValue.StartsWith("env(", StringComparison.Ordinal))
+                throw new ForgeTomlException($"Line {i + 1}: distribution metadata must be literal", path);
             var value = ResolveValue(rawValue, i + 1, path);
 
             switch (section)
             {
                 case "experts":
                     experts[key] = value.AsString(i + 1, path);
+                    break;
+                case "package":
+                    if (key != "assets")
+                        throw new ForgeTomlException($"[package] unknown field \"{key}\"", path);
+                    assets = value.AsStringArray("[package].assets", path);
                     break;
                 case "providers" when profileName is not null:
                     profileRows[profileName][key] = value.AsString(i + 1, path);
@@ -181,6 +200,7 @@ public static class ForgeTomlReader
             Providers = providers,
             Execution = execution,
             Capabilities = capabilities,
+            Package = new PackageConfig(assets),
         };
     }
 

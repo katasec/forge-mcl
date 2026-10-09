@@ -38,7 +38,7 @@ public enum PipelineFailure
 public sealed record PipelineToolDeclaration(string Name, string Description, JsonElement InputSchema);
 
 /// <summary>
-/// The replay checkpoint (inner format 2). A resume runs the mission from the top: each step whose
+/// The replay checkpoint (inner format 3). A resume runs the mission from the top: each step whose
 /// key is in <see cref="Log"/> returns its recorded result instead of running, until the step at
 /// <see cref="PausedKey"/> continues its tool turn.
 /// </summary>
@@ -56,6 +56,7 @@ internal sealed record PipelineContinuationCheckpoint(
     int Attempt,
     IReadOnlyList<ChatMessage> TurnMessages,
     IReadOnlyDictionary<string, string> RootInputs,
+    IReadOnlyList<string> AdmittedInputNames,
     IReadOnlyList<PipelineStepLogEntry> Log,
     string PausedKey);
 
@@ -97,8 +98,8 @@ internal static class PipelineCheckpointCodec
     /// <summary>The envelope version consumers carry; the payload stays opaque to them.</summary>
     internal const int EnvelopeVersion = 1;
 
-    /// <summary>The checkpoint format inside the payload. Format 1 (frame snapshots) is rejected.</summary>
-    internal const int CheckpointVersion = 2;
+    /// <summary>The checkpoint format inside the payload. Formats 1 and 2 are rejected.</summary>
+    internal const int CheckpointVersion = 3;
 
     internal static bool TryRead(PipelineContinuation continuation, out PipelineContinuationCheckpoint checkpoint)
     {
@@ -111,6 +112,7 @@ internal static class PipelineCheckpointCodec
                 && !string.IsNullOrWhiteSpace(checkpoint.SessionId)
                 && !string.IsNullOrWhiteSpace(checkpoint.PausedKey)
                 && checkpoint.Log is not null
+                && checkpoint.AdmittedInputNames is not null
                 && checkpoint.TurnMessages is { Count: > 0 }
                 && checkpoint.TurnMessages[^1].Contents.OfType<FunctionCallContent>().Count() == 1;
         }

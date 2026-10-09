@@ -16,7 +16,10 @@ public abstract record PipelineTraceEvent(
     IReadOnlyList<string> MissionPath,
     string ExpertName,
     string ExpertKind,
-    int Attempt);
+    int Attempt)
+{
+    public string StepKey { get; init; } = "";
+}
 
 /// <summary>A step is about to invoke its expert. <see cref="PipelineTraceEvent.Attempt"/> is the
 /// enclosing mission's current loop attempt.</summary>

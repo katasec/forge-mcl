@@ -4,6 +4,53 @@ namespace ForgeMission.Tests.Manifest;
 
 public class ForgeTomlReaderTests
 {
+    [Fact]
+    public void Distribution_excludes_provider_execution_and_capabilities_without_environment_evaluation()
+    {
+        var path = WriteTempManifest("""
+            [providers.default]
+            apiKey = env("PHASE76_MISSING_PROVIDER_KEY")
+            [execution]
+            backend = env("PHASE76_MISSING_BACKEND")
+            [capabilities.artifacts.inputs.source_file]
+            max_size_mb = env("PHASE76_MISSING_SIZE")
+            [experts]
+            Reader = "ghcr.io/example/reader@1"
+            [package]
+            assets = [
+                "experts/Reader/read.py",
+                "models/identity.onnx"
+            ]
+            """);
+        try
+        {
+            var result = ForgeTomlReader.TryReadDistribution(path)!;
+            Assert.Equal("ghcr.io/example/reader@1", result.Experts["Reader"]);
+            Assert.Equal(["experts/Reader/read.py", "models/identity.onnx"], result.Package.Assets);
+            Assert.Empty(result.Providers);
+            Assert.Empty(result.Capabilities.Artifacts.Inputs);
+            Assert.Equal("process", result.Execution.Backend);
+        }
+        finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
+    }
+
+    [Theory]
+    [InlineData("[experts]\nReader = env(\"PHASE76\")")]
+    [InlineData("[package]\nassets = env(\"PHASE76\")")]
+    public void Distribution_rejects_selected_environment_expressions(string source)
+    {
+        var path = WriteTempManifest(source);
+        try { Assert.Throws<ForgeTomlException>(() => ForgeTomlReader.TryReadDistribution(path)); }
+        finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
+    }
+
+    [Fact]
+    public void Full_reader_also_reads_literal_package_assets()
+    {
+        var path = WriteTempManifest("[package]\nassets = [\"script.py\"]");
+        try { Assert.Equal(["script.py"], ForgeTomlReader.TryRead(path)!.Package.Assets); }
+        finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
+    }
     // Write a forge.toml to a temp dir next to a fake mission.mcl and return the mission path.
     private static string WriteTempManifest(string toml)
     {

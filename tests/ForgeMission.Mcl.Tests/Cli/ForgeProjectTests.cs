@@ -1,12 +1,90 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Net;
+using System.Text;
+using System.Text.Json;
 using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
+using ForgeMission.Core.Tools;
+using ForgeMission.Conversations.Contracts;
 
 namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeProjectTests
 {
+    [Fact]
+    public async Task Published_client_creates_opens_and_reconnects_chat_against_current_core()
+    {
+        var root = Directory.CreateTempSubdirectory("forge-published-client-").FullName;
+        using var host = new ChatProjectHost();
+        try
+        {
+            var application = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(RunCore.DeclaringType!.Assembly.Location)!, "ForgeMission.Application.dll"));
+            Assert.Equal(new Version(0, 9, 3, 0), application.GetName().Version);
+            var composition = application.GetType("ForgeMission.Application.ApplicationComposition", true)!;
+            await using var app = (IAsyncDisposable)composition.GetMethod("Create")!.Invoke(null,
+                [host, null, new CapabilityAuthorizationPolicy([], null), (Action<ApplicationEvent>)(_ => { }), CancellationToken.None])!;
+            var conversations = composition.GetProperty("MissionConversations")!.GetValue(app)!;
+            var created = await ClientAction<CreateChatProjectResponse>(conversations, "CreateChatProjectAsync", new CreateChatProjectRequest(root));
+            Assert.Null(created.Error);
+            Assert.NotNull(created.Created);
+            var projects = composition.GetProperty("Projects")!.GetValue(app)!;
+            var opened = await ClientAction<ProjectOperationResponse>(projects, "OpenChatAsync", new ProjectOpenRequest(root, "Chat"));
+            Assert.Equal(ProjectOperationOutcome.Opened, opened.Outcome);
+            Assert.Empty(opened.Session!.AvailableCapabilities);
+            var connected = await ClientAction<ReconnectMissionConversationResponse>(conversations, "ReconnectAsync",
+                new ReconnectMissionConversationRequest(opened.Session.SessionId, "Chat"));
+            Assert.Null(connected.Error);
+            Assert.Equal(created.Created.ConversationId, connected.Conversation!.ConversationId);
+            Assert.Equal(["/api/CreateMissionConversation", "/api/ListMissionConversations", "/api/GetConversation"], host.Requests);
+            Assert.Equal(["forge.project.json"], Directory.GetFiles(root).Select(Path.GetFileName));
+            Assert.Empty(Directory.GetDirectories(root));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+            if (host.Created is { } created)
+            {
+                var projection = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".forge", "sessions",
+                    created.ProjectId.ToString("N"), ConversationDeterministicIds.MissionConversation(created.CommandId).ToString("N"));
+                if (Directory.Exists(projection)) Directory.Delete(projection, true);
+            }
+        }
+    }
+
+    private static Task<T> ClientAction<T>(object owner, string method, object request) =>
+        (Task<T>)owner.GetType().GetMethod(method)!.Invoke(owner, [request, CancellationToken.None])!;
+
+    private sealed class ChatProjectHost : HttpMessageHandler, IHttpClientFactory
+    {
+        public ForgeMission.Conversations.Contracts.CreateMissionConversationRequest? Created { get; private set; }
+        public List<string> Requests { get; } = [];
+        public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new("https://controlled-host.invalid/") };
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var route = request.RequestUri!.AbsolutePath;
+            Requests.Add(route);
+            if (route == "/api/CreateMissionConversation")
+                Created = JsonSerializer.Deserialize(await request.Content!.ReadAsStringAsync(ct), ConversationContractsJsonContext.Default.CreateMissionConversationRequest)!;
+            var created = Created ?? throw new InvalidOperationException("Creation must precede chat startup.");
+            var conversationId = ConversationDeterministicIds.MissionConversation(created.CommandId);
+            var snapshot = new ConversationSnapshot(conversationId, null, null, 0, ConversationRunStatus.Completed,
+                null, DateTimeOffset.UtcNow, Purpose: ConversationPurpose.MissionConversation, ProjectId: created.ProjectId, PinnedLaunch: created.Launch);
+            var json = route switch
+            {
+                "/api/CreateMissionConversation" => JsonSerializer.Serialize(new ForgeMission.Conversations.Contracts.CreateMissionConversationResponse(conversationId, 1, created.Launch),
+                    ConversationContractsJsonContext.Default.CreateMissionConversationResponse),
+                "/api/ListMissionConversations" => JsonSerializer.Serialize(new ForgeMission.Conversations.Contracts.ListMissionConversationsResponse(
+                    [new MissionConversationSummary(conversationId, created.ProjectId, created.Launch, snapshot.Status, 0, snapshot.UpdatedAtUtc)]),
+                    ConversationContractsJsonContext.Default.ListMissionConversationsResponse),
+                "/api/GetConversation" => JsonSerializer.Serialize(new GetConversationResponse(snapshot), ConversationContractsJsonContext.Default.GetConversationResponse),
+                _ => throw new InvalidOperationException($"Unexpected ABI regression request: {route}"),
+            };
+            return new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+        }
+    }
+
     private static readonly MethodInfo RunCore = LoadRunCore();
     private static readonly PlatformCredential SignedIn = new() { Key = "controlled-platform-key" };
 
