@@ -43,6 +43,9 @@ stdin/stdout/stderr pressure with validated JSON, actual PipelineRunner workspac
 bindings and inherited/authored FORGE environment, early-root-exit descendants, timeout/cancellation
 and unrelated .NET child ownership. Logs and the probe publish live in the
 verification output beside the CLI logs; the probe is excluded from the shipped CLI ZIP.
+It independently cancels a blocked BCL anonymous-pipe read and a filled blocked write while
+their opposite endpoints stay open, requiring cancellation completion within five seconds before
+peer closure. Failure cleanup closes only probe-owned endpoints and joins pending operations.
 The pressure child finishes 1,000,000-byte stdout and 64 KiB stderr before reading 2,000,000-byte
 stdin, so an input-first sequential parent cannot pass. Both drains are exercised under their caps.
 The normal Linux x64 GitHub Actions package gate additionally starts published Runner0.20.6 by

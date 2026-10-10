@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Pipes;
 using System.Text.Json;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
@@ -14,6 +15,8 @@ try
 {
     if (args.FirstOrDefault() == "--verify-pid1-refusal") return await VerifyPid1RefusalAsync(directory);
     if (verifyInit) await VerifyInitTopologyAsync();
+    await VerifyPipeCancellationAsync(PipeDirection.In);
+    await VerifyPipeCancellationAsync(PipeDirection.Out);
     await VerifyDeclinedInputAsync();
     await VerifyDuplexPressureAsync(directory);
     await VerifyWorkspaceAsync(directory);
@@ -30,6 +33,37 @@ finally { Directory.Delete(directory, true); }
 static ExpertDefinition Expert(string directory, string mode, string timeout, params string[] arguments) =>
     new("Execute", "text", "text", "", Kind: "exec", Command: Environment.ProcessPath!,
         Args: ["--child", mode, .. arguments], Inputs: ["input"], OutputKey: "result", Timeout: timeout, ExpertDirectory: directory);
+
+static async Task VerifyPipeCancellationAsync(PipeDirection direction)
+{
+    using var pipe = new AnonymousPipeServerStream(direction,
+        OperatingSystem.IsWindows() ? HandleInheritability.Inheritable : HandleInheritability.None);
+    using var peer = new AnonymousPipeClientStream(
+        direction == PipeDirection.In ? PipeDirection.Out : PipeDirection.In, pipe.ClientSafePipeHandle);
+    using var cancellation = new CancellationTokenSource();
+    var operation = direction == PipeDirection.In
+        ? pipe.ReadAsync(new byte[1], cancellation.Token).AsTask()
+        : pipe.WriteAsync(new byte[4 * 1024 * 1024], cancellation.Token).AsTask();
+    try
+    {
+        await Task.Delay(100);
+        if (operation.IsCompleted) throw new Exception($"Expected blocked anonymous-pipe {direction} operation.");
+        var elapsed = Stopwatch.StartNew();
+        cancellation.Cancel();
+        try { await operation.WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        if (!operation.IsCanceled) throw new Exception($"Anonymous-pipe {direction} did not complete with cancellation.");
+        Console.WriteLine($"PASS blocked anonymous-pipe {(direction == PipeDirection.In ? "read" : "write")} cancelled before peer closure; {elapsed.ElapsedMilliseconds}ms");
+    }
+    finally
+    {
+        cancellation.Cancel();
+        peer.Dispose();
+        try { await operation; }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (IOException) when (!peer.IsConnected) { }
+    }
+}
 
 static async Task<int> VerifyPid1RefusalAsync(string directory)
 {

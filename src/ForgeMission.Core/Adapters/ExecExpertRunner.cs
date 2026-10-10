@@ -142,10 +142,10 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         catch (IOException exception) { cleanupFailures.Add(exception); }
         try { process.Terminate(); }
         catch (IOException exception) { cleanupFailures.Add(exception); }
-        var exitCode = await JoinProcessAsync(process, cleanupFailures);
         try { await io; }
         catch (Exception exception) when (exception is IOException or OperationCanceledException)
         { failure = io.Exception?.InnerExceptions.OfType<IOException>().FirstOrDefault() ?? failure ?? exception; }
+        var exitCode = await JoinProcessAsync(process, cleanupFailures);
         try { await process.DisposeAsync(); }
         catch (IOException exception) { cleanupFailures.Add(exception); }
         if (failure is not null || cleanupFailures.Count > 0)
