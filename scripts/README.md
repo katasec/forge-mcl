@@ -58,3 +58,14 @@ proves bare Linux PID1 refuses exec before child launch. Docker/image/probe fail
 Image/source identity and positive logs are in `exec-init-*`, negative proof in
 `exec-pid1-refusal.log`; these controlled library facts do not close published-package/installed
 default acceptance or later generic cloud execution.
+
+After a failed macOS native probe, `build.ps1` polls the user and system DiagnosticReports
+directories for at most ten seconds. It copies only `.ips` reports identifying
+`ForgeMission.Exec.Probe` whose recorded process launch is at or after that probe invocation.
+Older processes' delayed reports are excluded even if their files are new. Reports and a scoped
+collection-status JSON live under `exec-probe-crashreports` in the existing verification output;
+the canonical workflow's existing always-upload artifact retains them. The release matrix still
+uploads only successful CLI ZIPs. Missing reports and collection errors remain visible, and
+collection failure never replaces the original probe failure. The failed test is not retried.
+After the macOS crash is diagnosed, review whether this small verification-owned collector should
+remain; it must not expand into general report or environment collection.

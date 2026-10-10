@@ -35,10 +35,79 @@ function Test-NativeExec {
     Invoke-Checked dotnet $arguments (Join-Path $Destination 'exec-probe-publish.log')
     $name = 'ForgeMission.Exec.Probe'
     if ($IsWindows) { $name += '.exe' }
-    Invoke-Checked (Join-Path $proof $name) @() (Join-Path $Destination 'exec-probe-run.log')
+    $startedAt = [DateTimeOffset]::UtcNow
+    $probeFailed = $false
+    try { Invoke-Checked (Join-Path $proof $name) @() (Join-Path $Destination 'exec-probe-run.log') }
+    catch { $probeFailed = $true; throw }
+    finally {
+        if ($IsMacOS -and $probeFailed) {
+            try { Save-NativeProbeCrashReports $Destination $startedAt }
+            catch { Write-Host "Native probe crash-report collection failed: $_" }
+        }
+    }
     if ($Runtime -eq 'linux-x64' -and $env:GITHUB_ACTIONS -eq 'true') {
         Test-InitHostedExec $Destination $proof
     }
+}
+
+function Save-NativeProbeCrashReports {
+    param([string]$Destination, [DateTimeOffset]$StartedAt)
+    $output = Join-Path $Destination 'exec-probe-crashreports'
+    New-Item -ItemType Directory -Force $output -ErrorAction Stop | Out-Null
+    $userReports = Join-Path $HOME 'Library/Logs/DiagnosticReports'
+    $roots = @($userReports, '/Library/Logs/DiagnosticReports')
+    $available = @($roots | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+    $absent = @($roots | Where-Object { $_ -notin $available })
+    $copied = [Collections.Generic.List[object]]::new()
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $errors = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+    $collectionStartedAt = [DateTimeOffset]::UtcNow
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    while ($elapsed.Elapsed.TotalSeconds -lt 10) {
+        $scanErrors = @()
+        $files = @()
+        if ($available.Count -gt 0) {
+            $files = @(Get-ChildItem -LiteralPath $available -Filter 'ForgeMission.Exec.Probe-*.ips' -File -ErrorAction SilentlyContinue -ErrorVariable scanErrors)
+        }
+        foreach ($issue in $scanErrors) { $errors["$($issue.TargetObject)"] = "$issue" }
+        foreach ($file in $files) {
+            if ($seen.Contains($file.FullName)) { continue }
+            try {
+                $report = Read-NativeProbeCrashReport $file.FullName $StartedAt
+                if ($null -eq $report) { continue }
+                $source = $file.DirectoryName -eq $userReports ? 'user' : 'system'
+                $target = Join-Path $output $source
+                New-Item -ItemType Directory -Force $target -ErrorAction Stop | Out-Null
+                Copy-Item -LiteralPath $file.FullName -Destination $target -ErrorAction Stop
+                $seen.Add($file.FullName) | Out-Null
+                $copied.Add([pscustomobject]@{ source = $source; file = $file.Name; procLaunch = $report.ProcLaunch })
+            }
+            catch { $errors[$file.FullName] = "$_" }
+        }
+        $remaining = 10000 - $elapsed.Elapsed.TotalMilliseconds
+        if ($remaining -gt 0) { Start-Sleep -Milliseconds ([Math]::Min(250, [int]$remaining)) }
+    }
+    $status = [ordered]@{
+        probeStartedAt = $StartedAt; collectionStartedAt = $collectionStartedAt; collectionEndedAt = [DateTimeOffset]::UtcNow
+        outcome = $errors.Count -gt 0 ? 'diagnostic-failure' : ($copied.Count -gt 0 ? 'copied' : 'no-reports')
+        absentDirectories = $absent; copied = $copied.ToArray(); errors = @($errors.Values)
+    }
+    $status | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $output 'collection.json') -Encoding utf8 -ErrorAction Stop
+    Write-Host "Native probe crash reports: $($status.outcome); copied $($copied.Count); see $output"
+}
+
+function Read-NativeProbeCrashReport {
+    param([string]$Path, [DateTimeOffset]$StartedAt)
+    $documents = (Get-Content -LiteralPath $Path -Raw -ErrorAction Stop) -split '\r?\n', 2
+    if ($documents.Count -ne 2) { throw "Unsupported native probe crash report: $Path" }
+    $header = ConvertFrom-Json -InputObject $documents[0] -AsHashtable -ErrorAction Stop
+    $body = ConvertFrom-Json -InputObject $documents[1] -AsHashtable -ErrorAction Stop
+    if ($header['app_name'] -cne 'ForgeMission.Exec.Probe' -or $body['procName'] -cne 'ForgeMission.Exec.Probe') { return $null }
+    $launchedAt = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($body['procLaunch'], [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AllowWhiteSpaces, [ref]$launchedAt)) { throw "Invalid native probe launch time: $Path" }
+    if ($launchedAt -lt $StartedAt) { return $null }
+    return [pscustomobject]@{ ProcLaunch = $launchedAt.ToUniversalTime() }
 }
 
 function Test-InitHostedExec {
