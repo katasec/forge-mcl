@@ -83,6 +83,19 @@ jobs:
         run: choco install make --no-progress -y
       - name: Build and verify native release payload
         run: make cli-script-test cli-package
+      - name: Preserve failed macOS native probe evidence
+        if: ${{ failure() && runner.os == 'macOS' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-exec-diagnostics-${{ matrix.rid }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/cli/exec-probe-crashreports
+            dist/cli/exec-probe-run.log
+            dist/cli/exec-probe-publish.log
+            dist/cli/exec-probe/ForgeMission.Exec.Probe
+            dist/cli/exec-probe/ForgeMission.Exec.Probe.dSYM
+            dist/cli/exec-probe/libonnxruntime.dylib
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: forge-${{ matrix.rid }}

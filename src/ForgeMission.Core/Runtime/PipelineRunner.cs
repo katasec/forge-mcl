@@ -52,9 +52,10 @@ public class PipelineRunner
             return await RunCoreAsync(ast, experts, options, new RunState(), string.Empty, ct);
 
         // A run that can pause sees only the root inputs a resume will see again.
-        var rootInputs = RootInputs(ast, options.MissionName, options.Vars);
+        var admittedNames = DurableMissionInputPolicy.AdmittedNames(ast, experts, options.MissionName);
+        var rootInputs = RootInputs(admittedNames, options.Vars);
         var scope = new PauseScope(rootTools, rootTools.Select(ToDeclaration).ToList(), options.MissionName,
-            RootDefinitionFingerprint(ast, experts, options.MissionName), rootInputs,
+            RootDefinitionFingerprint(ast, experts, options.MissionName), rootInputs, admittedNames,
             Guid.NewGuid().ToString("N"), ordinal: 0);
         return await RunCoreAsync(ast, experts, options with { Vars = rootInputs }, new RunState(scope), string.Empty, ct);
     }
@@ -71,8 +72,11 @@ public class PipelineRunner
             return Failure(string.Empty, PipelineFailure.InvalidContinuation);
 
         var root = checkpoint.RootMissionName;
+        var admittedNames = DurableMissionInputPolicy.AdmittedNames(ast, experts, root);
         var pending = PipelineCheckpointCodec.PendingCall(checkpoint);
-        if (!string.Equals(pending.CallId, request.Result.CallId, StringComparison.Ordinal)
+        if (!checkpoint.AdmittedInputNames.SequenceEqual(admittedNames, StringComparer.Ordinal)
+            || checkpoint.RootInputs.Keys.Any(name => !admittedNames.Contains(name, StringComparer.Ordinal))
+            || !string.Equals(pending.CallId, request.Result.CallId, StringComparison.Ordinal)
             || !checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, pending.Name, StringComparison.Ordinal))
             || !string.Equals(checkpoint.RootToolScopeFingerprint, ScopeFingerprint(checkpoint.ToolDeclarations), StringComparison.Ordinal)
             || !string.Equals(checkpoint.RootDefinitionFingerprint, RootDefinitionFingerprint(ast, experts, root), StringComparison.Ordinal))
@@ -87,7 +91,7 @@ public class PipelineRunner
         var tools = checkpoint.ToolDeclarations.Select(tool => (AITool)new Katasec.AITools.DeclaredTool(
             tool.Name, tool.Description, tool.InputSchema)).ToList();
         var scope = new PauseScope(tools, checkpoint.ToolDeclarations, root, checkpoint.RootDefinitionFingerprint,
-            checkpoint.RootInputs, checkpoint.RootExecutionId, checkpoint.ContinuationOrdinal);
+            checkpoint.RootInputs, admittedNames, checkpoint.RootExecutionId, checkpoint.ContinuationOrdinal);
         var run = new RunState(scope, checkpoint, ResumedTurn(checkpoint, request.Result));
         var options = observers with { MissionName = root, Vars = checkpoint.RootInputs, RootTools = tools, MissionPath = null };
 
@@ -225,7 +229,7 @@ public class PipelineRunner
                         {
                             await onToolRequested(new PipelineToolRequested(
                                 options.MissionName, missionPath, step.ExpertName, toolExpert.Kind,
-                                attempt, ToPipelineToolCalls(toolCalls)), ct);
+                                attempt, ToPipelineToolCalls(toolCalls)) { StepKey = stepKey }, ct);
                         }
 
                         var toolText = context.TryGetValue("output", out var o) ? o?.ToString() ?? string.Empty : string.Empty;
@@ -316,7 +320,7 @@ public class PipelineRunner
         // before the caller decides whether the envelope fails the mission — always awaited
         // before the next step begins (Phase 43.16 Task 3). A replayed step reports nothing (R4).
         if (!invocation.Replayed && options.OnTrace is { } onCompleted)
-            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope), ct);
+            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope) { StepKey = key }, ct);
 
         return new StepOutcome(envelope.Status == "fail"
             ? $"[{step.ExpertName}] {envelope.Reason ?? "step failed"}"
@@ -450,7 +454,7 @@ public class PipelineRunner
         // (Task 3 imposes no global sequence across them).
         var envelope = invocation.Envelope;
         if (!invocation.Replayed && options.OnTrace is { } onCompleted)
-            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope), cts.Token);
+            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope) { StepKey = key }, cts.Token);
 
         if (envelope.Status == "fail")
         {
@@ -483,12 +487,12 @@ public class PipelineRunner
             return new StepInvocation(new StepEnvelope(logged.Text, logged.Status, logged.Reason), Replayed: true, null, []);
         }
 
-        var runner = RunnerFor(expert, step, options);
+        var runner = RunnerFor(expert, step, options, key, attempt);
 
         // Before invoking a real expert (Phase 43.16 Task 3): its attempt is the enclosing
         // mission's current loop attempt.
         if (options.OnTrace is { } onStarted)
-            await onStarted(new PipelineStepStarted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt), ct);
+            await onStarted(new PipelineStepStarted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt) { StepKey = key }, ct);
 
         if (!inParallel && options.StepWriter is { } sw)
             await sw.WriteLineAsync($"→ {step.ExpertName}...");
@@ -509,7 +513,7 @@ public class PipelineRunner
         {
             envelope = inParallel
                 ? await runner.RunAsync(expert, context, ct)
-                : await InvokeExpertAsync(runner, expert, context, options, missionPath, step.ExpertName, attempt, ct);
+                : await InvokeExpertAsync(runner, expert, context, options, missionPath, step.ExpertName, key, attempt, ct);
         }
         catch (Exception ex) when (!inParallel && ex is not OperationCanceledException)
         {
@@ -583,7 +587,7 @@ public class PipelineRunner
     {
         var scope = run.Scope!;
         if (options.OnTrace is { } onCompleted)
-            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, invocation.Envelope), ct);
+            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, invocation.Envelope) { StepKey = key }, ct);
 
         if (calls.Count != 1) return Failure(scope.RootMissionName, PipelineFailure.MultipleOutstandingTools);
         var call = ToPipelineToolCalls(calls).Single();
@@ -591,14 +595,14 @@ public class PipelineRunner
             return Failure(scope.RootMissionName, PipelineFailure.UnsupportedTool);
 
         if (options.OnTrace is { } onCheckpointed)
-            await onCheckpointed(new PipelineRootToolCheckpointed(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, call), ct);
+            await onCheckpointed(new PipelineRootToolCheckpointed(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, call) { StepKey = key }, ct);
 
         var ordinal = scope.NextOrdinal();
         RegisterIssuedContinuation(scope.RootExecutionId, ordinal);
         var checkpoint = new PipelineContinuationCheckpoint(PipelineCheckpointCodec.CheckpointVersion,
             Guid.NewGuid().ToString("N"), scope.RootExecutionId, ordinal, scope.RootMissionName,
             scope.DefinitionFingerprint, scope.ToolScopeFingerprint, scope.Declarations, missionPath, step.ExpertName,
-            attempt, invocation.Turn, scope.RootInputs,
+            attempt, invocation.Turn, scope.RootInputs, scope.AdmittedInputNames,
             run.LogSnapshot(), key);
         var pause = new PipelineToolPause(scope.RootMissionName, missionPath, step.ExpertName, attempt, call,
             new PipelineContinuation(PipelineCheckpointCodec.EnvelopeVersion, PipelineCheckpointCodec.Write(checkpoint)));
@@ -626,6 +630,7 @@ public class PipelineRunner
             MissionPath: [.. parentPath, childMissionName])
         {
             StreamLlmDeltas = parent.StreamLlmDeltas,
+            ExecutionWorkspace = parent.ExecutionWorkspace,
         };
 
     // Phase 58: in a chat run the first step's input is the new message — the root mission's first
@@ -700,13 +705,13 @@ public class PipelineRunner
                 $"Add [providers.{key}] to forge.toml. Available: {string.Join(", ", _runners.Keys)}");
     }
 
-    private IExpertRunner RunnerFor(ExpertDefinition expert, Step step, PipelineRunOptions options) => expert.Kind switch
+    private IExpertRunner RunnerFor(ExpertDefinition expert, Step step, PipelineRunOptions options, string key, int attempt) => expert.Kind switch
     {
         "http"         => new HttpExpertRunner(),
         "rule"         => new RuleExpertRunner(),
         "onnx"         => new OnnxExpertRunner(),
         "json_extract" => new JsonExtractExpertRunner(),
-        "exec"         => new ExecExpertRunner(_execution.DefaultTimeout),
+        "exec"         => new ExecExpertRunner(_execution.DefaultTimeout, options.ExecutionWorkspace, key, attempt),
         "search"       => new SearchExpertRunner(_webSearch
                               ?? throw new InvalidOperationException(
                                   "kind: search requires a configured IWebSearch (Scout). " +
@@ -741,17 +746,7 @@ public class PipelineRunner
     // ------------------------------------------------------------------
 
     private static string RootDefinitionFingerprint(Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts, string rootMission)
-    {
-        var bindings = ast.Bindings.OrderBy(binding => binding.Name, StringComparer.Ordinal)
-            .Select(binding => $"L:{binding.Name}:{binding.Value}");
-        var missions = ast.Declarations.OfType<MissionDeclaration>().OrderBy(m => m.Name, StringComparer.Ordinal)
-            .Select(m => $"M:{m.Name}:{m.MaxLoops}:{string.Join(',', m.Params)}:{string.Join(';', m.Pipeline.Elements.Select(e => e.ToString()))}");
-        var definitions = experts.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-            .Select(pair => $"E:{pair.Key}:{pair.Value.Kind}:{pair.Value.Role}:{pair.Value.SystemPrompt}");
-        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"{rootMission}\n{string.Join('\n', bindings)}\n{string.Join('\n', missions)}\n{string.Join('\n', definitions)}")));
-    }
-
+        => PipelineDefinitionFingerprint.Compute(ast, experts, rootMission);
     // Pause hashes the declared schemas; resume hashes the checkpoint's re-serialized copies. Both
     // hash the same compact form so schema whitespace never invalidates a continuation.
     private static string ScopeFingerprint(IEnumerable<PipelineToolDeclaration> declarations) => Convert.ToHexString(
@@ -765,26 +760,11 @@ public class PipelineRunner
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
-    // The root mission's declared parameters, minus anything credential-shaped. These are the only
-    // inputs a pausable run sees, and the only ones its checkpoint keeps (R7).
     private static IReadOnlyDictionary<string, string> RootInputs(
-        Program ast, string missionName, IReadOnlyDictionary<string, string>? vars)
-    {
-        var parameters = FindMission(ast, missionName)?.Params ?? [];
-        return (vars ?? new Dictionary<string, string>())
-            .Where(pair => parameters.Contains(pair.Key, StringComparer.Ordinal) && !IsSensitiveKey(pair.Key))
+        IReadOnlyList<string> admittedNames, IReadOnlyDictionary<string, string>? vars)
+        => (vars ?? new Dictionary<string, string>())
+            .Where(pair => admittedNames.Contains(pair.Key, StringComparer.Ordinal))
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-    }
-
-    private static bool IsSensitiveKey(string key) => key.Equals("apiKey", StringComparison.OrdinalIgnoreCase)
-        || key.Equals("provider", StringComparison.OrdinalIgnoreCase)
-        || key.Equals("endpoint", StringComparison.OrdinalIgnoreCase)
-        || key.Equals("model", StringComparison.OrdinalIgnoreCase)
-        || key.Contains("credential", StringComparison.OrdinalIgnoreCase)
-        || key.Contains("secret", StringComparison.OrdinalIgnoreCase)
-        || key.Contains("token", StringComparison.OrdinalIgnoreCase)
-        || key.Equals("authorization", StringComparison.OrdinalIgnoreCase);
-
     private static PipelineToolDeclaration ToDeclaration(AITool tool)
     {
         if (tool is not AIFunction function) throw new InvalidOperationException($"Root tool '{tool.Name}' must be an AIFunction declaration.");
@@ -932,6 +912,7 @@ public class PipelineRunner
         PipelineRunOptions options,
         IReadOnlyList<string> missionPath,
         string expertName,
+        string key,
         int attempt,
         CancellationToken ct)
     {
@@ -948,7 +929,7 @@ public class PipelineRunner
             text.Append(chunk);
 
             if (options.OnTrace is { } onDelta && !string.IsNullOrEmpty(chunk))
-                await onDelta(new PipelineStepDelta(options.MissionName, missionPath, expertName, expert.Kind, attempt, chunk), ct);
+                await onDelta(new PipelineStepDelta(options.MissionName, missionPath, expertName, expert.Kind, attempt, chunk) { StepKey = key }, ct);
         }
         if (options.StepWriter is { } endWriter)
             await endWriter.WriteLineAsync("\n");
@@ -1059,6 +1040,7 @@ public class PipelineRunner
         string rootMissionName,
         string definitionFingerprint,
         IReadOnlyDictionary<string, string> rootInputs,
+        IReadOnlyList<string> admittedInputNames,
         string rootExecutionId,
         int ordinal)
     {
@@ -1070,6 +1052,7 @@ public class PipelineRunner
         public string DefinitionFingerprint { get; } = definitionFingerprint;
         public string ToolScopeFingerprint { get; } = ScopeFingerprint(declarations);
         public IReadOnlyDictionary<string, string> RootInputs { get; } = rootInputs;
+        public IReadOnlyList<string> AdmittedInputNames { get; } = admittedInputNames;
         public string RootExecutionId { get; } = rootExecutionId;
 
         public int NextOrdinal() => ++_ordinal;

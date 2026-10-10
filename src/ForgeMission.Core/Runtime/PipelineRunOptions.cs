@@ -51,6 +51,8 @@ public record PipelineRunOptions(
     // PipelineRunner.ResumeAsync.
     IList<AITool>? RootTools = null)
 {
+    /// <summary>Runtime-only verified segment storage, inherited by child missions.</summary>
+    public PipelineExecutionWorkspace? ExecutionWorkspace { get; init; }
     /// <summary>Streams each tool-free, non-judge llm step and emits its text as
     /// <see cref="PipelineStepDelta"/> facts through <see cref="OnTrace"/> (Phase 53.8). Set only by
     /// the durable executor; a streamed step's result is its plain text with status pass. Judges and

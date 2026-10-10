@@ -77,7 +77,8 @@ public class ExpertLoader(string expertsDirectory)
         Dictionary<string, ExpertDefinition> experts,
         TextWriter? warnings = null,
         bool contractErrorsAreFatal = false,
-        string? missionFilePath = null)
+        string? missionFilePath = null,
+        IReadOnlyDictionary<string, string>? expertMarkdownByName = null)
     {
         var missionsByName = ast.Declarations
             .OfType<MissionDeclaration>()
@@ -111,7 +112,7 @@ public class ExpertLoader(string expertsDirectory)
 
         var contractIssues = ast.Declarations
             .OfType<MissionDeclaration>()
-            .SelectMany(m => ValidateContextKeys(m, experts))
+            .SelectMany(m => ValidateContextKeys(m, experts, expertMarkdownByName))
             .ToList();
 
         if (contractIssues.Count == 0) return;
@@ -206,7 +207,8 @@ public class ExpertLoader(string expertsDirectory)
     // Diagnostics point at the offending key line inside the expert's expert.md file.
     private static IEnumerable<ExpertLoadException> ValidateContextKeys(
         MissionDeclaration mission,
-        Dictionary<string, ExpertDefinition> experts)
+        Dictionary<string, ExpertDefinition> experts,
+        IReadOnlyDictionary<string, string>? expertMarkdownByName)
     {
         // Seed with the standard runtime keys every pipeline starts with.
         var available = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -215,6 +217,8 @@ public class ExpertLoader(string expertsDirectory)
             ["feedback"]  = "string",
             ["max_loops"] = "int",
         };
+        foreach (var parameter in mission.Params)
+            available.TryAdd(parameter, "string");
 
         foreach (var element in mission.Pipeline.Elements)
         {
@@ -233,7 +237,7 @@ public class ExpertLoader(string expertsDirectory)
                 if (expert.InputKeys is { } inputKeys)
                 {
                     var expertFile = Path.Combine(expert.ExpertDirectory, "expert.md");
-                    var frontmatter = ReadFrontmatter(expertFile);
+                    var frontmatter = DiagnosticFrontmatter(expertFile, expert.Name, expertMarkdownByName);
 
                     foreach (var (key, declaredType) in inputKeys)
                     {
@@ -264,6 +268,16 @@ public class ExpertLoader(string expertsDirectory)
                 }
             }
         }
+    }
+
+    private static (string text, int startLine) DiagnosticFrontmatter(
+        string path, string name, IReadOnlyDictionary<string, string>? markdownByName)
+    {
+        if (markdownByName is null) return ReadFrontmatter(path);
+        if (!markdownByName.TryGetValue(name, out var markdown))
+            throw new ExpertLoadException($"Missing immutable diagnostic source for expert '{name}'.");
+        var (text, _, startLine) = SplitFrontmatter(path, markdown);
+        return (text, startLine);
     }
 
     // Read just the frontmatter block from an expert.md, returning (text, startLine).

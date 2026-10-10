@@ -8,41 +8,27 @@ namespace ForgeMission.Core.Adapters;
 
 public class OnnxExpertRunner : IExpertRunner
 {
-    public Task<StepEnvelope> RunAsync(
+    public async Task<StepEnvelope> RunAsync(
         ExpertDefinition expert,
         Dictionary<string, object> context,
         CancellationToken ct = default)
     {
-        var inputs   = expert.Inputs ?? [];
-        var features = new float[inputs.Count];
-
-        for (var i = 0; i < inputs.Count; i++)
+        ct.ThrowIfCancellationRequested();
+        var features = ReadFeatures(expert, context);
+        using var sessionOptions = new SessionOptions();
+        using var runOptions = new RunOptions();
+        using var registration = ct.Register(() =>
         {
-            var key = inputs[i];
-            if (!context.TryGetValue(key, out var raw))
-                throw new InvalidOperationException(
-                    $"ONNX feature '{key}' not found in context. Ensure a prior step writes it.");
-            features[i] = Convert.ToSingle(raw);
+            sessionOptions.SetLoadCancellationFlag(true);
+            runOptions.Terminate = true;
+        });
+        float score;
+        try
+        {
+            score = await Task.Run(() => Infer(expert, features, sessionOptions, runOptions), CancellationToken.None);
         }
-
-        var tensor = new DenseTensor<float>(features, [1, inputs.Count]);
-        var ortInputs = new List<NamedOnnxValue>
-        {
-            NamedOnnxValue.CreateFromTensor("input", tensor)
-        };
-
-        var modelPath = Path.IsPathRooted(expert.Model)
-            ? expert.Model
-            : Path.GetFullPath(Path.Combine(expert.ExpertDirectory, expert.Model));
-
-        using var session = new InferenceSession(modelPath);
-        using var results = session.Run(ortInputs);
-
-        // sklearn ONNX models emit two outputs: label (int64) then probabilities (float[1,2]).
-        // Take the probability for class 1 (the "positive" / high-risk class).
-        var probOutput = results.FirstOrDefault(r => r.Name == "probabilities") ?? results.Last();
-        var probs      = probOutput.AsEnumerable<float>().ToArray();
-        var score      = probs.Length >= 2 ? probs[1] : probs[0];
+        catch (OnnxRuntimeException) when (ct.IsCancellationRequested) { throw new OperationCanceledException(ct); }
+        ct.ThrowIfCancellationRequested();
         context[expert.OutputKey] = (double)score;
 
         var threshold  = float.Parse(expert.Threshold);
@@ -54,7 +40,7 @@ public class OnnxExpertRunner : IExpertRunner
             ? $"Anomaly score {score:F4} exceeds threshold {threshold}"
             : null;
 
-        return Task.FromResult(new StepEnvelope(score.ToString("F4"), status, reason));
+        return new StepEnvelope(score.ToString("F4"), status, reason);
     }
 
     public async IAsyncEnumerable<string> StreamAsync(
@@ -65,4 +51,33 @@ public class OnnxExpertRunner : IExpertRunner
         var envelope = await RunAsync(expert, context, ct);
         yield return envelope.Text;
     }
+
+    private static float[] ReadFeatures(ExpertDefinition expert, Dictionary<string, object> context)
+    {
+        var inputs = expert.Inputs ?? [];
+        var features = new float[inputs.Count];
+        for (var i = 0; i < inputs.Count; i++)
+        {
+            var key = inputs[i];
+            if (!context.TryGetValue(key, out var raw))
+                throw new InvalidOperationException($"ONNX feature '{key}' not found in context. Ensure a prior step writes it.");
+            features[i] = Convert.ToSingle(raw);
+        }
+        return features;
+    }
+
+    private static float Infer(ExpertDefinition expert, float[] features, SessionOptions options, RunOptions runOptions)
+    {
+        var tensor = new DenseTensor<float>(features, [1, features.Length]);
+        var inputs = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("input", tensor) };
+        var path = Path.IsPathRooted(expert.Model) ? expert.Model
+            : Path.GetFullPath(Path.Combine(expert.ExpertDirectory, expert.Model));
+        using var session = new InferenceSession(path, options);
+        using var results = session.Run(inputs, session.OutputNames, runOptions);
+        var probabilities = results.FirstOrDefault(r => r.Name == "probabilities") ?? results.Last();
+        var scores = probabilities.AsEnumerable<float>().ToArray();
+        return scores.Length >= 2 ? scores[1] : scores[0];
+    }
+
+
 }

@@ -9,4 +9,5 @@
   <Project Path="src/ForgeMission.Docker/ForgeMission.Docker.csproj" />
   <Project Path="src/ForgeMission.Cli/ForgeMission.Cli.csproj" />
   <Project Path="tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj" />
+  <Project Path="tests/ForgeMission.Exec.Probe/ForgeMission.Exec.Probe.csproj" />
 </Solution>

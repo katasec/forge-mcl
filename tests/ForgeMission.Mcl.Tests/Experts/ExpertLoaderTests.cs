@@ -6,6 +6,27 @@ namespace ForgeMission.Tests.Experts;
 
 public class ExpertLoaderTests : IDisposable
 {
+    [Theory]
+    [InlineData("string", true)]
+    [InlineData("double", false)]
+    public void Immutable_diagnostics_recognize_declared_string_parameters(string type, bool valid)
+    {
+        var markdown = $"---\nname: Reader\ninput: text\noutput: text\ninputKeys:\n  goal: {type}\n---\nRead.";
+        var expert = ExpertLoader.ParseContent("not-on-disk/Reader/expert.md", markdown);
+        var ast = MclParser.Parse("mission Root(goal) = { Reader }");
+        var definitions = new Dictionary<string, ExpertDefinition> { ["Reader"] = expert };
+        var sources = new Dictionary<string, string> { ["Reader"] = markdown };
+        if (valid) ExpertLoader.Validate(ast, definitions, contractErrorsAreFatal: true, expertMarkdownByName: sources);
+        else
+        {
+            var error = Assert.Throws<AggregateExpertLoadException>(() =>
+                ExpertLoader.Validate(ast, definitions, contractErrorsAreFatal: true, expertMarkdownByName: sources));
+            Assert.Contains("MCL012", error.Errors.Single().Message);
+            Assert.Equal(6, error.Errors.Single().Line);
+        }
+        Assert.Throws<ExpertLoadException>(() => ExpertLoader.Validate(ast, definitions,
+            contractErrorsAreFatal: true, expertMarkdownByName: new Dictionary<string, string>()));
+    }
     private readonly string _dir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
     public ExpertLoaderTests() => Directory.CreateDirectory(_dir);
