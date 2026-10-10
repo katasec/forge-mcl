@@ -64,8 +64,13 @@ directories for at most ten seconds. It copies only `.ips` reports identifying
 `ForgeMission.Exec.Probe` whose recorded process launch is at or after that probe invocation.
 Older processes' delayed reports are excluded even if their files are new. Reports and a scoped
 collection-status JSON live under `exec-probe-crashreports` in the existing verification output;
-the canonical workflow's existing always-upload artifact retains them. The release matrix still
-uploads only successful CLI ZIPs. Missing reports and collection errors remain visible, and
-collection failure never replaces the original probe failure. The failed test is not retried.
+the canonical workflow's existing always-upload artifact retains them. A failed macOS release
+matrix job uploads only this scoped report directory, probe run/publish logs, executable, dSYM and
+native sidecar in a separate `native-exec-diagnostics-*` artifact. Its name stays outside the
+publisher's `forge-*` pattern; successful CLI ZIP artifacts are unchanged. Two reports copied in
+the earlier failed matrix were not uploaded, so the crash cause remains unresolved. A passing
+canonical job does not diagnose that matrix failure. Missing reports and collection errors remain
+visible, and collection failure never replaces the original probe failure. The failed test is not
+retried; report retention does not waive a failed verification gate.
 After the macOS crash is diagnosed, review whether this small verification-owned collector should
 remain; it must not expand into general report or environment collection.
