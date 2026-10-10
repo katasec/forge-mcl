@@ -46,6 +46,11 @@ verification output beside the CLI logs; the probe is excluded from the shipped 
 It independently cancels a blocked BCL anonymous-pipe read and a filled blocked write while
 their opposite endpoints stay open, requiring cancellation completion within five seconds before
 peer closure. Failure cleanup closes only probe-owned endpoints and joins pending operations.
+On macOS the probe compiles a small C sigaction witness using the existing SDK clang, then
+launches it through public `ExecExpertRunner`. It observes caught SIGUSR2 defaulted with flags
+cleared and ignored SIGURG inherited before any managed runtime installs handlers. The probe
+checks its own dispositions remain unchanged and independently restores both originals, including
+on failure; it never replaces the runtime's activation handler or sends a signal.
 The pressure child finishes 1,000,000-byte stdout and 64 KiB stderr before reading 2,000,000-byte
 stdin, so an input-first sequential parent cannot pass. Both drains are exercised under their caps.
 The normal Linux x64 GitHub Actions package gate additionally starts published Runner0.20.6 by
@@ -67,9 +72,12 @@ collection-status JSON live under `exec-probe-crashreports` in the existing veri
 the canonical workflow's existing always-upload artifact retains them. A failed macOS release
 matrix job uploads only this scoped report directory, probe run/publish logs, executable, dSYM and
 native sidecar in a separate `native-exec-diagnostics-*` artifact. Its name stays outside the
-publisher's `forge-*` pattern; successful CLI ZIP artifacts are unchanged. Two reports copied in
-the earlier failed matrix were not uploaded, so the crash cause remains unresolved. A passing
-canonical job does not diagnose that matrix failure. Missing reports and collection errors remain
+publisher's `forge-*` pattern; successful CLI ZIP artifacts are unchanged. Earlier copied matrix reports were lost before this retention route existed. Retained reports,
+matched native symbols and a controlled disposition witness subsequently identified the macOS
+caught-action flags boundary: NativeAOT's previous activation action could retain SA_SIGINFO with
+a null handler after exec. Core now explicitly defaults actual caught actions before macOS spawn,
+preserving ignored/default actions and the caller mask. Corrected-source native and published
+default acceptance remain required; a passing sibling never waives a failed gate. Missing reports and collection errors remain
 visible, and collection failure never replaces the original probe failure. The failed test is not
 retried; report retention does not waive a failed verification gate.
 After the macOS crash is diagnosed, review whether this small verification-owned collector should

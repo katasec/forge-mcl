@@ -17,6 +17,7 @@ try
     if (verifyInit) await VerifyInitTopologyAsync();
     await VerifyPipeCancellationAsync(PipeDirection.In);
     await VerifyPipeCancellationAsync(PipeDirection.Out);
+    if (OperatingSystem.IsMacOS()) await VerifyMacSignalDefaultsAsync(directory);
     await VerifyDeclinedInputAsync();
     await VerifyDuplexPressureAsync(directory);
     await VerifyWorkspaceAsync(directory);
@@ -33,6 +34,45 @@ finally { Directory.Delete(directory, true); }
 static ExpertDefinition Expert(string directory, string mode, string timeout, params string[] arguments) =>
     new("Execute", "text", "text", "", Kind: "exec", Command: Environment.ProcessPath!,
         Args: ["--child", mode, .. arguments], Inputs: ["input"], OutputKey: "result", Timeout: timeout, ExpertDirectory: directory);
+
+static async Task VerifyMacSignalDefaultsAsync(string directory)
+{
+    if (System.Runtime.InteropServices.Marshal.SizeOf<ExecProbeChild.MacSignalAction>() != 16 ||
+        System.Runtime.InteropServices.Marshal.OffsetOf<ExecProbeChild.MacSignalAction>("Handler").ToInt32() != 0 ||
+        System.Runtime.InteropServices.Marshal.OffsetOf<ExecProbeChild.MacSignalAction>("Mask").ToInt32() != 8 ||
+        System.Runtime.InteropServices.Marshal.OffsetOf<ExecProbeChild.MacSignalAction>("Flags").ToInt32() != 12)
+        throw new Exception("Probe Darwin sigaction ABI mismatch.");
+    var witness = await ExecProbeChild.BuildSignalWitnessAsync(directory);
+    var originals = new Dictionary<int, ExecProbeChild.MacSignalAction> {
+        [31] = ExecProbeChild.QueryMacAction(31), [16] = ExecProbeChild.QueryMacAction(16) };
+    Exception? failure = null;
+    try
+    {
+        ExecProbeChild.SetMacAction(31, ExecProbeChild.CaughtMacAction());
+        ExecProbeChild.SetMacAction(16, new() { Handler = new IntPtr(1) });
+        var caught = ExecProbeChild.QueryMacAction(31);
+        var ignored = ExecProbeChild.QueryMacAction(16);
+        if (caught.Handler == IntPtr.Zero || caught.Handler == new IntPtr(1) || caught.Flags != 0x42 ||
+            ignored.Handler != new IntPtr(1) || ignored.Flags != 0)
+            throw new Exception("Probe could not establish caught/ignored signal dispositions.");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var expert = Expert(directory, "unused", "5s") with { Command = witness, Args = [] };
+        var result = await new ExecExpertRunner().RunAsync(expert, [], deadline.Token);
+        if (result.Status != "pass" || result.Text != "0:0:1:0")
+            throw new Exception($"macOS caught/ignored signal witness failed: {result.Text}; {result.Reason}");
+        ExecProbeChild.AssertMacAction(31, caught);
+        ExecProbeChild.AssertMacAction(16, ignored);
+    }
+    catch (Exception exception) { failure = exception; }
+    finally
+    {
+        var restorationErrors = ExecProbeChild.RestoreMacActions(originals);
+        if (restorationErrors.Count != 0)
+            throw new AggregateException("Probe signal restoration failed.", failure is null ? restorationErrors : [failure, .. restorationErrors]);
+    }
+    if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    Console.WriteLine("PASS macOS caught flags cleared before runtime; ignored action inherited; parent unchanged and restored");
+}
 
 static async Task VerifyPipeCancellationAsync(PipeDirection direction)
 {

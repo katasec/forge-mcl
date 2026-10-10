@@ -5,6 +5,21 @@ namespace ForgeMission.Core.Adapters;
 
 internal static class PosixNative
 {
+    internal const int MacSignalCount = 32;
+    internal const int MacKillSignal = 9;
+    internal const int MacStopSignal = 17;
+    internal const short MacSpawnSignalDefaults = 0x0004;
+    internal static readonly IntPtr DefaultSignalHandler = IntPtr.Zero;
+    internal static readonly IntPtr IgnoredSignalHandler = new(1);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MacSignalAction
+    {
+        internal IntPtr Handler;
+        internal uint Mask;
+        internal int Flags;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct GroupMembers { internal int First, Second; }
     internal static int AttributeSize => OperatingSystem.IsMacOS() ? 8 : 336;
@@ -22,6 +37,8 @@ internal static class PosixNative
 
     [DllImport("libc", EntryPoint = "posix_spawnattr_init")] internal static extern int AttributeInit(IntPtr attributes);
     [DllImport("libc", EntryPoint = "posix_spawnattr_setflags")] internal static extern int AttributeFlags(IntPtr attributes, short flags);
+    [DllImport("libc", EntryPoint = "sigaction", SetLastError = true)] internal static extern int QuerySignalAction(int signal, IntPtr action, out MacSignalAction previous);
+    [DllImport("libc", EntryPoint = "posix_spawnattr_setsigdefault")] internal static extern int AttributeSignalDefaults(IntPtr attributes, ref uint signals);
     [DllImport("libc", EntryPoint = "posix_spawnattr_setpgroup")] internal static extern int AttributeGroup(IntPtr attributes, int group);
     [DllImport("libc", EntryPoint = "posix_spawnattr_destroy")] internal static extern int AttributeDestroy(IntPtr attributes);
     [DllImport("libc", EntryPoint = "posix_spawn_file_actions_init")] internal static extern int ActionsInit(IntPtr actions);

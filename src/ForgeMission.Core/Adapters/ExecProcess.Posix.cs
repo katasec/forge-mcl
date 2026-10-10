@@ -116,12 +116,35 @@ internal sealed class PosixExecProcess : ExecProcess
 
     private void ConfigureSpawn(ProcessStartInfo options, IntPtr attributes, IntPtr actions, List<IntPtr> allocations)
     {
-        PosixNative.Check(PosixNative.AttributeFlags(attributes, (short)(OperatingSystem.IsMacOS() ? 0x4002 : 2)), "spawn group flags");
+        var flags = (short)(OperatingSystem.IsMacOS() ? 0x4002 : 2);
+        if (OperatingSystem.IsMacOS())
+        {
+            ConfigureMacSignalDefaults(attributes);
+            flags |= PosixNative.MacSpawnSignalDefaults;
+        }
+        PosixNative.Check(PosixNative.AttributeFlags(attributes, flags), "spawn group flags");
         PosixNative.Check(PosixNative.AttributeGroup(attributes, 0), "spawn group");
         PosixNative.Check(PosixNative.Duplicate(actions, Input.ClientSafePipeHandle.DangerousGetHandle().ToInt32(), 0), "stdin action");
         PosixNative.Check(PosixNative.Duplicate(actions, Output.ClientSafePipeHandle.DangerousGetHandle().ToInt32(), 1), "stdout action");
         PosixNative.Check(PosixNative.Duplicate(actions, Error.ClientSafePipeHandle.DangerousGetHandle().ToInt32(), 2), "stderr action");
         PosixNative.Check(PosixNative.ChangeDirectory(actions, Text(options.WorkingDirectory, allocations)), "cwd action");
+    }
+
+    private static void ConfigureMacSignalDefaults(IntPtr attributes)
+    {
+        uint caughtSignals = 0;
+        for (var signal = 1; signal < PosixNative.MacSignalCount; signal++)
+        {
+            if (signal is PosixNative.MacKillSignal or PosixNative.MacStopSignal) continue;
+            if (PosixNative.QuerySignalAction(signal, IntPtr.Zero, out var action) != 0)
+            {
+                var error = Marshal.GetLastPInvokeError();
+                throw new System.ComponentModel.Win32Exception(error, $"Query signal {signal} failed (OS error {error}).");
+            }
+            if (action.Handler == PosixNative.DefaultSignalHandler || action.Handler == PosixNative.IgnoredSignalHandler) continue;
+            caughtSignals |= 1u << (signal - 1);
+        }
+        PosixNative.Check(PosixNative.AttributeSignalDefaults(attributes, ref caughtSignals), "spawn caught signal defaults");
     }
 
     private static IntPtr Vector(IEnumerable<string> values, List<IntPtr> allocations)
