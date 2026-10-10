@@ -183,7 +183,7 @@ static async Task VerifyWorkspaceAsync(string directory)
 static void AssertWorkspaceResult(string text, PipelineExecutionWorkspace workspace, string relative)
 {
     var result = JsonSerializer.Deserialize(text, ProbeJsonContext.Default.DictionaryStringString)!;
-    var absolute = Path.Combine(workspace.RootDirectory, relative);
+    var absolute = Path.Combine(workspace.RootDirectory, relative.Replace('/', Path.DirectorySeparatorChar));
     var output = workspace.GetStepOutputDirectory("Root@1#0", 1);
     var expected = new Dictionary<string, string> {
         ["source_file"] = absolute, ["document"] = absolute, ["mode"] = "authored mode",
