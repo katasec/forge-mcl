@@ -1,5 +1,8 @@
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
+using ForgeMission.Core.Runtime;
+using ForgeMission.Parser;
+using ForgeMission.Tests.Runtime;
 
 namespace ForgeMission.Tests.Adapters;
 
@@ -31,6 +34,36 @@ public sealed class OnnxExpertRunnerTests
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.False(context.ContainsKey("score"));
+    }
+
+    [Fact]
+    public async Task Pipeline_parallel_sibling_launches_while_native_work_is_unfinished_and_cancellation_joins()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var sibling = new TaskCompletionSource<Dictionary<string, object>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var facts = new System.Collections.Concurrent.ConcurrentBag<PipelineTraceEvent>();
+        var runner = new PipelineRunner(new StubExpertRunner((_, context) =>
+        {
+            sibling.SetResult(context);
+            return new StepEnvelope("sibling launched");
+        }));
+        var experts = new Dictionary<string, ExpertDefinition> { ["Numeric"] = Expert("cancellable-loop.onnx"),
+            ["Sibling"] = new("Sibling", "text", "text", "") };
+        var run = runner.RunAsync(MclParser.Parse("mission Root(low, high) = { parallel { Numeric Sibling } }"), experts,
+            new PipelineRunOptions("Root", new Dictionary<string, string> { ["low"] = "0.2", ["high"] = "0.8" },
+                OnTrace: (fact, _) => { facts.Add(fact); return Task.CompletedTask; }), cancellation.Token);
+        try
+        {
+            var context = await sibling.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.Delay(300);
+            Assert.False(run.IsCompleted);
+            Assert.Contains(facts, fact => fact is PipelineStepStarted { ExpertName: "Numeric" });
+            Assert.Contains(facts, fact => fact is PipelineStepCompleted { ExpertName: "Sibling" });
+            Assert.DoesNotContain(facts, fact => fact is PipelineStepCompleted { ExpertName: "Numeric" });
+            Assert.False(context.ContainsKey("score"));
+        }
+        finally { cancellation.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10))); }
+        Assert.DoesNotContain(facts, fact => fact is PipelineStepCompleted { ExpertName: "Numeric" });
     }
 
     [Fact]

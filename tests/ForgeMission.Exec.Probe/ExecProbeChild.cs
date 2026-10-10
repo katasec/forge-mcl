@@ -22,6 +22,8 @@ internal static class ExecProbeChild
                 Result("declined");
                 return 0;
             case "parent": return await ParentAsync(arguments[1]);
+            case "pressure": return await PressureAsync();
+            case "workspace": return await WorkspaceAsync();
             case "exited-descendant":
                 using (var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, RedirectStandardOutput = true, ArgumentList = { "--child", "args", "already exited" } })!)
                 { await child.StandardOutput.ReadToEndAsync(); await child.WaitForExitAsync(); }
@@ -50,6 +52,32 @@ internal static class ExecProbeChild
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         while (Directory.GetFiles(directory, "child-*.pid").Length != 2) await Task.Delay(10, deadline.Token);
         Result("root exited");
+        return 0;
+    }
+
+    private static async Task<int> PressureAsync()
+    {
+        var output = Task.Run(() => Result(new string('o', 1_000_000)));
+        var error = Task.Run(() => Console.Error.Write(new string('e', 64 * 1024)));
+        // Both drains must finish before stdin: an input-first sequential parent cannot pass.
+        await Task.WhenAll(output, error);
+        using var input = JsonDocument.Parse(await Console.In.ReadToEndAsync());
+        var text = input.RootElement.GetProperty("input").GetString()!;
+        if (text.Length != 2_000_000 || text.Any(value => value != 'i')) throw new Exception("Concurrent stdin payload mismatch.");
+        return 0;
+    }
+
+    private static async Task<int> WorkspaceAsync()
+    {
+        using var input = JsonDocument.Parse(await Console.In.ReadToEndAsync());
+        var result = input.RootElement.EnumerateObject().ToDictionary(value => value.Name, value => value.Value.GetString()!);
+        string[] names = ["FORGE_INPUT_source_file", "FORGE_INPUT_document", "FORGE_SOURCE_FILE", "FORGE_WORK_DIR", "FORGE_INPUT_DIR", "FORGE_OUTPUT_DIR",
+            "FORGE_INPUT_stale", "FORGE_INPUT_mode", "FORGE_PROBE_INHERITED", "FORGE_PROBE_AUTHORED"];
+        foreach (var name in names) result[name] = Environment.GetEnvironmentVariable(name) ?? "";
+        result["content"] = File.ReadAllText(result["source_file"]);
+        result["cwd_marker"] = File.ReadAllText("cwd-marker");
+        File.WriteAllText(Path.Combine(result["output_dir"], "probe.txt"), result["content"]);
+        Result(JsonSerializer.Serialize(result, ProbeJsonContext.Default.DictionaryStringString));
         return 0;
     }
 

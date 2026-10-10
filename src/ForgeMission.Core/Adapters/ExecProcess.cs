@@ -26,6 +26,8 @@ internal abstract class ExecProcess : IAsyncDisposable
 
     internal static ExecProcess Start(ProcessStartInfo options)
     {
+        if (OperatingSystem.IsLinux() && Environment.ProcessId == 1)
+            throw new InvalidOperationException("Executable execution requires an init parent; Linux PID 1 is unsupported.");
         ExecProcess process = OperatingSystem.IsWindows() ? new WindowsExecProcess() : new PosixExecProcess();
         try
         {

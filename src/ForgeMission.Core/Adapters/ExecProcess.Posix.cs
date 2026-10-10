@@ -72,7 +72,6 @@ internal sealed class PosixExecProcess : ExecProcess
             await ObserveExitAsync(cleanupToken);
             if (!_terminationRequested) throw PosixNative.Failure("join unterminated group", 0);
             if (OperatingSystem.IsMacOS()) await ObserveRootOnlyGroupAsync(cleanupToken);
-            if (OperatingSystem.IsLinux()) await DrainAdoptedChildrenAsync(cleanupToken);
             var result = PosixNative.Reap(_pid, out var status, 1);
             if (result != _pid) throw PosixNative.Failure("reap owned root", Marshal.GetLastPInvokeError());
             _pid = 0;
@@ -113,68 +112,6 @@ internal sealed class PosixExecProcess : ExecProcess
             throw PosixNative.Failure("observe owned root", error);
         }
         finally { Marshal.FreeHGlobal(info); }
-    }
-
-    private async Task DrainAdoptedChildrenAsync(CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var children = ReadChildren();
-            if (children is null) { await Task.Delay(10, cancellationToken); continue; }
-            if (!InspectAdoptedChildren(children)) return;
-            await Task.Delay(10, cancellationToken);
-        }
-    }
-
-    private bool InspectAdoptedChildren(HashSet<int> children)
-    {
-        var repeat = false;
-        foreach (var child in children)
-        {
-            if (child == _pid) continue;
-            var group = PosixNative.Group(child);
-            var error = Marshal.GetLastPInvokeError();
-            if (group < 0 && error == 3) { repeat = true; continue; }
-            if (group < 0) throw PosixNative.Failure("inspect adopted child group", error);
-            if (group != _pid) continue;
-            ReapAdoptedChild(child);
-            repeat = true;
-        }
-        return repeat;
-    }
-
-    private static HashSet<int>? ReadChildren()
-    {
-        try
-        {
-            var children = new HashSet<int>();
-            foreach (var task in Directory.GetDirectories("/proc/self/task"))
-            {
-                var text = ReadTaskChildren(task);
-                if (text is null) return null;
-                foreach (var value in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                    children.Add(int.Parse(value, System.Globalization.CultureInfo.InvariantCulture));
-            }
-            return children;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or FormatException)
-        { throw new ExecProcessCleanupException("read adopted children", exception); }
-    }
-
-    private static string? ReadTaskChildren(string task)
-    {
-        try { return File.ReadAllText(Path.Combine(task, "children")); }
-        catch (DirectoryNotFoundException) { return null; }
-        catch (FileNotFoundException) { return null; }
-    }
-
-    private static void ReapAdoptedChild(int pid)
-    {
-        var result = PosixNative.Reap(pid, out _, 1);
-        var error = Marshal.GetLastPInvokeError();
-        if (result >= 0 || error is 4 or 10) return;
-        throw PosixNative.Failure("reap adopted child", error);
     }
 
     private void ConfigureSpawn(ProcessStartInfo options, IntPtr attributes, IntPtr actions, List<IntPtr> allocations)

@@ -37,12 +37,35 @@ function Test-NativeExec {
     if ($IsWindows) { $name += '.exe' }
     Invoke-Checked (Join-Path $proof $name) @() (Join-Path $Destination 'exec-probe-run.log')
     if ($Runtime -eq 'linux-x64' -and $env:GITHUB_ACTIONS -eq 'true') {
-        $image = 'mcr.microsoft.com/dotnet/aspnet:10.0'
-        Invoke-Checked docker @('pull', $image) (Join-Path $Destination 'exec-pid1-image-pull.log')
-        Invoke-Checked docker @('image', 'inspect', '--format', '{{json .RepoDigests}}', $image) (Join-Path $Destination 'exec-pid1-image.txt')
-        Invoke-Checked docker @('run', '--rm', '--mount', "type=bind,source=$([IO.Path]::GetFullPath($proof)),target=/proof,readonly",
-            '--entrypoint', '/proof/ForgeMission.Exec.Probe', $image, '--verify-pid1') (Join-Path $Destination 'exec-pid1-run.log')
+        Test-InitHostedExec $Destination $proof
     }
+}
+
+function Test-InitHostedExec {
+    param([string]$Destination, [string]$Proof)
+    $image = 'ghcr.io/katasec/forge-runner@sha256:c0031d451d046d4f28a75ca7f7c7f26169b26e92555de4b601128a005670331c'
+    $container = 'forge-core-init-' + [Guid]::NewGuid().ToString('N')
+    $mount = "type=bind,source=$([IO.Path]::GetFullPath($Proof)),target=/proof,readonly"
+    Invoke-Checked docker @('pull', $image) (Join-Path $Destination 'exec-init-image-pull.log')
+    $indexLog = Join-Path $Destination 'exec-init-index.json'
+    Invoke-Checked docker @('manifest', 'inspect', $image) $indexLog
+    $index = Get-Content $indexLog -Raw | ConvertFrom-Json
+    $platform = @($index.manifests | Where-Object { $_.platform.os -eq 'linux' -and $_.platform.architecture -eq 'amd64' })
+    if ($platform.Count -ne 1 -or $platform[0].digest -ne 'sha256:cf2a7e14f639519af223dd1efa0a2adf4d40cf1cac5f1b7d2017c5860ca1078b') { throw 'Published Runner platform manifest mismatch.' }
+    $format = '{"id":{{json .Id}},"architecture":{{json .Architecture}},"digests":{{json .RepoDigests}},"entrypoint":{{json .Config.Entrypoint}},"revision":{{json (index .Config.Labels "org.opencontainers.image.revision")}}}'
+    $imageLog = Join-Path $Destination 'exec-init-image.json'
+    Invoke-Checked docker @('image', 'inspect', '--format', $format, $image) $imageLog
+    $facts = Get-Content $imageLog -Raw | ConvertFrom-Json
+    if ($facts.revision -ne '17080b73a84ad0b0e42a891024090e8f997194ed' -or $facts.architecture -ne 'amd64' -or
+        ($facts.entrypoint -join ' ') -ne '/usr/bin/tini -- dotnet ForgeMission.Runner.dll') { throw 'Published Runner image identity mismatch.' }
+    try {
+        Invoke-Checked docker @('run', '--detach', '--name', $container, '--mount', $mount, $image) (Join-Path $Destination 'exec-init-start.log')
+        Invoke-Checked docker @('exec', $container, '/proof/ForgeMission.Exec.Probe', '--verify-init') (Join-Path $Destination 'exec-init-run.log')
+        # Deliberately unsupported topology, separate from the unchanged-entrypoint positive proof.
+        Invoke-Checked docker @('run', '--rm', '--mount', "type=bind,source=$([IO.Path]::GetFullPath($proof)),target=/proof,readonly",
+            '--entrypoint', '/proof/ForgeMission.Exec.Probe', $image, '--verify-pid1-refusal') (Join-Path $Destination 'exec-pid1-refusal.log')
+    }
+    finally { Invoke-Checked docker @('rm', '--force', $container) (Join-Path $Destination 'exec-init-cleanup.log') }
 }
 
 function Resolve-Runtime {

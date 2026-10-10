@@ -32,7 +32,6 @@ internal static class PosixNative
     [DllImport("libc", EntryPoint = "waitid", SetLastError = true)] internal static extern int Observe(int type, uint pid, IntPtr info, int flags);
     [DllImport("libc", EntryPoint = "waitpid", SetLastError = true)] internal static extern int Reap(int pid, out int status, int flags);
     [DllImport("libc", EntryPoint = "kill", SetLastError = true)] internal static extern int Kill(int pid, int signal);
-    [DllImport("libc", EntryPoint = "getpgid", SetLastError = true)] internal static extern int Group(int pid);
     [DllImport("libc", EntryPoint = "access", SetLastError = true)] internal static extern int Access([MarshalAs(UnmanagedType.LPUTF8Str)] string path, int mode);
     [DllImport("/usr/lib/libproc.dylib", EntryPoint = "proc_listpids", SetLastError = true)] internal static extern int ListGroup(uint type, uint group, out GroupMembers members, int bytes);
 }

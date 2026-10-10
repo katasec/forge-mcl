@@ -38,10 +38,20 @@ and packaging additionally reject all raw compiler/linker warnings. This tempora
 exception is recorded in Phase 75 and is removed when those supported prerequisites link cleanly.
 
 Normal `cli-verify` and `cli-package` also publish and run the public-Core-API native exec probe
-on the current host. It checks literal arguments/cwd, declined stdin, early-root-exit descendants,
-timeout/cancellation and unrelated .NET child ownership. Logs and the probe publish live in the
+on the current host. It checks literal arguments/cwd, declined stdin, concurrent bounded
+stdin/stdout/stderr pressure with validated JSON, actual PipelineRunner workspace/input/runtime
+bindings and inherited/authored FORGE environment, early-root-exit descendants, timeout/cancellation
+and unrelated .NET child ownership. Logs and the probe publish live in the
 verification output beside the CLI logs; the probe is excluded from the shipped CLI ZIP.
-The normal Linux x64 GitHub Actions package gate additionally runs that native probe as PID 1
-in the Runner's `mcr.microsoft.com/dotnet/aspnet:10.0` runtime image, without `--init`, and checks
-owned adopted-child reaping. Docker/image/probe failures fail this gate. Image digests and logs
-are recorded in `exec-pid1-*`; these library facts do not prove later hosted deployment acceptance.
+The pressure child finishes 1,000,000-byte stdout and 64 KiB stderr before reading 2,000,000-byte
+stdin, so an input-first sequential parent cannot pass. Both drains are exercised under their caps.
+The normal Linux x64 GitHub Actions package gate additionally starts published Runner0.20.6 by
+immutable GHCR index `sha256:c0031d451d046d4f28a75ca7f7c7f26169b26e92555de4b601128a005670331c`,
+with its normal entrypoint unchanged and no `--init`. Docker exec runs the readonly mounted probe
+after verifying actual tini PID1/dotnet Runner child. Core retains/reaps its direct root; init reaps
+orphans. The probe separately observes no late sentinel and bounded process-entry disappearance,
+and preserves unrelated .NET child exit ownership. A separate overridden-entrypoint negative
+proves bare Linux PID1 refuses exec before child launch. Docker/image/probe failures fail the gate.
+Image/source identity and positive logs are in `exec-init-*`, negative proof in
+`exec-pid1-refusal.log`; these controlled library facts do not close published-package/installed
+default acceptance or later generic cloud execution.
