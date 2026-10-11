@@ -14,6 +14,7 @@ public static class OciMissionPuller
     public static async Task<(string Directory, string Status)> PullVerifiedAsync(OciReference reference,
         string? credential, CancellationToken cancellationToken = default)
     {
+        reference = reference.Canonical();
         using var client = new OciClient(credential: credential);
         var pulled = await client.PullMissionWithDigestAsync(reference.Registry, reference.Name, reference.Reference, cancellationToken);
         var cache = ForgeCache.MissionDir(reference.Registry, reference.Name, pulled.LayerDigest);

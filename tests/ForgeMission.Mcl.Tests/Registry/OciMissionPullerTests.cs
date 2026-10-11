@@ -36,6 +36,14 @@ public sealed class OciMissionPullerTests
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
+    [Fact]
+    public async Task VerifiedPull_RejectsDirectlyConstructedTraversalBeforeNetworkOrCacheWrites()
+    {
+        var reference = new OciReference("ghcr.io", "../escape", "latest");
+        await Assert.ThrowsAsync<ArgumentException>(() => OciMissionPuller.PullVerifiedAsync(reference, null));
+        await Assert.ThrowsAsync<ArgumentException>(() => OciExpertPuller.PullVerifiedAsync(reference, null));
+    }
+
     [Theory]
     [InlineData("../outside", TarEntryType.RegularFile)]
     [InlineData("/absolute", TarEntryType.RegularFile)]

@@ -5,6 +5,8 @@ namespace ForgeMission.MissionRegistry;
 /// <summary>A registry/name@reference OCI locator accepted by Forge pull operations.</summary>
 public sealed record OciReference(string Registry, string Name, string Reference)
 {
+    internal OciReference Canonical() => Resolve($"{Registry}/{Name}{(Reference.StartsWith("sha256:", StringComparison.Ordinal) ? "@" : ":")}{Reference}", Registry);
+
     public static OciReference Resolve(string selector, string registryBase)
     {
         RejectSegments(selector);

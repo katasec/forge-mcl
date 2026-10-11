@@ -12,6 +12,7 @@ public static class OciExpertPuller
     public static async Task<(string Path, string Status)> PullVerifiedAsync(OciReference reference, string? credential,
         CancellationToken cancellationToken = default)
     {
+        reference = reference.Canonical();
         using var client = new OciClient(credential: credential);
         var pulled = await client.PullExpertWithDigestAsync(reference.Registry, reference.Name, reference.Reference, cancellationToken);
         var cachePath = ForgeCache.ExpertMdPath(reference.Registry, reference.Name, pulled.ManifestDigest.Replace(':', '-'));
