@@ -133,129 +133,14 @@ static Command BuildInitCommand()
 
 static Command BuildRunCommand()
 {
-    var missionArg  = new Argument<FileInfo?>("mission") { Description = "Path to the .mcl mission file (default: mission.mcl)", Arity = ArgumentArity.ZeroOrOne };
-    var stepsOpt    = new Option<bool>("--steps")   { Description = "Stream each expert's output to stderr as the pipeline runs" };
-    var verboseOpt  = new Option<bool>("--verbose") { Description = "Print expert resolution source for each step before running" };
-    var varOpt      = new Option<string[]>("--var")
-    {
-        Description = "Set a context variable as key=value (repeatable, overrides let bindings)",
-        AllowMultipleArgumentsPerToken = false
-    };
-    varOpt.Arity = ArgumentArity.ZeroOrMore;
-
-    var cmd = new Command("run", "Run a mission");
+    var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla" };
+    var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
+    var cmd = new Command("run", "Run a hosted mission and print the answer");
     cmd.Add(missionArg);
-    cmd.Add(stepsOpt);
-    cmd.Add(verboseOpt);
-    cmd.Add(varOpt);
-
-    cmd.SetAction(async (result, ct) =>
-    {
-        var mission    = ResolveMission(result.GetValue(missionArg));
-        var showSteps  = result.GetValue(stepsOpt);
-        var verbose    = result.GetValue(verboseOpt);
-        var vars       = result.GetValue(varOpt) ?? [];
-        var missionDir = mission.DirectoryName!;
-
-        var lockPath = Path.Combine(missionDir, "mcl.lock");
-        if (!File.Exists(lockPath))
-        {
-            Die("MCL007 Mission not initialised — run 'forge init' first.");
-            return 1;
-        }
-
-        var parsedVars = ParseVars(vars);
-        if (parsedVars is null) return 1;
-
-        var source = await TryReadFile(mission.FullName);
-        if (source is null) return 1;
-
-        var ast = TryParse(source, mission.FullName);
-        if (ast is null) return 1;
-
-        ForgeManifest? manifest = null;
-        try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
-        catch (ForgeTomlException ex) { Die(ex.Message); return 1; }
-
-        var expertDefs = LoadRunExperts(ast, lockPath, mission, verbose);
-        if (expertDefs is null) return 1;
-
-        Dictionary<string, object> seedContext;
-        try { seedContext = ContextBuilder.Seed(ast, parsedVars); }
-        catch (InvalidOperationException ex) { Die(ex.Message); return 1; }
-
-        // Build runner per profile from forge.toml; fall back to let-binding config for "default".
-        var runners = BuildRunners(manifest, seedContext);
-        if (runners is null) return 1;
-
-        var firstMission = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault();
-        if (firstMission is null) { Die("No mission declaration found in mission file."); return 1; }
-
-        var options = new PipelineRunOptions(
-            firstMission.Name,
-            parsedVars,
-            showSteps ? Console.Error : null,
-            // CLI global overrides stay process-local and are re-seeded on every tool resume.
-            ContextObjects: parsedVars.ToDictionary(pair => pair.Key, pair => (object)pair.Value, StringComparer.Ordinal));
-
-        Console.Error.WriteLine($"Running mission '{firstMission.Name}'...");
-
-        try
-        {
-            var runner = new PipelineRunner(runners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch());
-            var missionResult = await ForgeRun.RunAsync(ast, expertDefs, runner, options,
-                ForgeRun.CreateHands(Environment.CurrentDirectory, ct), ct);
-            if (missionResult.Status == MissionStatus.Fail)
-            {
-                Console.Error.WriteLine($"{BoldRed("error")}{Bold($": mission failed — {missionResult.FailReason}")}");
-                return 1;
-            }
-
-            await WriteRunOutputAsync(ast, firstMission.Name, missionResult.Text, ct);
-            return 0;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            Console.Error.WriteLine("Mission cancelled.");
-            return 130;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {ex.Message}")}");
-            return 1;
-        }
-    });
-
+    cmd.Add(promptArg);
+    cmd.SetAction(async result => await ForgeExec.RunAsync(
+        result.GetValue(missionArg)!, result.GetValue(promptArg)));
     return cmd;
-}
-
-// Loading remains a CLI diagnostic boundary, before any capability session exists.
-static Dictionary<string, ExpertDefinition>? LoadRunExperts(
-    MclProgram ast, string lockPath, FileInfo mission, bool verbose)
-{
-    LockFile lockFile;
-    try { lockFile = LockFileIO.Read(lockPath); }
-    catch (Exception ex) { Die($"Cannot read mcl.lock: {ex.Message}"); return null; }
-
-    Dictionary<string, ExpertDefinition> experts;
-    try { experts = ExpertResolver.ResolveAll(lockFile, mission.DirectoryName!, verbose ? Console.Error : null, Console.Error); }
-    catch (AggregateExpertLoadException ex) { foreach (var error in ex.Errors) ReportExpertDiagnostic(error); Environment.Exit(1); return null; }
-    catch (ExpertLoadException ex) { ReportExpertDiagnostic(ex); Environment.Exit(1); return null; }
-    return TryValidate(ast, experts, contractErrorsAreFatal: true, mission.FullName) ? experts : null;
-}
-
-// Final output is published only after the Hands lifetime has ended successfully.
-static async Task WriteRunOutputAsync(MclProgram ast, string missionName, string text, CancellationToken ct)
-{
-    ct.ThrowIfCancellationRequested();
-    var output = ast.Outputs.FirstOrDefault(declaration => declaration.MissionName == missionName);
-    if (output?.FilePath is not { } filePath)
-    {
-        Console.WriteLine(text);
-        return;
-    }
-    await File.WriteAllTextAsync(filePath, text, ct);
-    Console.Error.WriteLine($"Output written to {filePath}");
 }
 
 // ---------------------------------------------------------------------------
@@ -1251,18 +1136,6 @@ static ProviderProfile? ResolveDefaultProfile(ForgeManifest? manifest, Dictionar
         ApiKey   = apiKey,
         Endpoint = string.IsNullOrWhiteSpace(endpoint) ? null : endpoint
     };
-}
-
-static Dictionary<string, string>? ParseVars(string[] vars)
-{
-    var result = new Dictionary<string, string>(StringComparer.Ordinal);
-    foreach (var v in vars)
-    {
-        var idx = v.IndexOf('=');
-        if (idx <= 0) { Die($"Invalid --var value '{v}': expected key=value format."); return null; }
-        result[v[..idx]] = v[(idx + 1)..];
-    }
-    return result;
 }
 
 static string ExpertTemplate(string name) => $"""

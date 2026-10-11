@@ -14,6 +14,11 @@ internal static class ForgeConfig
     public static string DefaultPath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".forge", "config.json");
 
+    public static string ReadApiEndpoint(string path) =>
+        ReadFile(path)?.Api?.Endpoint?.Trim().TrimEnd('/') is { Length: > 0 } endpoint
+            ? endpoint
+            : "https://api.forge.katasec.com";
+
     /// <summary>The theme named in the config file at <paramref name="path"/>.</summary>
     /// <exception cref="ForgeConfigException">The file cannot be read, is not valid JSON, or names
     /// an unknown theme.</exception>
@@ -55,7 +60,8 @@ internal static class ForgeConfig
 
 internal sealed class ForgeConfigException(string message) : Exception(message);
 
-internal sealed record ForgeConfigFile(string? Theme);
+internal sealed record ForgeConfigFile(string? Theme, ForgeApiConfig? Api);
+internal sealed record ForgeApiConfig(string? Endpoint);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ForgeConfigFile))]

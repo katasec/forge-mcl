@@ -18,12 +18,7 @@ public static class ForgeExec
     internal const long MaxInputDownloadBytes = 100L * 1024L * 1024L;
     private static readonly TimeSpan InputDownloadTimeout = TimeSpan.FromSeconds(30);
 
-    // Same override convention as PlatformLogin's endpoints (FORGE_PLATFORM_ENDPOINT etc.) — the
-    // platform-key issuer (ForgeUI) and the mission-invocation gateway (ForgeAPI) are different
-    // hosts, so this needs its own var rather than reusing PlatformCredential.Endpoint.
-    internal static string ApiEndpoint =>
-        Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT")?.TrimEnd('/')
-        ?? "https://api.forge.katasec.com";
+    internal static string ApiEndpoint => ForgeConfig.ReadApiEndpoint(ForgeConfig.DefaultPath);
 
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
 
