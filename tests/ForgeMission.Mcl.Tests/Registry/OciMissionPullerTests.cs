@@ -95,6 +95,69 @@ public sealed class OciMissionPullerTests
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
+    [Theory]
+    [InlineData("Mission.mcl")]
+    [InlineData("MISSION.MCL")]
+    public async Task Bundle_RequiresExactSelectedSourceSpelling(string name)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
+        try { await Assert.ThrowsAsync<InvalidDataException>(() => OciMissionPuller.ExtractBundleAsync(Bundle((name, TarEntryType.RegularFile)), root, default)); }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Theory]
+    [InlineData("registry", "registry")]
+    [InlineData("GHCR.IO", "ghcr.io")]
+    [InlineData("docker.io", "registry-1.docker.io")]
+    public void StructuredReference_PreservesItsExplicitHostAndRepository(string host, string canonicalHost)
+    {
+        Assert.Equal(new OciReference(canonicalHost, "team/mission", "V1"), new OciReference(host, "team/mission", "V1").Canonical());
+        Assert.Throws<ArgumentException>(() => new OciReference(host, "team/mission:tag", "V1").Canonical());
+        Assert.Throws<ArgumentException>(() => new OciReference(host + "/prefix", "team/mission", "V1").Canonical());
+    }
+
+    [Fact]
+    public async Task Cache_RejectsDifferentExecutableMode()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
+        var fresh = Path.Combine(root, "fresh");
+        var cache = Path.Combine(root, "cache");
+        try
+        {
+            var bytes = Bundle(("mission.mcl", TarEntryType.RegularFile));
+            await OciMissionPuller.ExtractBundleAsync(bytes, fresh, default);
+            await OciMissionPuller.ExtractBundleAsync(bytes, cache, default);
+            var stored = Path.Combine(cache, "mission.mcl");
+            File.SetUnixFileMode(stored, File.GetUnixFileMode(stored) ^ UnixFileMode.UserExecute);
+            Assert.Throws<InvalidDataException>(() => OciMissionPuller.RequireMatchingCache(fresh, cache));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void Cache_RejectsFifoAndDeviceBeforeReading()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
+        var fresh = Path.Combine(root, "fresh");
+        var cache = Path.Combine(root, "cache");
+        Directory.CreateDirectory(fresh);
+        Directory.CreateDirectory(cache);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(fresh, "mission.mcl"), []);
+            var fifo = Path.Combine(cache, "mission.mcl");
+            Assert.Equal(0, MakeFifo(fifo, 384));
+            Assert.Throws<InvalidDataException>(() => OciMissionPuller.RequireRegularFile(fifo));
+            Assert.Throws<InvalidDataException>(() => OciMissionPuller.RequireMatchingCache(fresh, cache));
+            Assert.Throws<InvalidDataException>(() => OciMissionPuller.RequireRegularFile("/dev/null"));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "mkfifo", SetLastError = true)]
+    private static extern int MakeFifo(string path, uint mode);
     private static byte[] Bundle(params (string Path, TarEntryType Kind)[] items)
     {
         using var stream = new MemoryStream();

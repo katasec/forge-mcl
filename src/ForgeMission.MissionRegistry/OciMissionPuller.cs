@@ -58,7 +58,7 @@ public static class OciMissionPuller
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, entry.Mode & (UnixFileMode.UserRead | UnixFileMode.UserWrite |
                 UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute));
         }
-        if (!names.Contains("mission.mcl")) throw new InvalidDataException("Mission bundle does not contain mission.mcl.");
+        if (!names.Any(name => name == "mission.mcl")) throw new InvalidDataException("Mission bundle does not contain mission.mcl.");
     }
 
     internal static void RequireMatchingCache(string fresh, string cache)
@@ -71,9 +71,33 @@ public static class OciMissionPuller
         foreach (var file in expected)
         {
             var stored = Path.Combine(cache, Path.GetRelativePath(fresh, file));
-            if (!File.Exists(stored) || new FileInfo(stored).Length != new FileInfo(file).Length || !SameBytes(file, stored))
+            if (!File.Exists(stored) || new FileInfo(stored).Length != new FileInfo(file).Length || !SameExecutableMode(file, stored) || !SameBytes(file, stored))
                 throw new InvalidDataException("Mission cache differs from verified content.");
         }
+    }
+
+    internal static void RequireRegularFile(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            if ((File.GetAttributes(path) & (FileAttributes.Directory | FileAttributes.ReparsePoint | FileAttributes.Device)) != 0)
+                throw new InvalidDataException("Mission cache contains a non-regular file.");
+            return;
+        }
+        if (LStat(path, out var status) != 0)
+            throw new IOException("Could not inspect mission cache file.", new System.ComponentModel.Win32Exception(
+                System.Runtime.InteropServices.Marshal.GetLastPInvokeError()));
+        var mode = OperatingSystem.IsMacOS() ? status.MacMode :
+            System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64
+                ? status.LinuxArm64Mode : status.LinuxX64Mode;
+        if ((mode & 0xf000) != 0x8000) throw new InvalidDataException("Mission cache contains a non-regular file.");
+    }
+
+    private static bool SameExecutableMode(string first, string second)
+    {
+        if (OperatingSystem.IsWindows()) return true;
+        const UnixFileMode executable = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+        return (File.GetUnixFileMode(first) & executable) == (File.GetUnixFileMode(second) & executable);
     }
 
     private static bool SameBytes(string first, string second)
@@ -96,11 +120,21 @@ public static class OciMissionPuller
                 var attributes = File.GetAttributes(entry);
                 if ((attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("Mission cache contains a link.");
                 if ((attributes & FileAttributes.Directory) != 0) directories.Push(entry);
-                else files.Add(entry);
+                else { RequireRegularFile(entry); files.Add(entry); }
                 if (++count > 8192) throw new InvalidDataException("Mission cache exceeds its entry budget.");
             }
         }
         return files;
     }
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit, Size = 256)]
+    private struct NativeFileStatus
+    {
+        [System.Runtime.InteropServices.FieldOffset(4)] public ushort MacMode;
+        [System.Runtime.InteropServices.FieldOffset(16)] public uint LinuxArm64Mode;
+        [System.Runtime.InteropServices.FieldOffset(24)] public uint LinuxX64Mode;
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "lstat", SetLastError = true)]
+    private static extern int LStat(string path, out NativeFileStatus status);
 }

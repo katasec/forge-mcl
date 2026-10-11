@@ -5,7 +5,13 @@ namespace ForgeMission.MissionRegistry;
 /// <summary>A registry/name@reference OCI locator accepted by Forge pull operations.</summary>
 public sealed record OciReference(string Registry, string Name, string Reference)
 {
-    internal OciReference Canonical() => Resolve($"{Registry}/{Name}{(Reference.StartsWith("sha256:", StringComparison.Ordinal) ? "@" : ":")}{Reference}", Registry);
+    internal OciReference Canonical()
+    {
+        var host = RegistryHost(Registry);
+        var (repository, reference) = RepositoryReference(Name +
+            (Reference.StartsWith("sha256:", StringComparison.Ordinal) ? "@" : ":") + Reference);
+        return new(host, repository, reference);
+    }
 
     public static OciReference Resolve(string selector, string registryBase)
     {
@@ -17,10 +23,7 @@ public sealed record OciReference(string Registry, string Name, string Reference
         var full = explicitHost ? selector : registryBase.TrimEnd('/') + "/" + selector;
         var hostEnd = full.IndexOf('/');
         if (hostEnd < 1) throw new ArgumentException("OCI registry base must include a registry host.");
-        var host = full[..hostEnd].ToLowerInvariant();
-        if (host == "docker.io") host = "registry-1.docker.io";
-        if (!Uri.TryCreate("https://" + host, UriKind.Absolute, out var origin) || origin.Authority != host || origin.AbsolutePath != "/")
-            throw new ArgumentException("Invalid OCI registry host.");
+        var host = RegistryHost(full[..hostEnd]);
         var (repository, reference) = RepositoryReference(full[(hostEnd + 1)..]);
         return new(host, repository, reference);
     }
@@ -33,6 +36,16 @@ public sealed record OciReference(string Registry, string Name, string Reference
             throw new ArgumentException($"Invalid OCI reference '{value}': expected registry/name@reference", nameof(value));
         RejectSegments(value);
         return new(value[..firstSlash], value[(firstSlash + 1)..atIndex], value[(atIndex + 1)..]);
+    }
+
+    private static string RegistryHost(string value)
+    {
+        RejectSegments(value);
+        var host = value.ToLowerInvariant();
+        if (host == "docker.io") host = "registry-1.docker.io";
+        if (!Uri.TryCreate("https://" + host, UriKind.Absolute, out var origin) || origin.Authority != host || origin.AbsolutePath != "/")
+            throw new ArgumentException("Invalid OCI registry host.");
+        return host;
     }
 
     private static (string Repository, string Reference) RepositoryReference(string repository)
