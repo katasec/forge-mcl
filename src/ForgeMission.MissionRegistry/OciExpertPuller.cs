@@ -5,21 +5,25 @@ namespace ForgeMission.MissionRegistry;
 /// <summary>Pulls immutable expert content into the local Forge OCI cache.</summary>
 public static class OciExpertPuller
 {
-    public static async Task<(string Path, string Status)> PullAsync(
-        string ociReference,
-        bool refresh,
+    public static Task<(string Path, string Status)> PullAsync(string ociReference, bool refresh,
+        CancellationToken cancellationToken = default) => PullVerifiedAsync(OciReference.Parse(ociReference),
+            RegistryCredentialStore.GetToken(OciReference.Parse(ociReference).Registry), cancellationToken);
+
+    public static async Task<(string Path, string Status)> PullVerifiedAsync(OciReference reference, string? credential,
         CancellationToken cancellationToken = default)
     {
-        var reference = OciReference.Parse(ociReference);
-        var cachePath = ForgeCache.ExpertMdPath(reference.Registry, reference.Name, reference.Reference);
-        if (!refresh && File.Exists(cachePath))
-            return (cachePath, "cached");
-
-        using var client = new OciClient(credential: RegistryCredentialStore.GetToken(reference.Registry));
-        var content = await client.PullExpertAsync(reference.Registry, reference.Name, reference.Reference);
-
+        using var client = new OciClient(credential: credential);
+        var pulled = await client.PullExpertWithDigestAsync(reference.Registry, reference.Name, reference.Reference, cancellationToken);
+        var cachePath = ForgeCache.ExpertMdPath(reference.Registry, reference.Name, pulled.ManifestDigest.Replace(':', '-'));
         Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
-        await File.WriteAllTextAsync(cachePath, content, cancellationToken);
+        if (File.Exists(cachePath))
+        {
+            if ((File.GetAttributes(cachePath) & FileAttributes.ReparsePoint) != 0 ||
+                new FileInfo(cachePath).Length > 33554432 || await File.ReadAllTextAsync(cachePath, cancellationToken) != pulled.Content)
+                throw new InvalidDataException("Expert cache differs from verified content.");
+            return (cachePath, "verified");
+        }
+        await File.WriteAllTextAsync(cachePath, pulled.Content, cancellationToken);
         return (cachePath, "pulled");
     }
 
