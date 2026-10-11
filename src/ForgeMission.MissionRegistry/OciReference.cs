@@ -19,7 +19,22 @@ public sealed record OciReference(string Registry, string Name, string Reference
         if (host == "docker.io") host = "registry-1.docker.io";
         if (!Uri.TryCreate("https://" + host, UriKind.Absolute, out var origin) || origin.Authority != host || origin.AbsolutePath != "/")
             throw new ArgumentException("Invalid OCI registry host.");
-        var repository = full[(hostEnd + 1)..];
+        var (repository, reference) = RepositoryReference(full[(hostEnd + 1)..]);
+        return new(host, repository, reference);
+    }
+
+    public static OciReference Parse(string value)
+    {
+        var firstSlash = value.IndexOf('/');
+        var atIndex = value.LastIndexOf('@');
+        if (firstSlash < 1 || atIndex <= firstSlash + 1 || atIndex == value.Length - 1)
+            throw new ArgumentException($"Invalid OCI reference '{value}': expected registry/name@reference", nameof(value));
+        RejectSegments(value);
+        return new(value[..firstSlash], value[(firstSlash + 1)..atIndex], value[(atIndex + 1)..]);
+    }
+
+    private static (string Repository, string Reference) RepositoryReference(string repository)
+    {
         var at = repository.IndexOf('@');
         var reference = "latest";
         if (at >= 0)
@@ -36,19 +51,9 @@ public sealed record OciReference(string Registry, string Name, string Reference
             if (!Regex.IsMatch(reference, "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", RegexOptions.CultureInvariant))
                 throw new ArgumentException("Invalid OCI tag.");
         }
-        if (repository.Split('/').Any(segment => !Regex.IsMatch(segment, "^[a-z0-9]+(?:[._-][a-z0-9]+)*$", RegexOptions.CultureInvariant)))
+        if (repository.Split('/').Any(segment => !Regex.IsMatch(segment, "^[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*$", RegexOptions.CultureInvariant)))
             throw new ArgumentException("OCI repository paths must be lowercase canonical names.");
-        return new(host, repository, reference);
-    }
-
-    public static OciReference Parse(string value)
-    {
-        var firstSlash = value.IndexOf('/');
-        var atIndex = value.LastIndexOf('@');
-        if (firstSlash < 1 || atIndex <= firstSlash + 1 || atIndex == value.Length - 1)
-            throw new ArgumentException($"Invalid OCI reference '{value}': expected registry/name@reference", nameof(value));
-        RejectSegments(value);
-        return new(value[..firstSlash], value[(firstSlash + 1)..atIndex], value[(atIndex + 1)..]);
+        return (repository, reference);
     }
 
     private static void RejectSegments(string value)
