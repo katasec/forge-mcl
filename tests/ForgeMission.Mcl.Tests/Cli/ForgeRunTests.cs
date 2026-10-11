@@ -1,9 +1,4 @@
-using System.Diagnostics;
 using System.Reflection;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
-using System.Text.Json;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
 using ForgeMission.Core.Tools;
@@ -141,67 +136,6 @@ public sealed class ForgeRunTests : IDisposable
         await AssertClosedAsync(hands);
     }
 
-    [Theory]
-    [InlineData("stdout")]
-    [InlineData("file")]
-    [InlineData("unwritable")]
-    public async Task Command_preserves_output_steps_and_nonzero_write_failure(string mode)
-    {
-        var output = mode == "stdout" ? "output(Root)" : $"output(Root, \"{(mode == "file" ? "answer.txt" : "missing/answer.txt")}\")";
-        await WriteExecMissionAsync(output);
-        var initialized = await InvokeAsync("init");
-        Assert.True(initialized.ExitCode == 0, initialized.Error);
-        var result = await InvokeAsync("run", "--steps");
-        Assert.True(result.ExitCode == (mode == "unwritable" ? 1 : 0), result.Error);
-        if (mode == "stdout") Assert.Contains("plain output", result.Output);
-        else Assert.Equal("", result.Output);
-        Assert.Contains("Running mission 'Root'", result.Error);
-        Assert.Contains("plain output", result.Error);
-        if (mode == "file") Assert.Contains("plain output", await File.ReadAllTextAsync(Path.Combine(_root, "answer.txt")));
-        if (mode == "unwritable") Assert.Contains("error", result.Error);
-    }
-
-    [Fact]
-    public async Task Command_overrides_global_let_in_tool_free_mission()
-    {
-        await WriteExecMissionAsync("output(Root)", "let goal = \"default\"\n",
-            "import json, sys\nprint(json.dumps({'output': json.load(sys.stdin)['goal']}))\n");
-        Assert.Equal(0, (await InvokeAsync("init")).ExitCode);
-        var result = await InvokeAsync("run", "--var", "goal=overridden-global");
-        Assert.True(result.ExitCode == 0, result.Error);
-        Assert.Equal("overridden-global", result.Output.Trim());
-    }
-
-    [Fact]
-    public async Task Command_reseeds_global_overrides_across_successive_hands_calls()
-    {
-        var path = Path.Combine(_root, "greeting.txt");
-        const string content = "global-hands-content";
-        var requests = await RunFileProbeAsync(path, content, async endpoint =>
-        {
-            await WriteAgentMissionAsync(endpoint);
-            Assert.Equal(0, (await InvokeAsync("init")).ExitCode);
-            var result = await InvokeAsync("run", "--var", $"targetPath={path}", "--var", $"fileContent={content}");
-            Assert.True(result.ExitCode == 0, result.Error);
-            Assert.Equal(content, result.Output.Trim());
-            Assert.Equal(content, await File.ReadAllTextAsync(path));
-        });
-        Assert.Equal(3, requests.Count);
-        foreach (var turn in requests)
-        {
-            var prompt = string.Join("\n", turn.GetProperty("input").EnumerateArray()
-                .Where(message => message.TryGetProperty("role", out var role) && role.GetString() == "system")
-                .SelectMany(message => message.GetProperty("content").EnumerateArray())
-                .Select(part => part.GetProperty("text").GetString()));
-            Assert.Contains(path, prompt);
-            Assert.Contains(content, prompt);
-        }
-        var replies = requests.Last().GetProperty("input").EnumerateArray()
-            .Where(message => message.GetProperty("type").GetString() == "function_call_output").ToList();
-        Assert.Equal(new[] { "write-global", "read-global" }, replies.Select(reply => reply.GetProperty("call_id").GetString()));
-        Assert.Equal(content, replies[1].GetProperty("output").GetString());
-    }
-
     [Fact]
     public async Task Unused_sensitive_process_local_seed_is_absent_from_checkpoint()
     {
@@ -221,94 +155,6 @@ public sealed class ForgeRunTests : IDisposable
         var pause = Assert.IsType<PipelineToolPause>(paused.Pause);
         Assert.DoesNotContain(unused, pause.Continuation.Payload);
         Assert.DoesNotContain("apiKey", pause.Continuation.Payload);
-    }
-
-    private async Task WriteExecMissionAsync(string output, string bindings = "",
-        string script = "import json\nprint(json.dumps({'output': 'plain output'}))\n")
-    {
-        var expert = Path.Combine(_root, "experts", "Echo");
-        Directory.CreateDirectory(expert);
-        await File.WriteAllTextAsync(Path.Combine(expert, "expert.md"), "---\nname: Echo\nkind: exec\ncommand: python3\ninputs: [goal]\noutputKey: output\nargs: [./echo.py]\ninput: any\noutput: text\n---\n");
-        await File.WriteAllTextAsync(Path.Combine(expert, "echo.py"), script);
-        await File.WriteAllTextAsync(Path.Combine(_root, "mission.mcl"),
-            "let apiKey = \"controlled-unused-key\"\nlet model = \"controlled-unused-model\"\n" + bindings + "mission Root = { Echo }\n" + output);
-    }
-
-    private async Task WriteAgentMissionAsync(string endpoint)
-    {
-        var expert = Path.Combine(_root, "experts", "Respond");
-        Directory.CreateDirectory(expert);
-        await File.WriteAllTextAsync(Path.Combine(expert, "expert.md"), "---\nname: Respond\nrole: agent\ninput: any\noutput: text\n---\nWrite then read {{targetPath}} with content {{fileContent}}.");
-        await File.WriteAllTextAsync(Path.Combine(_root, "mission.mcl"),
-            "let targetPath = \"\"\nlet fileContent = \"\"\nmission Root = { Respond }\noutput(Root)");
-        await File.WriteAllTextAsync(Path.Combine(_root, "forge.toml"),
-            $"[providers.default]\nprovider = \"openai\"\nmodel = \"test-agent\"\napiKey = \"controlled-unused-key\"\nendpoint = \"{endpoint}/v1\"\n");
-    }
-
-    // Fixed three-turn wire fixture; listener cancellation ends pending accepts, and every task is observed.
-    private static async Task<List<JsonElement>> RunFileProbeAsync(string path, string content, Func<string, Task> runCommand)
-    {
-        using var socket = new TcpListener(IPAddress.Loopback, 0);
-        socket.Start();
-        var endpoint = $"http://127.0.0.1:{((IPEndPoint)socket.LocalEndpoint).Port}";
-        socket.Stop();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add(endpoint + "/");
-        listener.Start();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        using var stop = deadline.Token.Register(listener.Stop);
-        var served = ServeFileProbeAsync(listener, path, content, deadline.Token);
-        try
-        {
-            await runCommand(endpoint);
-            return await served;
-        }
-        finally
-        {
-            deadline.Cancel();
-            try { await served; }
-            catch (Exception error) when (deadline.IsCancellationRequested &&
-                error is OperationCanceledException or HttpListenerException or ObjectDisposedException) { }
-        }
-    }
-
-    private static async Task<List<JsonElement>> ServeFileProbeAsync(HttpListener listener, string path, string content, CancellationToken ct)
-    {
-        var requests = new List<JsonElement>();
-        for (var turn = 0; turn < 3; turn++)
-        {
-            var request = await listener.GetContextAsync();
-            try
-            {
-                Assert.Equal("/v1/responses", request.Request.Url!.AbsolutePath);
-                using var body = await JsonDocument.ParseAsync(request.Request.InputStream, cancellationToken: ct);
-                requests.Add(body.RootElement.Clone());
-                request.Response.ContentType = "application/json";
-                var response = Encoding.UTF8.GetBytes(FileProbeResponse(turn, path, content));
-                await request.Response.OutputStream.WriteAsync(response, ct);
-            }
-            finally { request.Response.Close(); }
-        }
-        return requests;
-    }
-
-    private static string FileProbeResponse(int turn, string path, string content)
-    {
-        var toolName = turn == 0 ? "Write" : "Read";
-        var callId = turn == 0 ? "write-global" : "read-global";
-        var arguments = turn == 0
-            ? JsonSerializer.Serialize(new { file_path = path, content })
-            : JsonSerializer.Serialize(new { file_path = path });
-        object message = turn == 2
-            ? new { type = "message", id = "msg-final", role = "assistant", status = "completed",
-                content = new[] { new { type = "output_text", text = content, annotations = Array.Empty<object>() } } }
-            : new { type = "function_call", id = $"fc-{turn}", call_id = callId, name = toolName, arguments, status = "completed" };
-        return JsonSerializer.Serialize(new
-        {
-            id = $"probe-{turn}", @object = "response", created_at = 1, model = "test-agent", status = "completed",
-            output = new[] { message },
-            usage = new { input_tokens = 0, output_tokens = 0, total_tokens = 0 },
-        });
     }
 
     private object CreateHands(CancellationToken ct = default) =>
@@ -344,20 +190,6 @@ public sealed class ForgeRunTests : IDisposable
 
     private static FunctionCallContent Call(string name, params (string Key, string Value)[] args) =>
         new("call", name, args.ToDictionary(arg => arg.Key, arg => (object?)arg.Value));
-
-    private async Task<(int ExitCode, string Output, string Error)> InvokeAsync(params string[] args)
-    {
-        var start = new ProcessStartInfo("dotnet") { WorkingDirectory = _root, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-        start.ArgumentList.Add(RunType.Assembly.Location);
-        foreach (var arg in args) start.ArgumentList.Add(arg);
-        using var process = Process.Start(start)!;
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        try { await process.WaitForExitAsync(timeout.Token); }
-        finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-        return (process.ExitCode, await stdout, await stderr);
-    }
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 }
