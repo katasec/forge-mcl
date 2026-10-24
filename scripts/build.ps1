@@ -169,7 +169,11 @@ function Publish-Native {
     if (Test-Path $Destination) { Remove-Item $Destination -Recurse -Force }
     New-Item -ItemType Directory -Force $Destination | Out-Null
     $arguments = @('publish', 'src/ForgeMission.Cli', '-c', 'Release', '-r', $Runtime, '-o', $Destination, '-warnaserror')
-    if ($Action -eq 'install-self-contained') { $arguments += '-p:PublishAot=false', '-p:SelfContained=true', '-p:PublishSingleFile=true' }
+    if ($Action -eq 'install-self-contained') {
+        $arguments += '-p:PublishAot=false', '-p:SelfContained=true', '-p:PublishSingleFile=true',
+            '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:IncludeAllContentForSelfExtract=true',
+            '-p:DebugType=none', '-p:DebugSymbols=false'
+    }
     $arguments += @(Get-IdentityProperties $Identity)
     # Preserve existing laptop install diagnostics; canonical verify/package retain the raw zero-warning gate.
     Invoke-Checked dotnet $arguments (Join-Path (Split-Path $Destination -Parent) 'native-publish.log') ($Action -ne 'install')

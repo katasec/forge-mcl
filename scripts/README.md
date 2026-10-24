@@ -15,7 +15,7 @@ as documented in the repository README. Release transport additionally uses the 
 |---|---|
 | `make build`, `make test`, `make clean` | Existing solution operations |
 | `make install` | Detect host RID, publish/verify, install entire NativeAOT payload into user-home `.local/bin` |
-| `make install-self-contained` | Detect host RID, publish a self-contained single-file non-NativeAOT CLI, and install it into user-home `.local/bin` |
+| `make install-self-contained` | Detect host RID, publish a self-contained single-file non-NativeAOT CLI with native libraries/content extracted at startup, and install it into user-home `.local/bin` |
 | `make cli-package` | Detect host RID, publish/verify and create `dist/cli/forge-<rid>.zip` and checksum |
 | `make cli-verify` | Existing managed checks and native macOS verification; retains the two physical-UI test exclusions |
 | `make cli-script-test` | Focused version/release failure-boundary checks |
