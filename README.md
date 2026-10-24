@@ -15,8 +15,9 @@ dotnet test ForgeMission.slnx
 dotnet run --project src/ForgeMission.Cli -- --help
 ```
 
-Use `make install` to publish and verify the current-platform Native AOT CLI locally. Local and
-CI builds share the PowerShell scripts behind Make; install PowerShell 7, Make, Git and .NET 10.
+Use `make install` to publish and verify the current-platform Native AOT CLI locally. For a faster
+local iteration build, `make install-self-contained` publishes a self-contained, single-file, non-NativeAOT CLI.
+Local and CI builds share the PowerShell scripts behind Make; install PowerShell 7, Make, Git and .NET 10.
 Full Git history and CLI version tags are required. Local builds print
 `X.Y.Z-dev.N+<commit>` (plus `.dirty` for uncommitted changes), based on the nearest reachable
 CLI tag and the number of commits since it. Rebuilding a clean commit keeps the same identity.

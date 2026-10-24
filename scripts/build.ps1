@@ -1,7 +1,7 @@
 # One portable build path: resolve Git identity, build/verify, then install or package the payload.
 [CmdletBinding()]
 param(
-    [ValidateSet('build', 'test', 'clean', 'install', 'publish', 'verify', 'package')][string]$Action = 'build',
+    [ValidateSet('build', 'test', 'clean', 'install', 'install-self-contained', 'publish', 'verify', 'package')][string]$Action = 'build',
     [string]$Rid = $env:RID,
     [string]$Output = $env:CLI_OUTPUT,
     [string]$ReleaseTag = $env:RELEASE_TAG
@@ -22,7 +22,7 @@ function Invoke-CliBuild {
     Publish-Native $native $runtime $identity
     if ($IsMacOS) { Invoke-Checked codesign @('--force', '--sign', '-', (Join-Path $native 'forge')) }
     Assert-NativeIdentity $native $identity $destination
-    if ($Action -eq 'install') { Install-Payload $native; return }
+    if ($Action -in @('install', 'install-self-contained')) { Install-Payload $native; return }
     if ($Action -in @('verify', 'package')) { Test-NativeExec $destination $runtime $identity }
     if ($Action -eq 'package') { Write-Package $native $runtime $destination }
 }
@@ -168,7 +168,9 @@ function Publish-Native {
     param([string]$Destination, [string]$Runtime, $Identity)
     if (Test-Path $Destination) { Remove-Item $Destination -Recurse -Force }
     New-Item -ItemType Directory -Force $Destination | Out-Null
-    $arguments = @('publish', 'src/ForgeMission.Cli', '-c', 'Release', '-r', $Runtime, '-o', $Destination, '-warnaserror') + @(Get-IdentityProperties $Identity)
+    $arguments = @('publish', 'src/ForgeMission.Cli', '-c', 'Release', '-r', $Runtime, '-o', $Destination, '-warnaserror')
+    if ($Action -eq 'install-self-contained') { $arguments += '-p:PublishAot=false', '-p:SelfContained=true', '-p:PublishSingleFile=true' }
+    $arguments += @(Get-IdentityProperties $Identity)
     # Preserve existing laptop install diagnostics; canonical verify/package retain the raw zero-warning gate.
     Invoke-Checked dotnet $arguments (Join-Path (Split-Path $Destination -Parent) 'native-publish.log') ($Action -ne 'install')
 }
