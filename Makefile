@@ -36,7 +36,7 @@ DOCKER_PACKAGE_DIR := artifacts/packages
 DOCKER_PACKAGE_VERSION := 0.1.0
 DOCKER_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package test-serve pack-serve verify-serve-package test-docker pack-docker verify-docker-package install build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package test-serve pack-serve verify-serve-package test-docker pack-docker verify-docker-package install install-self-contained build-linux clean
 
 build:
 	pwsh -NoProfile -File scripts/build.ps1 -Action build
@@ -120,6 +120,9 @@ verify-docker-package: test-docker pack-docker
 
 install:
 	pwsh -NoProfile -File scripts/build.ps1 -Action install
+
+install-self-contained:
+	pwsh -NoProfile -File scripts/build.ps1 -Action install-self-contained
 
 build-linux:
 	pwsh -NoProfile -File scripts/build.ps1 -Action publish -Rid linux-x64
