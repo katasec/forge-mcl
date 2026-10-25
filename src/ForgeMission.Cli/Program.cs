@@ -695,7 +695,16 @@ static async Task<bool> WaitUntilHealthyAsync(string baseUrl, int timeoutMs)
             var response = await http.SendAsync(new HttpRequestMessage(HttpMethod.Head, baseUrl + "/"));
             if (response.IsSuccessStatusCode) return true;
         }
-        catch (HttpRequestException) { /* not up yet */ }
+        catch (HttpRequestException)
+        {
+            // Contract: swallow by design. While polling, a refused connection or
+            // unresolved host means the server has not finished binding its port yet
+            // — an expected transient state, not a failure. We retry until the
+            // deadline; the owning boundary is the timeout, which returns false and
+            // surfaces the "never became healthy" result to the caller. Only
+            // HttpRequestException (transport-level "not up yet") is caught here;
+            // any other exception propagates.
+        }
         await Task.Delay(250);
     }
     return false;
