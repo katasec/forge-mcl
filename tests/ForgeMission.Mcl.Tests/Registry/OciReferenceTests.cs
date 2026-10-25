@@ -22,4 +22,28 @@ public sealed class OciReferenceTests
     {
         Assert.Throws<ArgumentException>(() => OciReference.Parse(value));
     }
+
+    [Fact]
+    public void SplitTaggedTarget_SplitsOnFirstSlashAndLastColon()
+    {
+        var (registry, name, tag) = OciReference.SplitTaggedTarget("ghcr.io/katasec/example:0.1.0");
+
+        Assert.Equal("ghcr.io", registry);
+        Assert.Equal("katasec/example", name);
+        Assert.Equal("0.1.0", tag);
+    }
+
+    [Fact]
+    public void SplitTaggedTarget_MissingSlash_ReportsRegistryNameTag()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => OciReference.SplitTaggedTarget("example:0.1.0"));
+        Assert.Equal("Invalid reference 'example:0.1.0': expected registry/name:tag", ex.Message);
+    }
+
+    [Fact]
+    public void SplitTaggedTarget_MissingTag_ReportsTag()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => OciReference.SplitTaggedTarget("ghcr.io/example"));
+        Assert.Equal("Invalid reference 'ghcr.io/example': expected a :tag", ex.Message);
+    }
 }

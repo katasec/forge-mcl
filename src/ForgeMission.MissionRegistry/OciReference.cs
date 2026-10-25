@@ -38,6 +38,21 @@ public sealed record OciReference(string Registry, string Name, string Reference
         return new(value[..firstSlash], value[(firstSlash + 1)..atIndex], value[(atIndex + 1)..]);
     }
 
+    /// <summary>
+    /// Splits a publish target of the form <c>registry/name:tag</c> (registry up to the first
+    /// <c>/</c>, tag after the last <c>:</c>). The <see cref="ArgumentException.Message"/> states
+    /// which part is missing so a caller can surface it verbatim.
+    /// </summary>
+    public static (string Registry, string Name, string Tag) SplitTaggedTarget(string reference)
+    {
+        var slash = reference.IndexOf('/');
+        if (slash < 0) throw new ArgumentException($"Invalid reference '{reference}': expected registry/name:tag");
+        var rest  = reference[(slash + 1)..];
+        var colon = rest.LastIndexOf(':');
+        if (colon < 0) throw new ArgumentException($"Invalid reference '{reference}': expected a :tag");
+        return (reference[..slash], rest[..colon], rest[(colon + 1)..]);
+    }
+
     private static string RegistryHost(string value)
     {
         RejectSegments(value);
