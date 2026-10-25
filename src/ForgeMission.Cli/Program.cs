@@ -18,10 +18,6 @@ using ForgeMission.MissionRegistry;
 using System.Diagnostics;
 using System.Text.Json;
 using MclProgram = ForgeMission.Parser.Program;
-using Microsoft.Extensions.DependencyInjection;
-using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
-using McpTextContent = ModelContextProtocol.Protocol.TextContentBlock;
 
 var rootCommand = new RootCommand("forge — Mission Control Language runtime");
 rootCommand.Add(BuildInitCommand());
@@ -1520,6 +1516,8 @@ static Command BuildProviderScaffoldCommand()
 // ---------------------------------------------------------------------------
 // forge mcp
 
+// Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared
+// mission to McpCommand, which owns the stdio MCP server. Runners are built lazily per tool call.
 static Command BuildMcpCommand()
 {
     var missionArg = new Argument<FileInfo?>("mission")
@@ -1563,74 +1561,8 @@ static Command BuildMcpCommand()
         var firstMission = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault();
         if (firstMission is null) { Die("No mission declaration found in mission file."); return; }
 
-        // Build the JSON schema for this mission's parameters
-        var toolName   = firstMission.Name;
-        var properties = new Dictionary<string, JsonSchemaProperty>(StringComparer.Ordinal);
-        foreach (var param in firstMission.Params)
-            properties[param] = new JsonSchemaProperty("string", $"Value for {param}");
-
-        var inputSchema = new JsonSchema(properties, firstMission.Params);
-
-        Console.Error.WriteLine($"forge mcp — serving mission '{toolName}' over stdio");
-        Console.Error.WriteLine($"  mission: {mission.FullName}");
-
-        var services = new ServiceCollection();
-        services.AddMcpServer(options => { options.ServerInfo = new Implementation { Name = "forge", Version = "1.0" }; })
-            .WithStdioServerTransport()
-            .WithListToolsHandler((_, _) => ValueTask.FromResult(new ListToolsResult
-            {
-                Tools =
-                [
-                    new Tool
-                    {
-                        Name        = toolName,
-                        Description = $"Run the '{toolName}' MCL mission",
-                        InputSchema = inputSchema.ToJsonElement()
-                    }
-                ]
-            }))
-            .WithCallToolHandler(async (request, ct) =>
-            {
-                if (request.Params?.Name != toolName)
-                    return new CallToolResult { Content = [new McpTextContent { Text = $"Unknown tool: {request.Params?.Name}" }], IsError = true };
-
-                // Extract call-time arguments as string overrides
-                var callVars = new Dictionary<string, string>(StringComparer.Ordinal);
-                if (request.Params.Arguments is { } callArgs)
-                {
-                    foreach (var kv in callArgs)
-                    {
-                        var strVal = kv.Value.ValueKind == System.Text.Json.JsonValueKind.String
-                            ? kv.Value.GetString() ?? string.Empty
-                            : kv.Value.ToString();
-                        callVars[kv.Key] = strVal;
-                    }
-                }
-
-                // Build runners lazily at call time so startup never needs the API key
-                Dictionary<string, object> callSeedContext;
-                try { callSeedContext = ContextBuilder.Seed(ast, callVars); }
-                catch (InvalidOperationException ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
-
-                var callRunners = BuildRunners(manifest, callSeedContext);
-                if (callRunners is null)
-                    return new CallToolResult { Content = [new McpTextContent { Text = "Cannot initialise provider — check API key env vars in claude_desktop_config.json" }], IsError = true };
-
-                var runOptions = new PipelineRunOptions(toolName, callVars);
-
-                MissionResult missionResult;
-                try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch()).RunAsync(ast, expertDefs, runOptions); }
-                catch (Exception ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
-
-                if (missionResult.Status == MissionStatus.Fail)
-                    return new CallToolResult { Content = [new McpTextContent { Text = $"Mission failed: {missionResult.FailReason}" }], IsError = true };
-
-                return new CallToolResult { Content = [new McpTextContent { Text = missionResult.Text }] };
-            });
-
-        var sp = services.BuildServiceProvider();
-        var server = sp.GetRequiredService<McpServer>();
-        await server.RunAsync(CancellationToken.None);
+        await McpCommand.ServeAsync(firstMission, ast, expertDefs, manifest, mission.FullName,
+            callSeedContext => BuildRunners(manifest, callSeedContext));
     });
 
     return cmd;
@@ -1687,40 +1619,4 @@ static bool RunAndPrintPrereqs(IEnumerable<PrereqCheck> checks)
         AnsiConsole.MarkupLine("[red]Prerequisites not met. Cannot continue.[/]");
 
     return passed;
-}
-
-// ---------------------------------------------------------------------------
-// MCP helpers — must be after all top-level statements
-
-// Minimal JSON schema helpers for MCP tool registration (AOT-safe, no STJ reflection)
-file sealed class JsonSchemaProperty(string type, string description)
-{
-    public string Type        { get; } = type;
-    public string Description { get; } = description;
-}
-
-file sealed class JsonSchema(Dictionary<string, JsonSchemaProperty> properties, IReadOnlyList<string> required)
-{
-    public System.Text.Json.JsonElement ToJsonElement()
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.Append("{\"type\":\"object\",\"properties\":{");
-        var first = true;
-        foreach (var (name, prop) in properties)
-        {
-            if (!first) sb.Append(',');
-            sb.Append($"\"{EscapeJson(name)}\":{{\"type\":\"{EscapeJson(prop.Type)}\",\"description\":\"{EscapeJson(prop.Description)}\"}}");
-            first = false;
-        }
-        sb.Append("},\"required\":[");
-        for (var i = 0; i < required.Count; i++)
-        {
-            if (i > 0) sb.Append(',');
-            sb.Append($"\"{EscapeJson(required[i])}\"");
-        }
-        sb.Append("]}");
-        return System.Text.Json.JsonDocument.Parse(sb.ToString()).RootElement;
-    }
-
-    private static string EscapeJson(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }
