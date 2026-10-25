@@ -920,16 +920,15 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
         ? dr
         : runners.Values.First();
 
-    // Wire doors (42.4): ONE app serves every enabled wire — `wire:` in agent.yaml is now a
-    // disable switch ("anthropic" / "openai" limits to that door; default = both). Each door
-    // gets its own MissionChatClient over the same mission core: the Anthropic wire hands the
-    // mission the FULL conversation (context["conversation"]/["system"], goal = last text block
-    // of the last user message); the OpenAI wire keeps the legacy last-turn behaviour so
-    // existing users don't regress (42.1 decision, unchanged).
-    var wire = string.IsNullOrWhiteSpace(config.Wire) ? "both" : config.Wire.Trim().ToLowerInvariant();
-    if (wire is not ("both" or "anthropic" or "openai"))
+    // Wire doors (42.4): ONE app serves every enabled wire. `wire:` in agent.yaml is a disable
+    // switch, owned by ForgeServe.WirePolicy; each enabled door gets its own MissionChatClient over
+    // the same mission core, built by Core's MissionServerFactory — the Anthropic wire hands the
+    // mission the FULL conversation (context["conversation"]/["system"], goal = last text block of
+    // the last user message); the OpenAI wire keeps the legacy last-turn behaviour so existing users
+    // don't regress (42.1 decision, unchanged).
+    if (!WirePolicy.TryParse(config.Wire, out var anthropicEnabled, out var openAiEnabled, out var wireError))
     {
-        Die($"Unknown wire '{config.Wire}' in agent.yaml — use \"both\", \"anthropic\", or \"openai\".");
+        Die(wireError!);
         return null;
     }
 
@@ -937,20 +936,18 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
     // XAI_API_KEY is unset, so missions without kind:search are unaffected.
     var webSearch = ProviderClientBuilder.BuildWebSearch();
 
-    var anthropicDoor = wire is "both" or "anthropic"
-        ? new MissionChatClient(ast, expertDefs, defaultRunner, fullConversation: true, webSearch: webSearch)
-        : null;
-    var openAiDoor = wire is "both" or "openai"
-        ? new MissionChatClient(ast, expertDefs, defaultRunner, fullConversation: false, webSearch: webSearch)
-        : null;
+    var (anthropicDoor, openAiDoor) = MissionServerFactory.BuildDoors(
+        ast, expertDefs, defaultRunner, anthropicEnabled, openAiEnabled, webSearch);
 
     // Aux passthrough (42.3 §0): client housekeeping (title-gen, state-check) is answered by a
-    // plain provider model; the mission never runs — and never bills — for those.
+    // plain provider model; the mission never runs — and never bills — for those. The aux client is
+    // OPTIONAL: if its provider can't be built (missing key, bad profile), serving deliberately
+    // degrades to a null aux client and the server answers housekeeping with its canned replies.
     IChatClient? auxClient = null;
     if (anthropicDoor is not null && ResolveDefaultProfile(manifest, seedContext) is { } auxProfile)
     {
         try { auxClient = ForgeMission.ChatClients.ChatClients.BuildChatClient(auxProfile); }
-        catch { /* aux degrades to the server's canned replies */ }
+        catch (Exception) { auxClient = null; }
     }
 
     var app = ForgeServe.BuildApp(config.Id, config.Port, anthropicDoor, openAiDoor, auxClient);
