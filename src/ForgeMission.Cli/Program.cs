@@ -637,8 +637,9 @@ static async Task<bool> EnsureInitializedAsync(string missionPath)
     if (File.Exists(lockPath)) return true;
 
     Console.Error.WriteLine("↳ initialising mission (forge init)…");
-    var exit = await BuildInitCommand().Parse([missionPath]).InvokeAsync();
-    return exit == 0 && File.Exists(lockPath);
+    try { await RunInitAsync(new FileInfo(missionPath), refresh: false); }
+    catch (ForgeExitException) { return false; }
+    return File.Exists(lockPath);
 }
 
 // --container: the EXACT image the cloud runs (the converged /v1 runner, 42.4) as an EPHEMERAL
