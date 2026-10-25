@@ -38,7 +38,7 @@ public static class PlatformLogin
         Environment.GetEnvironmentVariable("FORGE_PLATFORM_ENDPOINT")?.TrimEnd('/')
         ?? "https://forge.katasec.com";
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private static HttpClient Http => CliHttpClients.Create(CliHttpClients.Login);
 
     public static async Task<int> RunAsync()
     {

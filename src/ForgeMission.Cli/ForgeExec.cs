@@ -20,7 +20,7 @@ public static class ForgeExec
 
     internal static string ApiEndpoint => ForgeConfig.ReadApiEndpoint(ForgeConfig.DefaultPath);
 
-    private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private static HttpClient Http => CliHttpClients.Create(CliHttpClients.Exec);
 
     public static async Task<int> RunAsync(
         string target,
