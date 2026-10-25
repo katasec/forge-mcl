@@ -1115,33 +1115,20 @@ static IReadOnlyDictionary<string, IExpertRunner>? BuildRunners(
     // If no "default" profile came from forge.toml, fall back to let-binding context.
     if (!runners.ContainsKey("default"))
     {
-        var defaultProfile = manifest?.Providers?.GetValueOrDefault("default");
-        var apiKey   = GetContextString(seedContext, "apiKey")   ?? defaultProfile?.ApiKey;
-        var model    = GetContextString(seedContext, "model")    ?? defaultProfile?.Model;
-        var provider = GetContextString(seedContext, "provider") ?? defaultProfile?.Provider ?? "openai";
-        var endpoint = GetContextString(seedContext, "endpoint") ?? defaultProfile?.Endpoint ?? string.Empty;
+        var profile = MergeDefaultProfile(manifest, seedContext);
 
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (string.IsNullOrWhiteSpace(profile.ApiKey))
         {
             Die("No API key found. Add [providers.default] to forge.toml with apiKey = env(\"MCL_API_KEY\").");
             return null;
         }
-        if (string.IsNullOrWhiteSpace(model))
+        if (string.IsNullOrWhiteSpace(profile.Model))
         {
             Die("No model found. Add [providers.default] to forge.toml with model = env(\"MCL_MODEL\", \"gpt-4o-mini\").");
             return null;
         }
 
-        try
-        {
-            runners["default"] = ForgeMission.ChatClients.ChatClients.Build(new ProviderProfile
-            {
-                Provider = provider,
-                Model    = model,
-                ApiKey   = apiKey,
-                Endpoint = string.IsNullOrWhiteSpace(endpoint) ? null : endpoint
-            });
-        }
+        try { runners["default"] = ForgeMission.ChatClients.ChatClients.Build(profile); }
         catch (Exception ex) { Die($"Cannot initialise default provider: {ex.Message}"); return null; }
     }
 
@@ -1150,23 +1137,20 @@ static IReadOnlyDictionary<string, IExpertRunner>? BuildRunners(
 
 // The default provider profile, resolved the same way BuildRunners falls back:
 // forge.toml [providers.default] first, then the mission's let-binding context.
+// Returns null when either apiKey or model is missing.
 static ProviderProfile? ResolveDefaultProfile(ForgeManifest? manifest, Dictionary<string, object> seedContext)
 {
-    var profile  = manifest?.Providers?.GetValueOrDefault("default");
-    var apiKey   = GetContextString(seedContext, "apiKey")   ?? profile?.ApiKey;
-    var model    = GetContextString(seedContext, "model")    ?? profile?.Model;
-    var provider = GetContextString(seedContext, "provider") ?? profile?.Provider ?? "openai";
-    var endpoint = GetContextString(seedContext, "endpoint") ?? profile?.Endpoint ?? string.Empty;
+    var profile = MergeDefaultProfile(manifest, seedContext);
+    if (string.IsNullOrWhiteSpace(profile.ApiKey) || string.IsNullOrWhiteSpace(profile.Model)) return null;
+    return profile;
+}
 
-    if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model)) return null;
-
-    return new ProviderProfile
-    {
-        Provider = provider,
-        Model    = model,
-        ApiKey   = apiKey,
-        Endpoint = string.IsNullOrWhiteSpace(endpoint) ? null : endpoint
-    };
+// Layers mission context over the forge.toml [providers.default] block (Core owns the merge).
+// The result may carry an empty ApiKey/Model; the caller decides how a missing value is reported.
+static ProviderProfile MergeDefaultProfile(ForgeManifest? manifest, Dictionary<string, object> seedContext)
+{
+    var declared = manifest?.Providers?.GetValueOrDefault("default");
+    return ProviderProfileResolver.ResolveDefault(declared, key => GetContextString(seedContext, key));
 }
 
 static string ExpertTemplate(string name) => $"""
@@ -1438,10 +1422,8 @@ static Command BuildProviderListCommand()
         Console.WriteLine("Known providers:\n");
         Console.WriteLine($"  {"NAME",-12} {"REQUIRED FIELDS",-30} NOTES");
         Console.WriteLine($"  {"----",-12} {"---------------",-30} -----");
-        Console.WriteLine($"  {"openai",-12} {"apiKey, model",-30} Default OpenAI endpoint");
-        Console.WriteLine($"  {"anthropic",-12} {"apiKey, model",-30} Anthropic (Claude models)");
-        Console.WriteLine($"  {"azure",-12} {"apiKey, model, endpoint",-30} Azure OpenAI Service");
-        Console.WriteLine($"  {"ollama",-12} {"model",-30} Local Ollama (no apiKey required)");
+        foreach (var p in ForgeMission.ChatClients.ProviderCatalog.Entries)
+            Console.WriteLine($"  {p.Name,-12} {p.RequiredFields,-30} {p.Notes}");
         Console.WriteLine("\nRun 'forge provider scaffold <name>' to generate a forge.toml block.");
     });
     return cmd;
@@ -1461,37 +1443,7 @@ static Command BuildProviderScaffoldCommand()
         var name  = result.GetValue(nameArg)!.ToLowerInvariant();
         var write = result.GetValue(writeOpt);
 
-        var block = name switch
-        {
-            "openai" => """
-                [providers.default]
-                provider = "openai"
-                model    = "gpt-4o-mini"         # or: gpt-4o, gpt-4-turbo
-                apiKey   = env("MCL_API_KEY")     # set MCL_API_KEY before running
-                # endpoint = "..."               # optional — omit for default OpenAI endpoint
-                """,
-            "anthropic" => """
-                [providers.default]
-                provider = "anthropic"
-                model    = "claude-sonnet-4-6"   # or: claude-opus-4-8, claude-haiku-4-5-20251001
-                apiKey   = env("ANTHROPIC_API_KEY")
-                """,
-            "azure" => """
-                [providers.default]
-                provider = "azure"
-                model    = "gpt-4o"
-                apiKey   = env("AZURE_OPENAI_API_KEY")
-                endpoint = "https://<your-resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-02-01"
-                """,
-            "ollama" => """
-                [providers.default]
-                provider = "ollama"
-                model    = "llama3"              # any model pulled with 'ollama pull <name>'
-                endpoint = "http://localhost:11434/v1"  # omit to use this default
-                # no apiKey required for local Ollama
-                """,
-            _ => null
-        };
+        var block = ForgeMission.ChatClients.ProviderCatalog.Find(name)?.ScaffoldBlock;
 
         if (block is null)
         {
