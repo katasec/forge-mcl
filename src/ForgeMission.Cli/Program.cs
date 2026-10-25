@@ -47,7 +47,32 @@ rootCommand.Add(BuildProviderCommand());
 rootCommand.Add(BuildMcpCommand());
 
 // No @file response-file expansion — @handles (forge claude @websearch) are arguments.
-return await rootCommand.Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null }).InvokeAsync();
+// One top-level exit/exception handler owns every exit code: helpers signal a deliberate exit by
+// throwing ForgeExitException (see Die) rather than calling Environment.Exit deep in the stack, so
+// teardown/finally runs on the way out. System.CommandLine's own exception handler is disabled so
+// those exceptions reach this handler; it also keeps the library's prior behaviour for any
+// unexpected exception (print it, exit 1).
+var invocation = new InvocationConfiguration { EnableDefaultExceptionHandler = false };
+try
+{
+    return await rootCommand
+        .Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null })
+        .InvokeAsync(invocation);
+}
+catch (ForgeExitException exit)
+{
+    return exit.ExitCode;
+}
+catch (OperationCanceledException)
+{
+    return 1;
+}
+catch (Exception ex)
+{
+    Console.Error.Write("Unhandled exception: ");
+    Console.Error.WriteLine(ex);
+    return 1;
+}
 
 // ---------------------------------------------------------------------------
 // fms init
@@ -866,8 +891,8 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
 
     Dictionary<string, ExpertDefinition> expertDefs;
     try { expertDefs = ExpertLoader.LoadFromLockFile(lockFile, Path.GetDirectoryName(missionPath)!); }
-    catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) ReportExpertDiagnostic(e); Environment.Exit(1); return null; }
-    catch (ExpertLoadException ex)           { ReportExpertDiagnostic(ex); Environment.Exit(1); return null; }
+    catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
+    catch (ExpertLoadException ex)           { ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
 
     if (!TryValidate(ast, expertDefs, missionFilePath: missionPath)) return null;
 
@@ -974,8 +999,7 @@ static MclProgram? TryParse(string source, string filePath)
     {
         foreach (var d in result.Diagnostics)
             ReportDiagnostic(source, filePath, d);
-        Environment.Exit(1);
-        return null;
+        throw new ForgeExitException(1);
     }
     return result.Ast!;
 }
@@ -1044,8 +1068,8 @@ static Dictionary<string, ExpertDefinition>? TryLoadExperts(string expertsDir)
 {
     if (!Directory.Exists(expertsDir)) { Die($"Experts directory not found: {expertsDir}"); return null; }
     try { return new ExpertLoader(expertsDir).LoadAll(); }
-    catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) ReportExpertDiagnostic(e); Environment.Exit(1); return null; }
-    catch (ExpertLoadException ex) { ReportExpertDiagnostic(ex); Environment.Exit(1); return null; }
+    catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
+    catch (ExpertLoadException ex) { ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
 }
 
 static bool TryValidate(
@@ -1166,7 +1190,7 @@ static FileInfo ResolveMission(FileInfo? arg)
 static void Die(string message)
 {
     Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");
-    Environment.Exit(1);
+    throw new ForgeExitException(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1212,10 +1236,7 @@ static Command BuildAgentStartCommand()
         };
 
         if (!RunAndPrintPrereqs(prereqs))
-        {
-            Environment.Exit(1);
-            return;
-        }
+            throw new ForgeExitException(1);
 
         if (!await DockerCli.IsImagePresentAsync(forgeImage))
         {
@@ -1229,8 +1250,7 @@ static Command BuildAgentStartCommand()
         if (await DockerCli.ContainerExistsAsync(containerName))
         {
             AnsiConsole.MarkupLine($"[yellow]Container {containerName} already exists. Stop it first.[/]");
-            Environment.Exit(1);
-            return;
+            throw new ForgeExitException(1);
         }
 
         // Mount the git root so relative mission paths in agent.yaml resolve correctly.
@@ -1334,10 +1354,7 @@ static Command BuildWebuiStartCommand()
         };
 
         if (!RunAndPrintPrereqs(prereqs))
-        {
-            Environment.Exit(1);
-            return;
-        }
+            throw new ForgeExitException(1);
 
         var agentContainerName = $"forge-agent-{config.Id}";
         var agentUrl = $"http://{agentContainerName}:{config.Port}/v1";
@@ -1346,8 +1363,7 @@ static Command BuildWebuiStartCommand()
         {
             AnsiConsole.MarkupLine($"[yellow]Agent container {agentContainerName} is not running.[/]");
             AnsiConsole.MarkupLine("[yellow]Run 'forge agent start' first.[/]");
-            Environment.Exit(1);
-            return;
+            throw new ForgeExitException(1);
         }
 
         await DockerCli.EnsureNetworkAsync("forge-net");
@@ -1355,8 +1371,7 @@ static Command BuildWebuiStartCommand()
         if (await DockerCli.ContainerExistsAsync("open-webui"))
         {
             AnsiConsole.MarkupLine("[yellow]open-webui container already exists. Stop it first.[/]");
-            Environment.Exit(1);
-            return;
+            throw new ForgeExitException(1);
         }
 
         if (!await DockerCli.IsImagePresentAsync(webuiImage))
@@ -1529,8 +1544,8 @@ static Command BuildMcpCommand()
 
         Dictionary<string, ExpertDefinition> expertDefs;
         try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose: null, warnings: Console.Error); }
-        catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) ReportExpertDiagnostic(e); Environment.Exit(1); return; }
-        catch (ExpertLoadException ex)           { ReportExpertDiagnostic(ex); Environment.Exit(1); return; }
+        catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
+        catch (ExpertLoadException ex)           { ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
 
         if (!TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
 
