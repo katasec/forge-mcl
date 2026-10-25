@@ -463,7 +463,8 @@ static Command BuildServeCommand()
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return; }
 
         var built = await TryBuildMissionServerAsync(config, agentFile.DirectoryName!);
-        if (built is not var (app, missionPath, anthropicDoor, openAiDoor)) return;
+        if (built is not { } server) return;
+        var (app, missionPath, anthropicDoor, openAiDoor) = server;
 
         Console.Error.WriteLine($"forge serve — agent '{config.Id}' listening on http://0.0.0.0:{config.Port}");
         Console.Error.WriteLine($"  mission  : {missionPath}");
@@ -524,7 +525,8 @@ static Command BuildClaudeCommand()
         }
 
         var resolved = ResolveClaudeTarget(result.GetValue(targetArg));
-        if (resolved is not var (missionPath, missionName)) return;
+        if (resolved is not { } target) return;
+        var (missionPath, missionName) = target;
 
         if (!await EnsureInitializedAsync(missionPath)) return;
 
@@ -549,7 +551,8 @@ static Command BuildClaudeCommand()
         else
         {
             var built = await TryBuildMissionServerAsync(config, Path.GetDirectoryName(missionPath)!);
-            if (built is not var (app, _, _, _)) return;
+            if (built is not { } server) return;
+            var app = server.App;
             await app.StartAsync();
             teardown = async () => await app.StopAsync();
             mode     = "in-process";
@@ -616,7 +619,8 @@ static Command BuildConnectVsCodeCommand()
     cmd.SetAction(async result =>
     {
         var resolved = ResolveClaudeTarget(result.GetValue(targetArg));
-        if (resolved is not var (missionPath, missionName)) return;
+        if (resolved is not { } target) return;
+        var (missionPath, missionName) = target;
 
         if (!await EnsureInitializedAsync(missionPath)) return;
 
@@ -626,7 +630,8 @@ static Command BuildConnectVsCodeCommand()
 
         var config = new AgentConfig { Mission = missionPath, Port = port, Id = missionName, Wire = "anthropic" };
         var built  = await TryBuildMissionServerAsync(config, Path.GetDirectoryName(missionPath)!);
-        if (built is not var (app, _, _, _)) return;
+        if (built is not { } server) return;
+        var app = server.App;
 
         Console.Error.WriteLine($"✓ mission   {missionName,-15} {missionPath}");
         Console.Error.WriteLine($"✓ endpoint  /v1/messages    {baseUrl}");
