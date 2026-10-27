@@ -1122,6 +1122,7 @@ static Command BuildProviderListCommand()
 static Command BuildProviderScaffoldCommand()
 {
     var nameArg  = new Argument<string>("name") { Description = "Provider name (openai, anthropic, azure, ollama)" };
+    nameArg.CompletionSources.Add([.. ForgeMission.ChatClients.ProviderCatalog.Entries.Select(e => e.Name)]);
     var writeOpt = new Option<bool>("--write") { Description = "Append the block to forge.toml instead of printing it" };
 
     var cmd = new Command("scaffold", "Generate a ready-to-paste forge.toml provider block");
