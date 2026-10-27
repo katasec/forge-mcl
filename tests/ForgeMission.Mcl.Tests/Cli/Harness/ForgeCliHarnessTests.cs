@@ -1,7 +1,7 @@
 namespace ForgeMission.Tests.Cli.Harness;
 
 // Proves the shared harness: a public host only ever reaches the non-forwarding proxy, a loopback
-// stub is reached directly, and the child never inherits operator credentials. `forge whoami`
+// stub is reached directly, and the child never inherits operator credentials or a real browser. `forge whoami`
 // is the probe: it GETs {endpoint}/me with the CLI's default HttpClient (default proxy from env).
 public sealed class ForgeCliHarnessTests
 {
@@ -52,5 +52,6 @@ public sealed class ForgeCliHarnessTests
         Assert.Equal("set-by-test", environment["FORGE_API_ENDPOINT"]);
         Assert.Equal(harness.Home, environment["HOME"]);
         Assert.Equal(harness.Proxy.Address.ToString(), environment["https_proxy"]);
+        Assert.Equal(Path.Combine(harness.Home, "no-op-browser"), environment["PATH"]!.Split(Path.PathSeparator)[0]);
     }
 }

@@ -5,7 +5,8 @@ namespace ForgeMission.Tests.Cli.Harness;
 /// <summary>
 /// The one shared harness for driving the forge CLI out of process (`dotnet forge.dll ...`).
 /// Every run gets an isolated HOME, a scrubbed environment (no operator credentials, no FORGE_*),
-/// and a forced non-forwarding proxy, so nothing a test starts can reach the internet. Tests set
+/// a forced non-forwarding proxy, and a no-op browser launcher first on PATH, so nothing a test starts
+/// can reach the internet or open a browser (`forge login`). Tests set
 /// what they need through <see cref="Variables"/>, <see cref="WriteConfig"/> and loopback stubs.
 /// </summary>
 public sealed class ForgeCliHarness : IAsyncDisposable
@@ -15,6 +16,9 @@ public sealed class ForgeCliHarness : IAsyncDisposable
         "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GROK_API_KEY",
         "GITHUB_TOKEN", "GH_TOKEN", "AZURE_OPENAI_API_KEY",
     ];
+
+    // The commands `forge login` starts to open the sign-in page (macOS, Linux).
+    private static readonly string[] BrowserLaunchers = ["open", "xdg-open"];
 
     private static readonly Lazy<string> ForgeDll = new(LocateForgeDll);
 
@@ -45,6 +49,7 @@ public sealed class ForgeCliHarness : IAsyncDisposable
     {
         var home = Path.Combine(Path.GetTempPath(), "forge-home-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(home, ".forge"));
+        InstallNoOpBrowser(BrowserDirectory(home));
         return new ForgeCliHarness(home, NonForwardingProxy.Start());
     }
 
@@ -130,8 +135,23 @@ public sealed class ForgeCliHarness : IAsyncDisposable
             environment[name.ToLowerInvariant()] = proxy;
         }
         environment["NO_PROXY"] = environment["no_proxy"] = "127.0.0.1,localhost";
+        environment["PATH"] = BrowserDirectory(Home) + Path.PathSeparator + environment["PATH"];
 
         foreach (var (name, value) in Variables) environment[name] = value;
+    }
+
+    private static string BrowserDirectory(string home) => Path.Combine(home, "no-op-browser");
+
+    private static void InstallNoOpBrowser(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        if (OperatingSystem.IsWindows()) return; // forge opens the browser through the shell there
+        foreach (var launcher in BrowserLaunchers)
+        {
+            var path = Path.Combine(directory, launcher);
+            File.WriteAllText(path, "#!/bin/sh\nexit 0\n");
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     private static bool IsForgeVariable(string name) => name.StartsWith("FORGE_", StringComparison.OrdinalIgnoreCase);

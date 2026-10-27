@@ -68,6 +68,9 @@ static IHost BuildHost()
     builder.Services.AddOptions<ForgeApiSettings>()
         .Bind(builder.Configuration.GetSection(ForgeApiSettings.Section))
         .PostConfigure(ForgeApiSettings.NormalizeEndpoint);
+    builder.Services.AddOptions<PlatformLoginOptions>()
+        .Bind(builder.Configuration)
+        .PostConfigure(PlatformLoginOptions.TrimPlatformEndpoint);
     return builder.Build();
 }
 
@@ -82,7 +85,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(BuildListCommand());
     rootCommand.Add(BuildExpertCommand());
     rootCommand.Add(BuildRegistryCommand());
-    rootCommand.Add(BuildLoginCommand(clients));
+    rootCommand.Add(BuildLoginCommand(services.GetRequiredService<IOptions<PlatformLoginOptions>>(), clients));
     rootCommand.Add(BuildWhoamiCommand(clients));
     rootCommand.Add(BuildLogoutCommand());
     rootCommand.Add(BuildExecCommand(api, clients));
@@ -362,10 +365,10 @@ static Command BuildRegistryLoginCommand()
 
 // forge login = platform sign-in (loopback + PKCE → platform key).
 // OCI-registry credentials live under `forge registry login`.
-static Command BuildLoginCommand(IHttpClientFactory clients)
+static Command BuildLoginCommand(IOptions<PlatformLoginOptions> login, IHttpClientFactory clients)
 {
     var cmd = new Command("login", "Sign in to Forge (browser) and store a platform key");
-    cmd.SetAction(async _ => await PlatformLogin.RunAsync(clients));
+    cmd.SetAction(async _ => await PlatformLogin.RunAsync(login, clients));
     return cmd;
 }
 

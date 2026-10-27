@@ -7,6 +7,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ForgeMission.Core.Resolution;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli;
 
@@ -15,36 +17,15 @@ namespace ForgeMission.Cli;
 // Produces Entra tokens proving identity; task 4 exchanges the access token for a platform key.
 public static class PlatformLogin
 {
-    // Public identifiers, not secrets (both appear in the sign-in URL). Env overrides allow
-    // pointing at another tenant/environment.
-    private static string Authority =>
-        Environment.GetEnvironmentVariable("FORGE_AUTH_AUTHORITY")
-        ?? "https://forgeids.ciamlogin.com/79c07ac3-4f45-4ea8-9701-94fd2ef1decd";
-
-    private static string ClientId =>
-        Environment.GetEnvironmentVariable("FORGE_AUTH_CLIENT_ID")
-        ?? "33595d97-0296-4868-9217-dfab35faa314"; // Forge CLI (dev) public client — forge-infra/dev/200-entra/create-cli-app-registration.sh
-
-    // Request an access token for the Rooms app's cli.login scope (the issuance endpoint
-    // validates this bearer), alongside the reserved OIDC scopes for id_token + refresh.
-    private static string Scope =>
-        Environment.GetEnvironmentVariable("FORGE_AUTH_SCOPE")
-        ?? "api://4f8a95d6-2d41-416c-a1b9-9177ddec1227/cli.login openid profile email offline_access";
-
-    // Base URL of the platform that issues the key (the forge-ui control plane). Override for local
-    // dev against a locally-run ForgeUI.
-    private static string PlatformEndpoint =>
-        Environment.GetEnvironmentVariable("FORGE_PLATFORM_ENDPOINT")?.TrimEnd('/')
-        ?? "https://forge.katasec.com";
-
-    internal static async Task<int> RunAsync(IHttpClientFactory clients)
+    internal static async Task<int> RunAsync(IOptions<PlatformLoginOptions> options, IHttpClientFactory clients)
     {
+        var settings = options.Value;
         var http = clients.CreateClient(CliHttpClients.Login);
         var (verifier, challenge) = CreatePkcePair();
         var state = RandomUrlSafe(16);
 
         using var listener = StartLoopbackListener(out var redirectUri);
-        var authorizeUrl = BuildAuthorizeUrl(challenge, state, redirectUri);
+        var authorizeUrl = BuildAuthorizeUrl(settings, challenge, state, redirectUri);
 
         Console.WriteLine("Opening your browser to sign in…");
         Console.WriteLine($"(if it doesn't open, visit: {authorizeUrl})");
@@ -53,11 +34,11 @@ public static class PlatformLogin
         var code = await WaitForCallbackAsync(listener, state);
         if (code is null) return 1;
 
-        var tokens = await ExchangeCodeAsync(http, code, verifier, redirectUri);
+        var tokens = await ExchangeCodeAsync(http, settings, code, verifier, redirectUri);
         if (tokens is null || string.IsNullOrEmpty(tokens.AccessToken)) return 1;
 
         // Exchange the Entra access token for a platform key (issuance endpoint on the control plane).
-        var issued = await IssuePlatformKeyAsync(http, tokens.AccessToken);
+        var issued = await IssuePlatformKeyAsync(http, settings.PlatformEndpoint, tokens.AccessToken);
         if (issued is null) return 1;
 
         var user = issued.Email ?? ReadUserLabel(tokens.IdToken);
@@ -65,7 +46,7 @@ public static class PlatformLogin
         {
             Key = issued.Key,
             User = user,
-            Endpoint = PlatformEndpoint,
+            Endpoint = settings.PlatformEndpoint,
         });
 
         Console.WriteLine($"✓ signed in as {user}");
@@ -132,9 +113,9 @@ public static class PlatformLogin
     }
 
     // Exchange the validated Entra access token for a long-lived platform key (fg_live_…).
-    private static async Task<IssueKeyResponse?> IssuePlatformKeyAsync(HttpClient http, string accessToken)
+    private static async Task<IssueKeyResponse?> IssuePlatformKeyAsync(HttpClient http, string platformEndpoint, string accessToken)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{PlatformEndpoint}/platform/keys");
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{platformEndpoint}/platform/keys");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         using var resp = await http.SendAsync(req);
@@ -142,7 +123,7 @@ public static class PlatformLogin
 
         if (!resp.IsSuccessStatusCode)
         {
-            Console.Error.WriteLine($"Key issuance failed ({(int)resp.StatusCode}) at {PlatformEndpoint}/platform/keys: {json}");
+            Console.Error.WriteLine($"Key issuance failed ({(int)resp.StatusCode}) at {platformEndpoint}/platform/keys: {json}");
             var wwwAuth = resp.Headers.WwwAuthenticate.ToString();
             if (!string.IsNullOrEmpty(wwwAuth)) Console.Error.WriteLine($"  WWW-Authenticate: {wwwAuth}");
             return null;
@@ -238,28 +219,28 @@ public static class PlatformLogin
 
     // --- Authorize + token calls ------------------------------------------------------------
 
-    private static string BuildAuthorizeUrl(string challenge, string state, string redirectUri) =>
-        $"{Authority}/oauth2/v2.0/authorize" +
-        $"?client_id={ClientId}" +
+    private static string BuildAuthorizeUrl(PlatformLoginOptions settings, string challenge, string state, string redirectUri) =>
+        $"{settings.Authority}/oauth2/v2.0/authorize" +
+        $"?client_id={settings.ClientId}" +
         "&response_type=code&response_mode=query" +
         $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
-        $"&scope={Uri.EscapeDataString(Scope)}" +
+        $"&scope={Uri.EscapeDataString(settings.Scope)}" +
         $"&state={state}" +
         $"&code_challenge={challenge}&code_challenge_method=S256";
 
-    private static async Task<TokenResponse?> ExchangeCodeAsync(HttpClient http, string code, string verifier, string redirectUri)
+    private static async Task<TokenResponse?> ExchangeCodeAsync(HttpClient http, PlatformLoginOptions settings, string code, string verifier, string redirectUri)
     {
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
-            ["client_id"] = ClientId,
+            ["client_id"] = settings.ClientId,
             ["grant_type"] = "authorization_code",
             ["code"] = code,
             ["redirect_uri"] = redirectUri,
             ["code_verifier"] = verifier,
-            ["scope"] = Scope,
+            ["scope"] = settings.Scope,
         });
 
-        using var resp = await http.PostAsync($"{Authority}/oauth2/v2.0/token", form);
+        using var resp = await http.PostAsync($"{settings.Authority}/oauth2/v2.0/token", form);
         var json = await resp.Content.ReadAsStringAsync();
 
         TokenResponse? tokens = null;
@@ -301,4 +282,31 @@ public static class PlatformLogin
         }
         catch { /* the URL is printed as fallback */ }
     }
+}
+
+// forge login's sign-in settings, bound by the CLI host from its configuration: each property is
+// read from the environment variable its key names. Public identifiers, not secrets (both appear in
+// the sign-in URL); the variables point sign-in at another tenant/environment.
+internal sealed class PlatformLoginOptions
+{
+    [ConfigurationKeyName("FORGE_AUTH_AUTHORITY")]
+    public string Authority { get; set; } = "https://forgeids.ciamlogin.com/79c07ac3-4f45-4ea8-9701-94fd2ef1decd";
+
+    // Forge CLI (dev) public client — forge-infra/dev/200-entra/create-cli-app-registration.sh
+    [ConfigurationKeyName("FORGE_AUTH_CLIENT_ID")]
+    public string ClientId { get; set; } = "33595d97-0296-4868-9217-dfab35faa314";
+
+    // Request an access token for the Rooms app's cli.login scope (the issuance endpoint
+    // validates this bearer), alongside the reserved OIDC scopes for id_token + refresh.
+    [ConfigurationKeyName("FORGE_AUTH_SCOPE")]
+    public string Scope { get; set; } = "api://4f8a95d6-2d41-416c-a1b9-9177ddec1227/cli.login openid profile email offline_access";
+
+    // Base URL of the platform that issues the key (the forge-ui control plane). Override for local
+    // dev against a locally-run ForgeUI.
+    [ConfigurationKeyName("FORGE_PLATFORM_ENDPOINT")]
+    public string PlatformEndpoint { get; set; } = "https://forge.katasec.com";
+
+    /// <summary>Trims trailing slashes from the platform endpoint.</summary>
+    public static void TrimPlatformEndpoint(PlatformLoginOptions options) =>
+        options.PlatformEndpoint = options.PlatformEndpoint.TrimEnd('/');
 }
