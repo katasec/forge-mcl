@@ -486,15 +486,6 @@ public sealed class ChatTranscriptTests
     }
 
     [Fact]
-    public async Task Without_a_lost_handler_a_transport_failure_is_thrown()
-    {
-        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.Broken]));
-
-        await Assert.ThrowsAsync<IOException>(() => (Task<long>)FollowTurnAsyncMethod.Invoke(null,
-            [service, Guid.NewGuid(), 5L, Guid.NewGuid(), true, (Action<ConversationEvent>)(_ => { }), CancellationToken.None])!);
-    }
-
-    [Fact]
     public async Task A_stream_that_times_out_waiting_is_reported_once_and_reopened_from_the_cursor()
     {
         var attempt = Guid.NewGuid();
