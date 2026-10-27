@@ -667,7 +667,7 @@ static (string MissionPath, string MissionName)? ResolveClaudeTarget(string? tar
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return null; }
     }
 
-    var candidates = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.mcl");
+    var candidates = Directory.EnumerateFiles(Directory.GetCurrentDirectory(), "*.mcl").Take(2).ToArray();
     if (candidates.Length == 1)
         return (candidates[0], new DirectoryInfo(Directory.GetCurrentDirectory()).Name);
 
