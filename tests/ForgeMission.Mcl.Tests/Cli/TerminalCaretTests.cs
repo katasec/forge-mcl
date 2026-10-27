@@ -1,5 +1,6 @@
 using System.Reflection;
 using XenoAtom.Terminal.UI;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -11,7 +12,6 @@ public sealed class TerminalCaretTests
 {
     private const string Restore = "\u001b]112\u001b\\";
 
-    private static readonly Assembly Forge = LoadForge();
     private static readonly Type ThemeType = Type("ForgeMission.Cli.Tui.ForgeTheme");
     private static readonly Type CaretType = Type("ForgeMission.Cli.Tui.TerminalCaret");
 
@@ -28,7 +28,7 @@ public sealed class TerminalCaretTests
     public void The_styles_carry_the_caret_token(string theme)
     {
         var stylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
-        var styles = Activator.CreateInstance(stylesType, Theme(theme))!;
+        var styles = Styles(theme);
 
         Assert.Equal(Token(theme, "Caret"), (Color)stylesType.GetProperty("Caret")!.GetValue(styles)!);
     }
@@ -71,21 +71,4 @@ public sealed class TerminalCaretTests
     }
 
     private static Color Token(string theme, string name) => (Color)ThemeType.GetProperty(name)!.GetValue(Theme(theme))!;
-
-    private static object Theme(string name) => ThemeType.GetProperty(name, BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
-
-    private static Type Type(string name) => Forge.GetType(name, throwOnError: true)!;
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }
