@@ -1,6 +1,6 @@
 using System.CommandLine;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // Every forge command sets its action here: System.CommandLine's asynchronous action, which is
 // handed the Ctrl+C/SIGTERM token to pass to everything it awaits

@@ -2,7 +2,7 @@ using ForgeMission.Application;
 using ForgeMission.Application.Transport;
 using ForgeMission.Conversations.Contracts;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // forge chat --hands (Phase 55, H5/H7): the one live hands attachment of a chat. The followed turn's
 // events drive it (in the TUI only the window's own turn, 53.9 L1): each MissionHandsRequested starts one Execute (claim → read → run in the project

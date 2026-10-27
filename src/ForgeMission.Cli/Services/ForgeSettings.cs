@@ -1,7 +1,7 @@
 using ForgeMission.Cli.Tui;
 using Microsoft.Extensions.Options;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // The user's local settings in ~/.forge/config.json, loaded by the CLI host's JSON configuration
 // provider: { "theme": "light" | "dark", "api": { "endpoint": "..." } }. Each consumer binds only

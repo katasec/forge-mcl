@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // The CLI opens one dedicated Ghostty instance and restores its child context before chat.
 // Ghostty owns scoped key forwarding/window lifetime; the existing chat owns its cleanup.

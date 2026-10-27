@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge connect vscode — wire the Claude Code EXTENSION (VS Code / VSCodium) to a
 // mission. The extension is a GUI process that never sees shell env, so the sanctioned

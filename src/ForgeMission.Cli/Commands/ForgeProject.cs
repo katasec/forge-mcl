@@ -4,7 +4,7 @@ using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // Projects and Missions own creation and recovery. This surface selects the folder, supplies
 // the saved platform login, and reports their result; it writes no Project or package files.

@@ -1,5 +1,6 @@
 using ForgeMission.Application;
 using ForgeMission.Conversations.Contracts;
+using ForgeMission.Cli.Commands;
 
 namespace ForgeMission.Cli.Tui;
 

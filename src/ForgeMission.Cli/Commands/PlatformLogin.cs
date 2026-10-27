@@ -8,10 +8,12 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ForgeMission.Core.Resolution;
+using ForgeMission.Cli.Contracts;
+using ForgeMission.Cli.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge login (42.5): platform sign-in via loopback auth-code + PKCE against Entra External ID.
 // Hand-rolled public client (no MSAL — AOT-first): one localhost listener + one token call.

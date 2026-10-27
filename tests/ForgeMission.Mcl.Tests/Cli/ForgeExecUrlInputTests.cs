@@ -4,8 +4,8 @@ namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeExecUrlInputTests
 {
-    private static readonly Type ForgeExec = LoadCliType("ForgeMission.Cli.ForgeExec");
-    private static readonly Type MissionArtifactDto = LoadCliType("ForgeMission.Cli.MissionArtifactDto");
+    private static readonly Type ForgeExec = LoadCliType("ForgeMission.Cli.Commands.ForgeExec");
+    private static readonly Type MissionArtifactDto = LoadCliType("ForgeMission.Cli.Contracts.MissionArtifactDto");
 
     [Theory]
     [InlineData("https://example.test/scan.jpg?sig=abc", true)]

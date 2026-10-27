@@ -8,10 +8,11 @@ using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
 using ForgeMission.Core.Runtime;
+using ForgeMission.Cli.Services;
 using MclProgram = ForgeMission.Parser.Program;
 using McpTextContent = ModelContextProtocol.Protocol.TextContentBlock;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // Owns the forge mcp protocol surface: it turns an already-loaded mission into a stdio MCP server
 // exposing that mission as a single tool. Mission resolution, validation and runner construction

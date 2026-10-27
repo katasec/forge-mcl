@@ -1,4 +1,4 @@
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // Signals a deliberate CLI exit with a specific process code. Thrown by Die (and the few
 // remaining explicit-exit sites) instead of calling Environment.Exit deep in a helper, and

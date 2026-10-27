@@ -205,6 +205,6 @@ public sealed class ForgeProjectTests
     }
 
     private static MethodInfo LoadRunCore() =>
-        Assembly.LoadFrom(ForgeCliHarness.ForgeDllPath).GetType("ForgeMission.Cli.ForgeProject", throwOnError: true)!
+        Assembly.LoadFrom(ForgeCliHarness.ForgeDllPath).GetType("ForgeMission.Cli.Commands.ForgeProject", throwOnError: true)!
             .GetMethod("RunCoreAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
 }

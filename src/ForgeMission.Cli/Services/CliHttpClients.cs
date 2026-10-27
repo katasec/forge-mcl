@@ -3,7 +3,7 @@ using ForgeMission.Core.Resolution;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // The CLI's named outbound HttpClients, registered once on the CLI host; commands create them from
 // the host's IHttpClientFactory. The exec, login and web-search clients set only a timeout — every

@@ -16,7 +16,7 @@ public sealed class ChatTranscriptTests
         .GetMethod("Apply", BindingFlags.Static | BindingFlags.Public)!;
     private static readonly MethodInfo ReplyingMethod = Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
         .GetMethod("Replying", BindingFlags.Static | BindingFlags.Public)!;
-    private static readonly MethodInfo UsesTuiMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+    private static readonly MethodInfo UsesTuiMethod = Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
         .GetMethod("UsesTui", BindingFlags.Static | BindingFlags.NonPublic)!;
 
     [Fact]
@@ -818,12 +818,12 @@ public sealed class ChatTranscriptTests
     private static (int Exit, string Error) ReportConnectionLost(Exception failure)
     {
         var error = new StringWriter();
-        var exit = (int)Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+        var exit = (int)Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
             .GetMethod("ReportConnectionLost", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [failure, error])!;
         return (exit, error.ToString().TrimEnd());
     }
 
-    private static readonly MethodInfo StreamAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+    private static readonly MethodInfo StreamAsyncMethod = Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
         .GetMethod("StreamAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
     private static readonly Type ChatTuiType = Forge.GetType("ForgeMission.Cli.Tui.ChatTui", throwOnError: true)!;
 
@@ -839,7 +839,7 @@ public sealed class ChatTranscriptTests
     private static bool KeepsStop(bool stopRequested, bool hasOwnTurn) =>
         (bool)ChatTuiType.GetMethod("KeepsStop", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [stopRequested, hasOwnTurn])!;
 
-    private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+    private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
         .GetMethod("FollowTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
 
     private static (object Service, List<(long After, bool IncludeDeltas)> Requests) FakeConversations(Queue<ConversationEvent[]> connections)

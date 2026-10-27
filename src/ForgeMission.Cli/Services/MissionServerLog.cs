@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // The mission server's diagnostics (forge serve, forge claude, forge connect), written through the
 // CLI host's logger: stderr only, Warning and above.

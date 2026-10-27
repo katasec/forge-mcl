@@ -1,7 +1,7 @@
 using System.CommandLine;
 using ForgeMission.MissionRegistry;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge clean — remove cached OCI experts from ~/.forge/experts, optionally scoped to one
 // registry host. Self-contained: the cache root lives in ForgeMission.MissionRegistry and the

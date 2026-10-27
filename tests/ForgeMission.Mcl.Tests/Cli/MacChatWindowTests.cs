@@ -298,6 +298,6 @@ public sealed class MacChatWindowTests
     private static string NewTemporaryDirectory() => Directory.CreateDirectory(
         Path.Combine(Path.GetTempPath(), "forge-window-test-" + Guid.NewGuid().ToString("N"))).FullName;
 
-    private static MethodInfo Method(string name) => ForgeText.Type("ForgeMission.Cli.MacChatWindow")
+    private static MethodInfo Method(string name) => ForgeText.Type("ForgeMission.Cli.Services.MacChatWindow")
         .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
 }

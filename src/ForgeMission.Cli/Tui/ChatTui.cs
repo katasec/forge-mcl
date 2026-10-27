@@ -2,6 +2,8 @@ using ForgeMission.Application;
 using System.Collections.Concurrent;
 using ForgeMission.Conversations.Contracts;
 using ForgeMission.Cli.Tui.Graphics;
+using ForgeMission.Cli.Services;
+using ForgeMission.Cli.Commands;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Commands;

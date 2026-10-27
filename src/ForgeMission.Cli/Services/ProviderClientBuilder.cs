@@ -1,7 +1,8 @@
 using Scout;
 using Scout.Grok;
-using ForgeMission.Cli;
 using Microsoft.Extensions.Options;
+
+namespace ForgeMission.Cli.Services;
 
 // Live-retrieval wiring stays in CLI; chat-provider construction lives in ForgeMission.ChatClients.
 public static class ProviderClientBuilder

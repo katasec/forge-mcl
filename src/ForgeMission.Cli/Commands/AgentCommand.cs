@@ -1,9 +1,10 @@
 using System.CommandLine;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Docker;
+using ForgeMission.Cli.Services;
 using Spectre.Console;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge agent start/stop — run `forge serve` inside a Docker container on the shared forge-net
 // network. Docker orchestration lives in ForgeMission.Docker; prerequisite printing, env capture

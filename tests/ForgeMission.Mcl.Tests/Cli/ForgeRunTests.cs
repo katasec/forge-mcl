@@ -11,7 +11,7 @@ namespace ForgeMission.Tests.Cli;
 // Controlled model calls exercise the production composition with real Bob, never a fake dispatcher.
 public sealed class ForgeRunTests : IDisposable
 {
-    private static readonly Type RunType = ForgeText.Type("ForgeMission.Cli.ForgeRun");
+    private static readonly Type RunType = ForgeText.Type("ForgeMission.Cli.Services.ForgeRun");
     private readonly string _root = Path.Combine(Path.GetTempPath(), "forge-run-" + Guid.NewGuid().ToString("N"));
     private static readonly Dictionary<string, ExpertDefinition> Experts = new(StringComparer.Ordinal)
     {

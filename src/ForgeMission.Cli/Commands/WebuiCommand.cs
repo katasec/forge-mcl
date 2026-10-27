@@ -1,9 +1,10 @@
 using System.CommandLine;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Docker;
+using ForgeMission.Cli.Services;
 using Spectre.Console;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge webui start/stop — run Open WebUI in Docker, pre-wired to talk to a running forge agent
 // container over the shared forge-net network. Docker orchestration lives in ForgeMission.Docker;

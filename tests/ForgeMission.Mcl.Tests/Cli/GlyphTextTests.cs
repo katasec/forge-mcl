@@ -86,7 +86,7 @@ public sealed class GlyphTextTests
     }
 
     private static object? LoadFonts(TextWriter error, Delegate? load) =>
-        Type("ForgeMission.Cli.ForgeChat").GetMethod("LoadFonts", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+        Type("ForgeMission.Cli.Commands.ForgeChat").GetMethod("LoadFonts", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(null, [error, load]);
 
     /// <summary>A Func&lt;TextFonts&gt; that throws <paramref name="thrown"/>.</summary>

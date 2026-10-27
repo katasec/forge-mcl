@@ -4,9 +4,11 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using ForgeMission.Core.Resolution;
+using ForgeMission.Cli.Contracts;
+using ForgeMission.Cli.Services;
 using Microsoft.Extensions.Options;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge exec (42.6 task 8): the one-shot top-of-funnel command — run a hosted mission once, stream
 // live progress + the answer, exit. Sends the ExecuteMission message (API A) to ForgeAPI with the

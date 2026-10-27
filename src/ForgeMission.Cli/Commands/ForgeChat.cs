@@ -8,9 +8,10 @@ using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 using ForgeMission.Cli.Tui;
 using ForgeMission.Cli.Tui.Graphics;
+using ForgeMission.Cli.Services;
 using Microsoft.Extensions.Options;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge chat opens the current folder's portable declaration and reconnects to its hosted
 // mission through Katasec.Forge.Client. Projects, packages and history stay with their existing

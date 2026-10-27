@@ -393,7 +393,7 @@ public sealed class ForgeChatTests
         {
             var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
             if (File.Exists(candidate))
-                return Assembly.LoadFrom(candidate).GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+                return Assembly.LoadFrom(candidate).GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
                     .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
             dir = dir.Parent;
         }

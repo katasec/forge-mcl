@@ -10,7 +10,7 @@ namespace ForgeMission.Tests.Cli;
 public sealed class ForgeConfigTests
 {
     private static readonly Assembly Forge = LoadForge();
-    private static readonly Type SettingsType = Forge.GetType("ForgeMission.Cli.ForgeSettings", throwOnError: true)!;
+    private static readonly Type SettingsType = Forge.GetType("ForgeMission.Cli.Services.ForgeSettings", throwOnError: true)!;
     private static readonly Type ThemeType = Forge.GetType("ForgeMission.Cli.Tui.ForgeTheme", throwOnError: true)!;
 
     [Fact]
