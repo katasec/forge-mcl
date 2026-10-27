@@ -4,8 +4,8 @@ namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeExecUrlInputTests
 {
-    private static readonly Type ForgeExec = LoadCliType("ForgeMission.Cli.Commands.ForgeExec");
-    private static readonly Type MissionArtifactDto = LoadCliType("ForgeMission.Cli.Contracts.MissionArtifactDto");
+    private static readonly Type ForgeExec = ForgeText.Type("ForgeMission.Cli.Commands.ForgeExec");
+    private static readonly Type MissionArtifactDto = ForgeText.Type("ForgeMission.Cli.Contracts.MissionArtifactDto");
 
     [Theory]
     [InlineData("https://example.test/scan.jpg?sig=abc", true)]
@@ -175,26 +175,4 @@ public sealed class ForgeExecUrlInputTests
     private static MethodInfo Method(string name) =>
         ForgeExec.GetMethod(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
         ?? throw new MissingMethodException(ForgeExec.FullName, name);
-
-    private static Type LoadCliType(string typeName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(
-                dir.FullName,
-                "src",
-                "ForgeMission.Cli",
-                "bin",
-                "Debug",
-                "net10.0",
-                "forge.dll");
-            if (File.Exists(candidate))
-                return Assembly.LoadFrom(candidate).GetType(typeName, throwOnError: true)!;
-
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }
