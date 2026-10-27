@@ -939,10 +939,7 @@ public sealed class ChatTranscriptTests
     private static object Blocks(ConversationEvent[] events)
     {
         var blockType = Forge.GetType("ForgeMission.Cli.Tui.TranscriptBlock", throwOnError: true)!;
-        object blocks = Array.CreateInstance(blockType, 0);
-        foreach (var item in events)
-            blocks = ApplyMethod.Invoke(null, [blocks, item])!;
-        return blocks;
+        return ApplyAll(Array.CreateInstance(blockType, 0), events);
     }
 
     private static ConversationEvent User(string text) => Event(ConversationEventKind.UserMessage, null, text);
