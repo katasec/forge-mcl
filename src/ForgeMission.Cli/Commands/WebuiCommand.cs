@@ -32,7 +32,7 @@ internal static class WebuiCommand
         cmd.Add(agentFileOpt);
         cmd.Add(portOpt);
 
-        cmd.SetAction(async result =>
+        cmd.SetCancellableAction(async (result, _) =>
         {
             var agentFile = result.GetValue(agentFileOpt) ?? "./agent.yaml";
             var webuiPort = result.GetValue(portOpt) ?? 3000;
@@ -106,7 +106,7 @@ internal static class WebuiCommand
     {
         var cmd = new Command("stop", "Stop and remove the Open WebUI container");
 
-        cmd.SetAction(async _ =>
+        cmd.SetCancellableAction(async (_, _) =>
         {
             await DockerCli.StopAndRemoveAsync("open-webui");
             AnsiConsole.MarkupLine("[green]✓[/] Open WebUI stopped");

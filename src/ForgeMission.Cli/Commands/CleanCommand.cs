@@ -15,7 +15,7 @@ internal static class CleanCommand
         var cmd = new Command("clean", "Remove cached OCI experts from ~/.forge/experts");
         cmd.Add(registryOpt);
 
-        cmd.SetAction(result =>
+        cmd.SetCancellableAction((result, _) =>
         {
             var registry = result.GetValue(registryOpt);
             var target   = registry is not null
@@ -25,13 +25,14 @@ internal static class CleanCommand
             if (!Directory.Exists(target))
             {
                 Console.WriteLine($"Nothing to clean ({target} does not exist).");
-                return;
+                return Task.CompletedTask;
             }
 
             var files = Directory.GetFiles(target, "*", SearchOption.AllDirectories);
             Directory.Delete(target, recursive: true);
 
             Console.WriteLine($"Removed {files.Length} cached expert file(s) from {target}");
+            return Task.CompletedTask;
         });
 
         return cmd;

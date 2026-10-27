@@ -264,7 +264,8 @@ public sealed class MacChatWindowTests
     private static Task<int> RunCommand(Func<Task<int>> run, string? marker,
         Action<(string WorkingDirectory, string? ApiEndpoint)> restore, Action dismiss, TextWriter error) =>
         Method("RunCommandAsync").CreateDelegate<Func<Func<Task<int>>, string?,
-            Action<(string WorkingDirectory, string? ApiEndpoint)>, Action, TextWriter, Task<int>>>()(run, marker, restore, dismiss, error);
+            Action<(string WorkingDirectory, string? ApiEndpoint)>, Action, TextWriter, CancellationToken, Task<int>>>()
+                (run, marker, restore, dismiss, error, CancellationToken.None);
 
     private static void Restore((string WorkingDirectory, string? ApiEndpoint) context,
         Action<string> directory, Action<string, string?> environment) =>
@@ -278,11 +279,13 @@ public sealed class MacChatWindowTests
     private static Task<int> Launch(string? executable, bool hands, string project, string cwd, string? endpoint,
         TextWriter output, TextWriter error, Func<ProcessStartInfo, Task<(int ExitCode, string StandardOutput, string StandardError)>> start) =>
         Method("LaunchAsync").CreateDelegate<Func<string?, bool, string, string, string?, TextWriter, TextWriter,
-            Func<ProcessStartInfo, Task<(int ExitCode, string StandardOutput, string StandardError)>>, Task<int>>>()
-                (executable, hands, project, cwd, endpoint, output, error, start);
+            Func<ProcessStartInfo, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>,
+            CancellationToken, Task<int>>>()
+                (executable, hands, project, cwd, endpoint, output, error, (info, _) => start(info), CancellationToken.None);
 
     private static Task<(int ExitCode, string StandardOutput, string StandardError)> StartProcess(ProcessStartInfo start) =>
-        Method("StartProcessAsync").CreateDelegate<Func<ProcessStartInfo, Task<(int ExitCode, string StandardOutput, string StandardError)>>>()(start);
+        Method("StartProcessAsync").CreateDelegate<Func<ProcessStartInfo, CancellationToken,
+            Task<(int ExitCode, string StandardOutput, string StandardError)>>>()(start, CancellationToken.None);
 
     private static ProcessStartInfo Shell(string command)
     {

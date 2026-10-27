@@ -18,7 +18,7 @@ internal static class ConnectCommand
 {
     internal static Command Build(
         Func<string?, (string MissionPath, string MissionName)?> resolveTarget,
-        Func<string, Task<bool>> ensureInitialized,
+        Func<string, CancellationToken, Task<bool>> ensureInitialized,
         Func<AgentConfig, string, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
         Action<string> die)
     {
@@ -29,7 +29,7 @@ internal static class ConnectCommand
 
     static Command BuildVsCodeCommand(
         Func<string?, (string MissionPath, string MissionName)?> resolveTarget,
-        Func<string, Task<bool>> ensureInitialized,
+        Func<string, CancellationToken, Task<bool>> ensureInitialized,
         Func<AgentConfig, string, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
         Action<string> die)
     {
@@ -40,13 +40,13 @@ internal static class ConnectCommand
         cmd.Add(targetArg);
         cmd.Add(portOpt);
 
-        cmd.SetAction(async result =>
+        cmd.SetCancellableAction(async (result, cancellationToken) =>
         {
             var resolved = resolveTarget(result.GetValue(targetArg));
             if (resolved is not { } target) return;
             var (missionPath, missionName) = target;
 
-            if (!await ensureInitialized(missionPath)) return;
+            if (!await ensureInitialized(missionPath, cancellationToken)) return;
 
             var port    = result.GetValue(portOpt);
             var baseUrl = $"http://127.0.0.1:{port}";

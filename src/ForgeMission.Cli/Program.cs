@@ -29,7 +29,8 @@ using MclProgram = ForgeMission.Parser.Program;
 // throwing ForgeExitException (see Die) rather than calling Environment.Exit deep in the stack, so
 // teardown/finally runs on the way out. System.CommandLine's own exception handler is disabled so
 // those exceptions reach this handler; it also keeps the library's prior behaviour for any
-// unexpected exception (print it, exit 1).
+// unexpected exception (print it, exit 1). Ctrl+C/SIGTERM reaches every action as its token and
+// exits 130 there (CommandActions); a cancellation that reaches this handler is not the command's own.
 var invocation = new InvocationConfiguration { EnableDefaultExceptionHandler = false };
 try
 {
@@ -121,14 +122,15 @@ static Command BuildInitCommand()
     cmd.Add(missionArg);
     cmd.Add(refreshOpt);
 
-    cmd.SetAction(async result => await RunInitAsync(result.GetValue(missionArg), result.GetValue(refreshOpt)));
+    cmd.SetCancellableAction((result, cancellationToken) =>
+        RunInitAsync(result.GetValue(missionArg), result.GetValue(refreshOpt), cancellationToken));
 
     return cmd;
 }
 
 // Resolve local experts, pull any OCI experts, and write mcl.lock. Each helper reports its own
 // failure through Die (which throws ForgeExitException), so the orchestration reads top-down.
-static async Task RunInitAsync(FileInfo? missionArg, bool refresh)
+static async Task RunInitAsync(FileInfo? missionArg, bool refresh, CancellationToken cancellationToken)
 {
     var mission    = ResolveMission(missionArg);
     var missionDir = mission.DirectoryName!;
@@ -149,7 +151,7 @@ static async Task RunInitAsync(FileInfo? missionArg, bool refresh)
     foreach (var (name, entry) in lockFile.Experts.OrderBy(k => k.Key))
         Console.WriteLine($"  ✓ {name,-30} local    {entry.Path}");
 
-    await PullOciExpertsAsync(manifest, refresh, lockFile);
+    await PullOciExpertsAsync(manifest, refresh, lockFile, cancellationToken);
 
     var lockPath = Path.Combine(missionDir, "mcl.lock");
     LockFileIO.Write(lockPath, lockFile);
@@ -173,18 +175,19 @@ static LockFile BuildLocalLockFile(string missionDir)
 
 // OCI experts: pull each manifest expert from its registry into the lock file, in name order.
 // The first failure stops init (PullOciExpertAsync calls Die, which throws).
-static async Task PullOciExpertsAsync(ForgeManifest? manifest, bool refresh, LockFile lockFile)
+static async Task PullOciExpertsAsync(ForgeManifest? manifest, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
 {
     if (manifest is null) return;
     foreach (var (name, ociRef) in manifest.Experts.OrderBy(k => k.Key))
-        await PullOciExpertAsync(name, ociRef, refresh, lockFile);
+        await PullOciExpertAsync(name, ociRef, refresh, lockFile, cancellationToken);
 }
 
-static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, LockFile lockFile)
+// The caller's own cancellation propagates; any other pull failure stops init with MCL011.
+static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
 {
     try
     {
-        var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh);
+        var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh, cancellationToken);
         lockFile.Experts[name] = new LockFileExpert
         {
             Source = "oci",
@@ -193,7 +196,7 @@ static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, L
         };
         Console.WriteLine($"  ✓ {name,-30} {status,-8} {ociRef}");
     }
-    catch (Exception ex)
+    catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
     {
         Console.Error.WriteLine($"  ✗ {name,-30} failed   {ociRef}");
         Console.Error.WriteLine($"    {ex.Message}");
@@ -212,8 +215,8 @@ static Command BuildRunCommand(IOptions<ForgeApiSettings> api, IHttpClientFactor
     var cmd = new Command("run", "Run a hosted mission and print the answer");
     cmd.Add(missionArg);
     cmd.Add(promptArg);
-    cmd.SetAction(async result => await ForgeExec.RunAsync(api, clients,
-        result.GetValue(missionArg)!, result.GetValue(promptArg)));
+    cmd.SetCancellableAction((result, cancellationToken) => ForgeExec.RunAsync(api, clients,
+        result.GetValue(missionArg)!, result.GetValue(promptArg), cancellationToken: cancellationToken));
     return cmd;
 }
 
@@ -227,7 +230,7 @@ static Command BuildValidateCommand()
     var cmd = new Command("validate", "Validate a mission file and its expert references");
     cmd.Add(missionArg);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, _) =>
     {
         var mission    = ResolveMission(result.GetValue(missionArg));
         var missionDir = mission.DirectoryName!;
@@ -279,7 +282,7 @@ static Command BuildListCommand()
     var listExpertsCmd = new Command("experts", "List experts in the experts directory");
     listExpertsCmd.Add(expertsOpt);
 
-    listExpertsCmd.SetAction(async result =>
+    listExpertsCmd.SetCancellableAction(async (result, _) =>
     {
         var experts    = result.GetValue(expertsOpt);
         var expertsDir = experts?.FullName ?? "experts";
@@ -313,7 +316,7 @@ static Command BuildExpertCommand()
     initExpertCmd.Add(nameArg);
     initExpertCmd.Add(expertsOpt);
 
-    initExpertCmd.SetAction(async result =>
+    initExpertCmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var name       = result.GetValue(nameArg)!;
         var experts    = result.GetValue(expertsOpt);
@@ -335,7 +338,7 @@ static Command BuildExpertCommand()
         }
 
         Directory.CreateDirectory(expertDir);
-        await File.WriteAllTextAsync(expertMd, ExpertTemplate(name));
+        await File.WriteAllTextAsync(expertMd, ExpertTemplate(name), cancellationToken);
 
         Console.WriteLine($"Created {expertMd}");
     });
@@ -364,7 +367,11 @@ static Command BuildRegistryLoginCommand()
     cmd.Add(registryArg);
     cmd.Add(tokenOpt);
 
-    cmd.SetAction(result => SaveRegistryCredential(result.GetValue(registryArg)!, result.GetValue(tokenOpt)!));
+    cmd.SetCancellableAction((result, _) =>
+    {
+        SaveRegistryCredential(result.GetValue(registryArg)!, result.GetValue(tokenOpt)!);
+        return Task.CompletedTask;
+    });
     return cmd;
 }
 
@@ -373,21 +380,21 @@ static Command BuildRegistryLoginCommand()
 static Command BuildLoginCommand(IOptions<PlatformLoginOptions> login, IHttpClientFactory clients)
 {
     var cmd = new Command("login", "Sign in to Forge (browser) and store a platform key");
-    cmd.SetAction(async _ => await PlatformLogin.RunAsync(login, clients));
+    cmd.SetCancellableAction((_, _) => PlatformLogin.RunAsync(login, clients));
     return cmd;
 }
 
 static Command BuildWhoamiCommand(IHttpClientFactory clients)
 {
     var cmd = new Command("whoami", "Show the signed-in Forge user and credit balance");
-    cmd.SetAction(async _ => await PlatformLogin.WhoAmIAsync(clients));
+    cmd.SetCancellableAction((_, _) => PlatformLogin.WhoAmIAsync(clients));
     return cmd;
 }
 
 static Command BuildLogoutCommand()
 {
     var cmd = new Command("logout", "Sign out of Forge (remove the stored platform key)");
-    cmd.SetAction(_ => PlatformLogin.Logout());
+    cmd.SetCancellableAction((_, _) => Task.FromResult(PlatformLogin.Logout()));
     return cmd;
 }
 
@@ -412,13 +419,14 @@ static Command BuildExecCommand(IOptions<ForgeApiSettings> api, IHttpClientFacto
     cmd.Add(modeOpt);
     cmd.Add(outOpt);
 
-    cmd.SetAction(async result =>
-        await ForgeExec.RunAsync(api, clients,
+    cmd.SetCancellableAction((result, cancellationToken) =>
+        ForgeExec.RunAsync(api, clients,
             result.GetValue(targetArg)!,
             result.GetValue(promptArg),
             result.GetValue(inputOpt),
             result.GetValue(modeOpt),
-            result.GetValue(outOpt)));
+            result.GetValue(outOpt),
+            cancellationToken));
     return cmd;
 }
 
@@ -442,7 +450,7 @@ static Command BuildPublishCommand()
     cmd.Add(dirArg);
     cmd.Add(descOpt);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var reference = result.GetValue(refArg)!;
         var dir       = result.GetValue(dirArg) ?? new DirectoryInfo(Directory.GetCurrentDirectory());
@@ -466,7 +474,7 @@ static Command BuildPublishCommand()
             : new Dictionary<string, string> { ["org.opencontainers.image.description"] = desc };
 
         using var client = new OciClient(credential: token);
-        var digest = await client.PushMissionAsync(registry, name, tag, bundle, annotations);
+        var digest = await client.PushMissionAsync(registry, name, tag, bundle, annotations, cancellationToken);
 
         Console.WriteLine($"Published {registry}/{name}:{tag} ({bundle.Length} bytes)");
         Console.WriteLine($"Digest:  {digest}");
@@ -486,7 +494,7 @@ static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClie
     var cmd = new Command("serve", "Serve a mission as an OpenAI-compatible endpoint");
     cmd.Add(agentArg);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, _) =>
     {
         var agentFile = result.GetValue(agentArg)
             ?? new FileInfo(Path.GetFullPath("agent.yaml"));
@@ -550,7 +558,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
     cmd.Add(promptOpt);
     cmd.TreatUnmatchedTokensAsErrors = false;   // anything after the options is forwarded to claude
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var printEnv = result.GetValue(printEnvOpt);
         if (!printEnv && !IsOnPath("claude"))
@@ -563,7 +571,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
         if (resolved is not { } target) return;
         var (missionPath, missionName) = target;
 
-        if (!await EnsureInitializedAsync(missionPath)) return;
+        if (!await EnsureInitializedAsync(missionPath, cancellationToken)) return;
 
         var port = result.GetValue(portOpt) ?? FindFreePort();
         var config = new AgentConfig
@@ -588,7 +596,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
             var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, Path.GetDirectoryName(missionPath)!);
             if (built is not { } server) return;
             var app = server.App;
-            await app.StartAsync();
+            await app.StartAsync(cancellationToken);
             teardown = async () => await app.StopAsync();
             mode     = "in-process";
         }
@@ -670,13 +678,13 @@ static (string MissionPath, string MissionName)? ResolveClaudeTarget(string? tar
 }
 
 // Missing mcl.lock ⇒ run `forge init` silently (local experts resolve without network).
-static async Task<bool> EnsureInitializedAsync(string missionPath)
+static async Task<bool> EnsureInitializedAsync(string missionPath, CancellationToken cancellationToken)
 {
     var lockPath = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
     if (File.Exists(lockPath)) return true;
 
     Console.Error.WriteLine("↳ initialising mission (forge init)…");
-    try { await RunInitAsync(new FileInfo(missionPath), refresh: false); }
+    try { await RunInitAsync(new FileInfo(missionPath), refresh: false, cancellationToken); }
     catch (ForgeExitException) { return false; }
     return File.Exists(lockPath);
 }
@@ -1090,7 +1098,7 @@ static Command BuildProviderCommand()
 static Command BuildProviderListCommand()
 {
     var cmd = new Command("list", "List all known LLM providers");
-    cmd.SetAction(_ =>
+    cmd.SetCancellableAction((_, _) =>
     {
         Console.WriteLine("Known providers:\n");
         Console.WriteLine($"  {"NAME",-12} {"REQUIRED FIELDS",-30} NOTES");
@@ -1098,6 +1106,7 @@ static Command BuildProviderListCommand()
         foreach (var p in ForgeMission.ChatClients.ProviderCatalog.Entries)
             Console.WriteLine($"  {p.Name,-12} {p.RequiredFields,-30} {p.Notes}");
         Console.WriteLine("\nRun 'forge provider scaffold <name>' to generate a forge.toml block.");
+        return Task.CompletedTask;
     });
     return cmd;
 }
@@ -1111,7 +1120,7 @@ static Command BuildProviderScaffoldCommand()
     cmd.Add(nameArg);
     cmd.Add(writeOpt);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var name  = result.GetValue(nameArg)!.ToLowerInvariant();
         var write = result.GetValue(writeOpt);
@@ -1126,7 +1135,7 @@ static Command BuildProviderScaffoldCommand()
 
         if (write)
         {
-            await File.AppendAllTextAsync("forge.toml", $"\n{block}\n");
+            await File.AppendAllTextAsync("forge.toml", $"\n{block}\n", cancellationToken);
             Console.WriteLine("Appended to forge.toml.");
         }
         else
@@ -1155,7 +1164,7 @@ static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory 
     var cmd = new Command("mcp", "Expose a mission as a stdio MCP server (for Claude Desktop and MCP-aware tools)");
     cmd.Add(missionArg);
 
-    cmd.SetAction(async (result, ct) =>
+    cmd.SetCancellableAction(async (result, ct) =>
     {
         var mission    = ResolveMission(result.GetValue(missionArg));
         var missionDir = mission.DirectoryName!;

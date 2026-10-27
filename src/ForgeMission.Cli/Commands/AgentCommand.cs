@@ -34,7 +34,7 @@ internal static class AgentCommand
         var cmd = new Command("start", "Start forge serve inside a Docker container");
         cmd.Add(agentFileOpt);
 
-        cmd.SetAction(async result =>
+        cmd.SetCancellableAction(async (result, _) =>
         {
             var agentFile = result.GetValue(agentFileOpt) ?? "./agent.yaml";
             var agentFileFull = Path.GetFullPath(agentFile);
@@ -109,7 +109,7 @@ internal static class AgentCommand
         var cmd = new Command("stop", "Stop and remove the forge agent container");
         cmd.Add(agentFileOpt);
 
-        cmd.SetAction(async result =>
+        cmd.SetCancellableAction(async (result, _) =>
         {
             var agentFile = result.GetValue(agentFileOpt) ?? "./agent.yaml";
             var agentFileFull = Path.GetFullPath(agentFile);

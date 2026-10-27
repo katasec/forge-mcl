@@ -20,7 +20,7 @@ public static class ForgeProject
             Arity = ArgumentArity.ZeroOrOne,
         };
         create.Add(folder);
-        create.SetAction(async result => await RunAsync(result.GetValue(folder), clients));
+        create.SetCancellableAction((result, _) => RunAsync(result.GetValue(folder), clients));
         project.Add(create);
         return project;
     }
@@ -68,6 +68,8 @@ public static class ForgeProject
         return 0;
     }
 
+    // Deliberately not the command's token: Missions report a cancelled creation as an uncertain
+    // submission (an error and exit 1), where Ctrl+C exits 130.
     private static async Task<CreateChatProjectResponse> CreateAsync(
         CreateChatProjectRequest request, IHttpClientFactory clients)
     {

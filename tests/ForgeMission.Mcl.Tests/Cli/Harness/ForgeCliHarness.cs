@@ -102,16 +102,38 @@ public sealed class ForgeCliHarness : IAsyncDisposable
     /// Runs a long-lived command (a server such as <c>forge serve</c>) while <paramref name="whileRunning"/>
     /// exercises it, then stops it; the result's exit code is that of the stopped process.
     /// </summary>
-    public async Task<CliResult> RunWhileAsync(Func<Task> whileRunning, params string[] args)
+    public Task<CliResult> RunWhileAsync(Func<Task> whileRunning, params string[] args) =>
+        RunThenStopAsync(whileRunning, process => process.Kill(entireProcessTree: true), args);
+
+    /// <summary>
+    /// Runs a command while <paramref name="whileRunning"/> waits for it to reach a point, then sends
+    /// it SIGINT (the terminal's Ctrl+C); the result's exit code is the one the CLI chose. POSIX only.
+    /// </summary>
+    public Task<CliResult> InterruptWhileAsync(Func<Task> whileRunning, params string[] args) =>
+        RunThenStopAsync(whileRunning, SendInterrupt, args);
+
+    private async Task<CliResult> RunThenStopAsync(Func<Task> whileRunning, Action<Process> stop, string[] args)
     {
         using var process = Process.Start(BuildStartInfo(args))
             ?? throw new InvalidOperationException("dotnet did not start the forge CLI.");
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
-        try { await whileRunning().WaitAsync(TimeSpan.FromSeconds(30)); }
-        finally { process.Kill(entireProcessTree: true); }
-        await process.WaitForExitAsync();
+        try
+        {
+            try { await whileRunning().WaitAsync(TimeSpan.FromSeconds(30)); }
+            finally { stop(process); }
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
         return new CliResult(process.ExitCode, await output, await error);
+    }
+
+    // `dotnet forge.dll` runs the CLI inside the dotnet process itself, so the signal reaches the CLI.
+    private static void SendInterrupt(Process process)
+    {
+        using var kill = Process.Start("kill", ["-INT", process.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)])
+            ?? throw new InvalidOperationException("kill did not start.");
+        kill.WaitForExit();
     }
 
     internal ProcessStartInfo BuildStartInfo(IEnumerable<string> args)

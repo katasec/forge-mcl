@@ -35,14 +35,14 @@ public static class ForgeChat
         {
             Description = "Path to a project file (default: ./forge.project.json)",
         });
-        cmd.SetAction(async result => await MacChatWindow.RunCommandAsync(
-            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag), settings, clients),
+        cmd.SetCancellableAction((result, cancellationToken) => MacChatWindow.RunCommandAsync(
+            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag), settings, clients, cancellationToken),
             MacChatWindow.ChildMarker(OperatingSystem.IsMacOS(),
                 UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected),
                 Environment.GetEnvironmentVariable(MacChatWindow.Marker)),
             context => MacChatWindow.RestoreContext(context, Directory.SetCurrentDirectory,
                 (name, value) => Environment.SetEnvironmentVariable(name, value)),
-            () => { Console.ReadKey(intercept: true); }, Console.Error));
+            () => { Console.ReadKey(intercept: true); }, Console.Error, cancellationToken));
         return cmd;
     }
 
@@ -97,7 +97,7 @@ public static class ForgeChat
             Environment.GetEnvironmentVariable(MacChatWindow.Marker)))
             return await MacChatWindow.LaunchAsync(Environment.ProcessPath, hands, projectFile,
                 Directory.GetCurrentDirectory(), Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT"),
-                Console.Out, Console.Error);
+                Console.Out, Console.Error, cancellationToken: cancellationToken);
 
         try
         {
@@ -132,7 +132,7 @@ public static class ForgeChat
             {
                 if (item.Kind == ApplicationEventKind.Error && item.Error is { } message)
                     notices.Enqueue(message);
-            }, CancellationToken.None);
+            }, cancellationToken);
 
         // Dispose explicitly: the final projection flush can report a notice, and a cleanup
         // failure must not replace the original chat failure.
@@ -179,9 +179,9 @@ public static class ForgeChat
     private static async Task<int> ChatInProjectAsync(ApplicationComposition app, ChatMode mode, string projectFile,
         ForgeTheme theme, TextFonts? tuiFonts, ConcurrentQueue<string> notices, CancellationToken cancellationToken)
     {
-        var session = await OpenProjectAsync(app.Projects, projectFile, mode.MissionName);
+        var session = await OpenProjectAsync(app.Projects, projectFile, mode.MissionName, cancellationToken);
         var reconnected = await app.MissionConversations.ReconnectAsync(
-            new ReconnectMissionConversationRequest(session.SessionId, mode.MissionName), CancellationToken.None);
+            new ReconnectMissionConversationRequest(session.SessionId, mode.MissionName), cancellationToken);
         var conversation = reconnected.Conversation ?? throw Stopped(reconnected.Error);
         if (conversation.Approval.Profile != mode.ExpectedProfile)
             throw new ChatStoppedException($"The hosted {mode.MissionName} profile {conversation.Approval.Profile} " +
@@ -190,10 +190,11 @@ public static class ForgeChat
             return 1;
 
         await using var hands = mode.HasHands
-            ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversation.ConversationId, conversation.Approval)
+            ? await AttachHandsAsync(app.MissionHands, session.SessionId, conversation.ConversationId, conversation.Approval,
+                cancellationToken)
             : null;
         if (tuiFonts is null)
-            return await ChatAsync(app.MissionConversations, conversation.ConversationId, hands, notices);
+            return await ChatAsync(app.MissionConversations, conversation.ConversationId, hands, notices, cancellationToken);
 
         var header = new ChatHeader(session.Project.Title, conversation.MissionName, conversation.Approval.VersionNumber,
             conversation.ProviderProfile, Environment.UserName);
@@ -206,9 +207,10 @@ public static class ForgeChat
 
     // ── Project ─────────────────────────────────────────────────────────────────────────────
 
-    private static async Task<ProjectSession> OpenProjectAsync(IProjectService projects, string projectFile, string mission)
+    private static async Task<ProjectSession> OpenProjectAsync(IProjectService projects, string projectFile, string mission,
+        CancellationToken cancellationToken)
     {
-        var opened = await projects.OpenChatAsync(new ProjectOpenRequest(projectFile, Mission: mission), CancellationToken.None);
+        var opened = await projects.OpenChatAsync(new ProjectOpenRequest(projectFile, Mission: mission), cancellationToken);
         var session = opened.Session ?? throw Stopped(opened.Error);
         Console.WriteLine($"Project: {session.Project.Home}");
         return session;
@@ -234,10 +236,10 @@ public static class ForgeChat
 
     /// <summary>Acknowledges the authenticated hosted pin after this launch's scoped approval.</summary>
     private static async Task<ChatHandsAttachment> AttachHandsAsync(IMissionHandsConversationService hands, string sessionId,
-        Guid conversationId, MissionAccessApproval mission)
+        Guid conversationId, MissionAccessApproval mission, CancellationToken cancellationToken)
     {
         var acknowledged = await hands.AcknowledgeAsync(new AcknowledgeMissionHandsRequest(sessionId, conversationId,
-            mission.MissionVersionId, mission.VersionNumber, mission.DefinitionHash, ProfileAccepted: true), CancellationToken.None);
+            mission.MissionVersionId, mission.VersionNumber, mission.DefinitionHash, ProfileAccepted: true), cancellationToken);
         var attachmentId = acknowledged.AttachmentId
             ?? throw new ChatStoppedException($"file access could not start: {acknowledged.Error ?? "Forge returned no attachment."}");
         return new ChatHandsAttachment(hands, sessionId, conversationId, attachmentId);
@@ -246,16 +248,16 @@ public static class ForgeChat
     // ── Conversation ────────────────────────────────────────────────────────────────────────
 
     /// <summary>Prints the history, follows a turn that is still running, then reads a line,
-    /// submits it, and prints the reply until the turn ends. Ctrl-D exits; Ctrl-C during a turn
-    /// cancels it (and a running file operation) and exits. With hands, each live hands request is
-    /// executed off the follow loop.</summary>
+    /// submits it, and prints the reply until the turn ends. Ctrl-D exits; Ctrl-C (the command's
+    /// <paramref name="cancellationToken"/>) during a turn cancels it (and a running file operation)
+    /// and exits 130. With hands, each live hands request is executed off the follow loop.</summary>
     private static async Task<int> ChatAsync(IMissionConversationService conversations, Guid conversationId, ChatHandsAttachment? hands,
-        ConcurrentQueue<string> notices)
+        ConcurrentQueue<string> notices, CancellationToken cancellationToken)
     {
-        var snapshot = (await conversations.GetConversationAsync(conversationId, CancellationToken.None)).Snapshot;
+        var snapshot = (await conversations.GetConversationAsync(conversationId, cancellationToken)).Snapshot;
         string? lastReply = null;
         Action<ConversationEvent> print = item => lastReply = Print(item, lastReply);
-        var cursor = await ReplayAsync(conversations, conversationId, 0, snapshot.LastSequence, print, CancellationToken.None);
+        var cursor = await ReplayAsync(conversations, conversationId, 0, snapshot.LastSequence, print, cancellationToken);
         hands?.Begin(message => Console.WriteLine($"error: {message}"));
         Action<ConversationEvent> live = item =>
         {
@@ -263,7 +265,7 @@ public static class ForgeChat
             print(item);
         };
         if (snapshot.ActiveRunId is { } running && !IsTerminal(snapshot.Status))
-            cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, includeDeltas: false, live, CancellationToken.None);
+            cursor = await FollowTurnAsync(conversations, conversationId, cursor, running, includeDeltas: false, live, cancellationToken);
 
         while (true)
         {
@@ -272,24 +274,17 @@ public static class ForgeChat
             if (Console.ReadLine() is not { } line) return 0;
             if (string.IsNullOrWhiteSpace(line)) continue;
 
-            var turn = await conversations.SubmitAsync(conversationId, Guid.NewGuid(), line, CancellationToken.None);
-            using var cancel = new CancellationTokenSource();
-            ConsoleCancelEventHandler stop = (_, e) => { e.Cancel = true; cancel.Cancel(); };
-            Console.CancelKeyPress += stop;
+            var turn = await conversations.SubmitAsync(conversationId, Guid.NewGuid(), line, cancellationToken);
             try
             {
-                cursor = await FollowTurnAsync(conversations, conversationId, cursor, turn.TurnAttemptId, includeDeltas: false, live, cancel.Token);
+                cursor = await FollowTurnAsync(conversations, conversationId, cursor, turn.TurnAttemptId, includeDeltas: false, live, cancellationToken);
             }
-            catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 if (hands is not null) await hands.CancelInFlightAsync();
                 await conversations.CancelAsync(conversationId, turn.TurnId, turn.TurnAttemptId, Guid.NewGuid(), CancellationToken.None);
                 Console.WriteLine("Cancelled.");
-                return 130;
-            }
-            finally
-            {
-                Console.CancelKeyPress -= stop;
+                return CommandActions.Interrupted;
             }
         }
     }
