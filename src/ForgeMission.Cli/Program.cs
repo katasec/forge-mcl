@@ -105,7 +105,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
     rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
     rootCommand.Add(BuildProviderCommand());
-    rootCommand.Add(BuildMcpCommand(services));
+    rootCommand.Add(BuildMcpCommand(services.GetRequiredService<ILoggerFactory>(), clients, webSearch));
     return rootCommand;
 }
 
@@ -1144,7 +1144,7 @@ static Command BuildProviderScaffoldCommand()
 // Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared
 // mission to McpCommand, which owns the stdio MCP server. Runners are built lazily per tool call;
 // the server runs until stdin closes or the command's Ctrl+C/SIGTERM token is cancelled.
-static Command BuildMcpCommand(IServiceProvider services)
+static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory clients, IOptions<WebSearchOptions> webSearch)
 {
     var missionArg = new Argument<FileInfo?>("mission")
     {
@@ -1187,8 +1187,7 @@ static Command BuildMcpCommand(IServiceProvider services)
         var firstMission = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault();
         if (firstMission is null) { Die("No mission declaration found in mission file."); return; }
 
-        await McpCommand.ServeAsync(services.GetRequiredService<ILoggerFactory>(),
-            services.GetRequiredService<IHttpClientFactory>(), services.GetRequiredService<IOptions<WebSearchOptions>>(), firstMission, ast, expertDefs, manifest, mission.FullName,
+        await McpCommand.ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName,
             callSeedContext => BuildRunners(manifest, callSeedContext), ct);
     });
 

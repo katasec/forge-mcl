@@ -87,8 +87,8 @@ internal static class McpCommand
             var runOptions = new PipelineRunOptions(toolName, callVars);
 
             MissionResult missionResult;
-            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions); }
-            catch (Exception ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
+            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions, ct); }
+            catch (Exception ex) when (!ct.IsCancellationRequested) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
 
             if (missionResult.Status == MissionStatus.Fail)
                 return new CallToolResult { Content = [new McpTextContent { Text = $"Mission failed: {missionResult.FailReason}" }], IsError = true };
