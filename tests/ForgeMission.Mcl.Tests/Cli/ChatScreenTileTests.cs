@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Rendering;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -21,8 +22,6 @@ public sealed partial class ChatScreenTileTests
     // Set numbers (ScreenTiles order) and the cap slots.
     private const int CardSet = 0, CodeBlockSet = 1, UserRingSet = 2, ComposerSet = 3, UserCapsSet = 4, ApprovedSet = 5, ToolSet = 6;
     private const int LeftSlot = 3, RightSlot = 4;
-
-    private static readonly Assembly Forge = LoadForge();
 
     [Fact]
     public void A_short_reply_card_spans_the_transcript_and_has_a_padding_row_above_its_bottom_ring()
@@ -486,22 +485,4 @@ public sealed partial class ChatScreenTileTests
     // ── Reflection ──────────────────────────────────────────────────────────────────────────
 
     private static Color Token(string theme, string name) => (Color)Type("ForgeMission.Cli.Tui.ForgeTheme").GetProperty(name)!.GetValue(Theme(theme))!;
-
-    private static object Theme(string name) =>
-        Type("ForgeMission.Cli.Tui.ForgeTheme").GetProperty(name, BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
-
-    private static Type Type(string name) => Forge.GetType(name, throwOnError: true)!;
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }
