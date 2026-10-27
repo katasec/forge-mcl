@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using ForgeMission.Conversations.Contracts;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -11,7 +12,6 @@ namespace ForgeMission.Tests.Cli;
 // blocks are compared by their record text.
 public sealed class ChatTranscriptTests
 {
-    private static readonly Assembly Forge = LoadForge();
     private static readonly MethodInfo ApplyMethod = Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
         .GetMethod("Apply", BindingFlags.Static | BindingFlags.Public)!;
     private static readonly MethodInfo ReplyingMethod = Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
@@ -959,17 +959,4 @@ public sealed class ChatTranscriptTests
     private static ConversationEvent Event(ConversationEventKind kind, int? attempt, string? text) => new(
         Guid.NewGuid(), 1, Guid.Empty, Guid.Empty, 1, kind, ConversationParticipant.Forge, attempt, text,
         null, null, null, null, null, null, At);
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }
