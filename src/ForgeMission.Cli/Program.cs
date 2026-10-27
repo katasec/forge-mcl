@@ -115,7 +115,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
 
 static Command BuildInitCommand()
 {
-    var missionArg  = new Argument<FileInfo?>("mission") { Description = "Path to the .mcl mission file (default: mission.mcl)", Arity = ArgumentArity.ZeroOrOne };
+    var missionArg  = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
     var refreshOpt  = new Option<bool>("--refresh") { Description = "Re-pull OCI experts even if already present in ~/.forge/experts" };
 
     var cmd = new Command("init", "Resolve expert sources and generate mcl.lock");
@@ -123,16 +123,15 @@ static Command BuildInitCommand()
     cmd.Add(refreshOpt);
 
     cmd.SetCancellableAction((result, cancellationToken) =>
-        RunInitAsync(result.GetValue(missionArg), result.GetValue(refreshOpt), cancellationToken));
+        RunInitAsync(result.GetValue(missionArg)!, result.GetValue(refreshOpt), cancellationToken));
 
     return cmd;
 }
 
 // Resolve local experts, pull any OCI experts, and write mcl.lock. Each helper reports its own
 // failure through Die (which throws ForgeExitException), so the orchestration reads top-down.
-static async Task RunInitAsync(FileInfo? missionArg, bool refresh, CancellationToken cancellationToken)
+static async Task RunInitAsync(FileInfo mission, bool refresh, CancellationToken cancellationToken)
 {
-    var mission    = ResolveMission(missionArg);
     var missionDir = mission.DirectoryName!;
 
     var source = await TryReadFile(mission.FullName, cancellationToken);
@@ -225,14 +224,14 @@ static Command BuildRunCommand(IOptions<ForgeApiSettings> api, IHttpClientFactor
 
 static Command BuildValidateCommand()
 {
-    var missionArg = new Argument<FileInfo?>("mission") { Description = "Path to the .mcl mission file (default: mission.mcl)", Arity = ArgumentArity.ZeroOrOne };
+    var missionArg = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
 
     var cmd = new Command("validate", "Validate a mission file and its expert references");
     cmd.Add(missionArg);
 
     cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
-        var mission    = ResolveMission(result.GetValue(missionArg));
+        var mission    = result.GetValue(missionArg)!;
         var missionDir = mission.DirectoryName!;
         var lockPath   = Path.Combine(missionDir, "mcl.lock");
 
@@ -442,7 +441,7 @@ static void SaveRegistryCredential(string registry, string token)
 static Command BuildPublishCommand()
 {
     var refArg  = new Argument<string>("reference") { Description = "OCI reference, e.g. ghcr.io/katasec/forge-mission-guard:0.1.0" };
-    var dirArg  = new Argument<DirectoryInfo?>("dir") { Description = "Mission directory (default: current dir)", Arity = ArgumentArity.ZeroOrOne };
+    var dirArg  = new Argument<DirectoryInfo>("dir") { Description = "Mission directory", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new DirectoryInfo(".") };
     var descOpt = new Option<string?>("--description") { Description = "Human description (annotation)" };
 
     var cmd = new Command("publish", "Package a mission directory into a self-contained OCI artifact and push it");
@@ -453,7 +452,7 @@ static Command BuildPublishCommand()
     cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var reference = result.GetValue(refArg)!;
-        var dir       = result.GetValue(dirArg) ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+        var dir       = result.GetValue(dirArg)!;
         var desc      = result.GetValue(descOpt);
 
         if (!File.Exists(Path.Combine(dir.FullName, "mission.mcl")))
@@ -489,15 +488,14 @@ static Command BuildPublishCommand()
 
 static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients, ILogger logger)
 {
-    var agentArg = new Argument<FileInfo?>("agent") { Description = "Path to agent.yaml (default: agent.yaml)", Arity = ArgumentArity.ZeroOrOne };
+    var agentArg = new Argument<FileInfo>("agent") { Description = "Path to agent.yaml", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("agent.yaml") };
 
     var cmd = new Command("serve", "Serve a mission as an OpenAI-compatible endpoint");
     cmd.Add(agentArg);
 
     cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
-        var agentFile = result.GetValue(agentArg)
-            ?? new FileInfo(Path.GetFullPath("agent.yaml"));
+        var agentFile = result.GetValue(agentArg)!;
 
         if (!agentFile.Exists) { Die($"Agent config not found: {agentFile.FullName}\nCreate an agent.yaml next to your mission.mcl."); return; }
 
@@ -1082,9 +1080,6 @@ static string ExpertTemplate(string name) => $"""
 static string? GetContextString(Dictionary<string, object> ctx, string key)
     => ctx.TryGetValue(key, out var v) && v is string s && s.Length > 0 ? s : null;
 
-static FileInfo ResolveMission(FileInfo? arg)
-    => new FileInfo(Path.GetFullPath(arg?.FullName ?? "mission.mcl"));
-
 static void Die(string message)
 {
     Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");
@@ -1163,10 +1158,11 @@ static Command BuildProviderScaffoldCommand()
 // the server runs until stdin closes or the command's Ctrl+C/SIGTERM token is cancelled.
 static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory clients, IOptions<WebSearchOptions> webSearch)
 {
-    var missionArg = new Argument<FileInfo?>("mission")
+    var missionArg = new Argument<FileInfo>("mission")
     {
-        Description = "Path to the .mcl mission file (default: mission.mcl)",
-        Arity = ArgumentArity.ZeroOrOne
+        Description = "Path to the .mcl mission file",
+        Arity = ArgumentArity.ZeroOrOne,
+        DefaultValueFactory = _ => new FileInfo("mission.mcl")
     };
 
     var cmd = new Command("mcp", "Expose a mission as a stdio MCP server (for Claude Desktop and MCP-aware tools)");
@@ -1174,7 +1170,7 @@ static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory 
 
     cmd.SetCancellableAction(async (result, ct) =>
     {
-        var mission    = ResolveMission(result.GetValue(missionArg));
+        var mission    = result.GetValue(missionArg)!;
         var missionDir = mission.DirectoryName!;
         var lockPath   = Path.Combine(missionDir, "mcl.lock");
 

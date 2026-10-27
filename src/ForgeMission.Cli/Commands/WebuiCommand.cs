@@ -25,8 +25,8 @@ internal static class WebuiCommand
         Action<string> die,
         Func<IEnumerable<PrereqCheck>, bool> runAndPrintPrereqs)
     {
-        var agentFileOpt = new Option<string?>("--agent-file") { Description = "Path to agent.yaml (default: ./agent.yaml)" };
-        var portOpt = new Option<int?>("--port") { Description = "Host port for Open WebUI (default: 3000)" };
+        var agentFileOpt = new Option<string>("--agent-file") { Description = "Path to agent.yaml", DefaultValueFactory = _ => "./agent.yaml" };
+        var portOpt = new Option<int>("--port") { Description = "Host port for Open WebUI", DefaultValueFactory = _ => 3000 };
 
         var cmd = new Command("start", "Start Open WebUI pre-configured to connect to the forge agent");
         cmd.Add(agentFileOpt);
@@ -34,8 +34,8 @@ internal static class WebuiCommand
 
         cmd.SetCancellableAction(async (result, _) =>
         {
-            var agentFile = result.GetValue(agentFileOpt) ?? "./agent.yaml";
-            var webuiPort = result.GetValue(portOpt) ?? 3000;
+            var agentFile = result.GetValue(agentFileOpt)!;
+            var webuiPort = result.GetValue(portOpt);
             var agentFileFull = Path.GetFullPath(agentFile);
 
             if (!File.Exists(agentFileFull))
