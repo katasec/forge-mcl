@@ -105,6 +105,48 @@ public sealed class ForgeExecUrlInputTests
         Assert.Equal("image/png", contentType);
     }
 
+    // A cancelled download is reported as the download's own timeout only while the caller has not
+    // cancelled; the caller's own cancellation propagates to it unreported.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_cancelled_download_is_a_timeout_only_when_the_caller_did_not_cancel(bool callerCancelled)
+    {
+        var uri = new Uri("https://example.test/scan.jpg");
+        using var http = new HttpClient(new CancellingHandler());
+        using var caller = new CancellationTokenSource();
+        if (callerCancelled) caller.Cancel();
+        var error = new StringWriter();
+        var original = Console.Error;
+        Console.SetError(error);
+        try
+        {
+            var download = (Task)Method("DownloadUrlInputAsync").Invoke(null, [http, uri, caller.Token])!;
+            if (callerCancelled)
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => download);
+            else
+                Assert.Null(await Result(download));
+        }
+        finally { Console.SetError(original); }
+
+        var timedOut = $"input download timed out after 30 seconds: {uri}";
+        if (callerCancelled) Assert.DoesNotContain(timedOut, error.ToString());
+        else Assert.Contains(timedOut, error.ToString());
+    }
+
+    // Every send is cancelled, as a timeout or a caller's cancellation would end it.
+    private sealed class CancellingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new TaskCanceledException();
+    }
+
+    private static async Task<object?> Result(Task task)
+    {
+        await task;
+        return task.GetType().GetProperty("Result")!.GetValue(task);
+    }
+
     private static bool IsHttpUrl(string input)
     {
         var method = Method("IsHttpUrl");

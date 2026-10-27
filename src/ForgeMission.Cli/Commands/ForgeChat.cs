@@ -47,7 +47,7 @@ public static class ForgeChat
     }
 
     internal static async Task<int> RunAsync(bool hands, string? projectPath, IOptions<ForgeSettings> settings,
-        IHttpClientFactory clients)
+        IHttpClientFactory clients, CancellationToken cancellationToken = default)
     {
         var projectFile = Path.GetFullPath(projectPath
             ?? Path.Combine(Directory.GetCurrentDirectory(), "forge.project.json"));
@@ -113,10 +113,9 @@ public static class ForgeChat
             Console.Error.WriteLine($"chat failed: {failure.Message}");
             return 1;
         }
-        // S2b: the line mode does not reconnect, so a lost stream stops it. Every call outside a turn
-        // passes CancellationToken.None and a turn's own Ctrl-C ends in ChatAsync, so a cancellation
-        // that reaches here is never the user's.
-        catch (Exception failure) when (failure is OperationCanceledException or IOException)
+        // S2b: the line mode does not reconnect, so a lost stream stops it. A turn's own Ctrl-C ends in
+        // ChatAsync; the caller's own cancellation propagates rather than reading as a lost connection.
+        catch (Exception failure) when (IsTransportFailure(failure, cancellationToken))
         {
             return ReportConnectionLost(failure, Console.Error);
         }

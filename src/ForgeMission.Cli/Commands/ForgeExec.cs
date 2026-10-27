@@ -26,7 +26,8 @@ public static class ForgeExec
         string? prompt,
         string? inputPath = null,
         string? mode = null,
-        string? outPath = null)
+        string? outPath = null,
+        CancellationToken cancellationToken = default)
     {
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
@@ -41,7 +42,7 @@ public static class ForgeExec
         var inputArtifacts = new List<MissionArtifactDto>();
         if (!string.IsNullOrWhiteSpace(inputPath))
         {
-            var upload = await UploadInputAsync(http, inputPath, endpoint, platform.Key);
+            var upload = await UploadInputAsync(http, inputPath, endpoint, platform.Key, cancellationToken);
             if (upload is null) return 1;
             inputArtifacts.Add(upload);
         }
@@ -72,9 +73,10 @@ public static class ForgeExec
         HttpResponseMessage resp;
         try
         {
-            resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // The caller's own cancellation propagates; only a transport failure or timeout is reported.
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException)
         {
             Console.Error.WriteLine($"Could not reach {endpoint}: {ex.Message}");
             return 1;
@@ -148,11 +150,12 @@ public static class ForgeExec
             ? null
             : new Dictionary<string, string>(StringComparer.Ordinal) { ["mode"] = mode };
 
-    private static async Task<MissionArtifactDto?> UploadInputAsync(HttpClient http, string path, string endpoint, string platformKey)
+    private static async Task<MissionArtifactDto?> UploadInputAsync(HttpClient http, string path, string endpoint, string platformKey,
+        CancellationToken cancellationToken)
     {
         if (IsHttpUrl(path, out var uri))
         {
-            var download = await DownloadUrlInputAsync(http, uri);
+            var download = await DownloadUrlInputAsync(http, uri, cancellationToken);
             if (download is null) return null;
 
             try
@@ -181,7 +184,7 @@ public static class ForgeExec
         return await UploadLocalInputAsync(http, fullPath, Path.GetFileName(fullPath), contentTypeHint: null, endpoint, platformKey);
     }
 
-    private static async Task<DownloadedInput?> DownloadUrlInputAsync(HttpClient http, Uri uri)
+    private static async Task<DownloadedInput?> DownloadUrlInputAsync(HttpClient http, Uri uri, CancellationToken cancellationToken)
     {
         using var cts = new CancellationTokenSource(InputDownloadTimeout);
         try
@@ -221,7 +224,8 @@ public static class ForgeExec
 
             return new DownloadedInput(tempPath, fileName, contentType, tempDir);
         }
-        catch (TaskCanceledException)
+        // The caller's own cancellation propagates; only the download's own timeout is reported.
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             Console.Error.WriteLine($"input download timed out after {InputDownloadTimeout.TotalSeconds:0} seconds: {uri}");
             return null;
