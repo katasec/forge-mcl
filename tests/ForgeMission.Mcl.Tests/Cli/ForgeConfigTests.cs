@@ -11,7 +11,6 @@ namespace ForgeMission.Tests.Cli;
 public sealed class ForgeConfigTests
 {
     private static readonly Type SettingsType = Forge.GetType("ForgeMission.Cli.Services.ForgeSettings", throwOnError: true)!;
-    private static readonly Type ThemeType = Forge.GetType("ForgeMission.Cli.Tui.ForgeTheme", throwOnError: true)!;
 
     [Fact]
     public void A_missing_theme_is_the_dark_theme()
