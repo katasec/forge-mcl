@@ -28,10 +28,10 @@ internal static class CleanCommand
                 return Task.CompletedTask;
             }
 
-            var files = Directory.GetFiles(target, "*", SearchOption.AllDirectories);
+            var count = Directory.EnumerateFiles(target, "*", SearchOption.AllDirectories).Count();
             Directory.Delete(target, recursive: true);
 
-            Console.WriteLine($"Removed {files.Length} cached expert file(s) from {target}");
+            Console.WriteLine($"Removed {count} cached expert file(s) from {target}");
             return Task.CompletedTask;
         });
 
