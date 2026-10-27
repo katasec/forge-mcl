@@ -45,9 +45,8 @@
     <IsPackable>false</IsPackable>
     <!-- StbTrueTypeSharp's API takes pointers; unsafe code is allowed in Tui/Graphics/GlyphText.cs only (TuiColourLiteralTests). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- YamlDotNet uses reflection-based builders; our types are preserved via
-         [DynamicDependency] so these warnings are safe to suppress. -->
-    <IlcSuppressWarnings>IL3050</IlcSuppressWarnings>
+    <!-- IL3050 x4: ForgeMission.Core's YamlDotNet builders in static initializers (its field-level suppressions miss the .cctor ILC reports).
+         IL2104/IL3053: summaries of YamlDotNet 18.0.0's reflection-based trim/AOT warnings. -->
     <NoWarn>$(NoWarn);IL3050;IL2104;IL3053</NoWarn>
   </PropertyGroup>
 
