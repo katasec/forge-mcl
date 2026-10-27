@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Contracts;
 
 // --- Wire types ------------------------------------------------------------------------------
 

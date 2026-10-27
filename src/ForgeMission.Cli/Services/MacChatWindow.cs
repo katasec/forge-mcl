@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // The CLI opens one dedicated Ghostty instance and restores its child context before chat.
 // Ghostty owns scoped key forwarding/window lifetime; the existing chat owns its cleanup.
@@ -13,7 +13,7 @@ internal static class MacChatWindow
 
     internal static async Task<int> RunCommandAsync(Func<Task<int>> runChat, string? marker,
         Action<(string WorkingDirectory, string? ApiEndpoint)> restoreContext,
-        Action dismissError, TextWriter error)
+        Action dismissError, TextWriter error, CancellationToken cancellationToken)
     {
         if (marker is null)
             return await runChat();
@@ -24,7 +24,8 @@ internal static class MacChatWindow
             if (await runChat() == 0)
                 return 0;
         }
-        catch (Exception failure)
+        // The caller's own cancellation propagates; any other chat failure is shown in the window.
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
         {
             error.WriteLine($"forge chat: {failure.Message}");
         }
@@ -37,7 +38,8 @@ internal static class MacChatWindow
 
     internal static async Task<int> LaunchAsync(string? executable, bool hands, string projectFile,
         string originalCwd, string? apiEndpoint, TextWriter output, TextWriter error,
-        Func<ProcessStartInfo, Task<(int ExitCode, string StandardOutput, string StandardError)>>? start = null)
+        Func<ProcessStartInfo, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? start = null,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(executable) || !File.Exists(executable))
         {
@@ -53,7 +55,7 @@ internal static class MacChatWindow
         try
         {
             var result = await (start ?? StartProcessAsync)(BuildOpenStartInfo(executable, hands,
-                projectFile, originalCwd, apiEndpoint));
+                projectFile, originalCwd, apiEndpoint), cancellationToken);
             if (result.ExitCode != 0)
             {
                 error.WriteLine($"forge chat: could not open its window (open exited {result.ExitCode}).");
@@ -62,7 +64,8 @@ internal static class MacChatWindow
             output.WriteLine("Opened Forge chat in a new window.");
             return 0;
         }
-        catch (Exception failure)
+        // The caller's own cancellation propagates; any other launch failure is reported.
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested)
         {
             error.WriteLine($"forge chat: could not open its window: {failure.Message}");
             return 1;
@@ -133,13 +136,14 @@ internal static class MacChatWindow
         return start;
     }
 
-    internal static async Task<(int ExitCode, string StandardOutput, string StandardError)> StartProcessAsync(ProcessStartInfo startInfo)
+    internal static async Task<(int ExitCode, string StandardOutput, string StandardError)> StartProcessAsync(ProcessStartInfo startInfo,
+        CancellationToken cancellationToken)
     {
         using var process = Process.Start(startInfo)
             ?? throw new IOException("The window launch process did not start.");
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        await process.WaitForExitAsync(cancellationToken);
         return (process.ExitCode, await output, await error);
     }
 

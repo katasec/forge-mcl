@@ -5,6 +5,7 @@ using XenoAtom.Terminal.Backends;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Rendering;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -14,7 +15,6 @@ namespace ForgeMission.Tests.Cli;
 [Collection(XenoAtomUiCollection.Name)]
 public sealed class StartPageTests
 {
-    private static readonly Assembly Forge = LoadForge();
     private const string Title = "Where do you want to start?";
 
     [Fact]
@@ -77,14 +77,14 @@ public sealed class StartPageTests
     private static (Visual Root, Visual List, Func<bool> PageShows) NewTui()
     {
         var tuiType = Type("ForgeMission.Cli.Tui.ChatTui");
-        var theme = Type("ForgeMission.Cli.Tui.ForgeTheme").GetProperty("Dark", BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
+        var theme = Theme("Dark");
         var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
-        var fonts = Type("ForgeMission.Cli.Tui.Graphics.TextFonts").GetMethod("LoadEmbedded")!.Invoke(null, null)!;
+        var fonts = Fonts();
         var tui = Activator.CreateInstance(tuiType, BindingFlags.Instance | BindingFlags.NonPublic, null,
             [null, Guid.NewGuid(), header, theme, fonts, null, new ConcurrentQueue<string>(), new CancellationTokenSource()], null)!;
         var styles = Field(tui, "_styles");
         var screen = Field(tui, "_screen");
-        var cell = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.CellSize"), 19, 42)!;
+        var cell = Cell(19, 42);
         var tiles = Type("ForgeMission.Cli.Tui.ScreenTiles").GetMethod("Create")!.Invoke(null, [styles, cell]);
         screen.GetType().GetMethod("UseImages")!.Invoke(screen, [tiles, ChatScreenTileTests.TextImagesFor(styles, cell)]);
         var start = Field(tui, "_start");
@@ -95,8 +95,6 @@ public sealed class StartPageTests
 
     private static object Field(object target, string name) =>
         target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;
-
-    private static T Get<T>(object target, string property) => (T)target.GetType().GetProperty(property)!.GetValue(target)!;
 
     private static TerminalKeyEvent Key(TerminalKey key) => new() { Key = key };
 
@@ -112,19 +110,4 @@ public sealed class StartPageTests
     /// <summary>A snapshot markup line without its style tags.</summary>
     private static string Plain(string markup) =>
         System.Text.RegularExpressions.Regex.Replace(markup, @"\[(?!\[)[^\]]*\]", "").Replace("[[", "[").Replace("]]", "]");
-
-    private static Type Type(string name) => Forge.GetType(name, throwOnError: true)!;
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }

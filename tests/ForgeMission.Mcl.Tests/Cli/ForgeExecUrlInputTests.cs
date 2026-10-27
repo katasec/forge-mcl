@@ -4,8 +4,8 @@ namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeExecUrlInputTests
 {
-    private static readonly Type ForgeExec = LoadCliType("ForgeMission.Cli.ForgeExec");
-    private static readonly Type MissionArtifactDto = LoadCliType("ForgeMission.Cli.MissionArtifactDto");
+    private static readonly Type ForgeExec = ForgeText.Type("ForgeMission.Cli.Commands.ForgeExec");
+    private static readonly Type MissionArtifactDto = ForgeText.Type("ForgeMission.Cli.Contracts.MissionArtifactDto");
 
     [Theory]
     [InlineData("https://example.test/scan.jpg?sig=abc", true)]
@@ -105,6 +105,56 @@ public sealed class ForgeExecUrlInputTests
         Assert.Equal("image/png", contentType);
     }
 
+    // A cancelled download is reported as the download's own timeout only while the caller has not
+    // cancelled; the caller's own cancellation reaches the download and propagates unreported.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_cancelled_download_is_a_timeout_only_when_the_caller_did_not_cancel(bool callerCancelled)
+    {
+        var uri = new Uri("https://example.test/scan.jpg");
+        var handler = new CancellingHandler();
+        using var http = new HttpClient(handler);
+        using var caller = new CancellationTokenSource();
+        if (callerCancelled) caller.Cancel();
+        var error = new StringWriter();
+        var original = Console.Error;
+        Console.SetError(error);
+        try
+        {
+            var download = (Task)Method("DownloadUrlInputAsync").Invoke(null, [http, uri, caller.Token])!;
+            if (callerCancelled)
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => download);
+            else
+                Assert.Null(await Result(download));
+        }
+        finally { Console.SetError(original); }
+
+        Assert.Equal(callerCancelled, handler.SawCancellation);
+        var timedOut = $"input download timed out after 30 seconds: {uri}";
+        if (callerCancelled) Assert.DoesNotContain(timedOut, error.ToString());
+        else Assert.Contains(timedOut, error.ToString());
+    }
+
+    // Every send is cancelled, as a timeout or a caller's cancellation would end it; records whether
+    // the token the download sent with was already cancelled.
+    private sealed class CancellingHandler : HttpMessageHandler
+    {
+        public bool SawCancellation { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            SawCancellation = ct.IsCancellationRequested;
+            throw new TaskCanceledException();
+        }
+    }
+
+    private static async Task<object?> Result(Task task)
+    {
+        await task;
+        return task.GetType().GetProperty("Result")!.GetValue(task);
+    }
+
     private static bool IsHttpUrl(string input)
     {
         var method = Method("IsHttpUrl");
@@ -125,26 +175,4 @@ public sealed class ForgeExecUrlInputTests
     private static MethodInfo Method(string name) =>
         ForgeExec.GetMethod(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
         ?? throw new MissingMethodException(ForgeExec.FullName, name);
-
-    private static Type LoadCliType(string typeName)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(
-                dir.FullName,
-                "src",
-                "ForgeMission.Cli",
-                "bin",
-                "Debug",
-                "net10.0",
-                "forge.dll");
-            if (File.Exists(candidate))
-                return Assembly.LoadFrom(candidate).GetType(typeName, throwOnError: true)!;
-
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }

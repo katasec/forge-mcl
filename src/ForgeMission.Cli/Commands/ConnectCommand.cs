@@ -1,9 +1,10 @@
 using System.CommandLine;
 using ForgeMission.Core.Resolution;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge connect vscode — wire the Claude Code EXTENSION (VS Code / VSCodium) to a
 // mission. The extension is a GUI process that never sees shell env, so the sanctioned
@@ -18,8 +19,8 @@ internal static class ConnectCommand
 {
     internal static Command Build(
         Func<string?, (string MissionPath, string MissionName)?> resolveTarget,
-        Func<string, Task<bool>> ensureInitialized,
-        Func<AgentConfig, string, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
+        Func<string, CancellationToken, Task<bool>> ensureInitialized,
+        Func<AgentConfig, string, CancellationToken, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
         Action<string> die)
     {
         var connectCmd = new Command("connect", "Wire an editor's Claude Code extension to a forge mission");
@@ -29,8 +30,8 @@ internal static class ConnectCommand
 
     static Command BuildVsCodeCommand(
         Func<string?, (string MissionPath, string MissionName)?> resolveTarget,
-        Func<string, Task<bool>> ensureInitialized,
-        Func<AgentConfig, string, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
+        Func<string, CancellationToken, Task<bool>> ensureInitialized,
+        Func<AgentConfig, string, CancellationToken, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
         Action<string> die)
     {
         var targetArg = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
@@ -40,20 +41,20 @@ internal static class ConnectCommand
         cmd.Add(targetArg);
         cmd.Add(portOpt);
 
-        cmd.SetAction(async result =>
+        cmd.SetCancellableAction(async (result, cancellationToken) =>
         {
             var resolved = resolveTarget(result.GetValue(targetArg));
             if (resolved is not { } target) return;
             var (missionPath, missionName) = target;
 
-            if (!await ensureInitialized(missionPath)) return;
+            if (!await ensureInitialized(missionPath, cancellationToken)) return;
 
             var port    = result.GetValue(portOpt);
             var baseUrl = $"http://127.0.0.1:{port}";
             if (!TryWriteVsCodeSettings(Directory.GetCurrentDirectory(), baseUrl, die)) return;
 
             var config = new AgentConfig { Mission = missionPath, Port = port, Id = missionName, Wire = "anthropic" };
-            var built  = await buildMissionServer(config, Path.GetDirectoryName(missionPath)!);
+            var built  = await buildMissionServer(config, Path.GetDirectoryName(missionPath)!, cancellationToken);
             if (built is not { } server) return;
             var app = server.App;
 
@@ -63,9 +64,9 @@ internal static class ConnectCommand
             Console.Error.WriteLine($"↳ open VS Code / VSCodium in this folder — the Claude Code extension now talks to the mission.");
             Console.Error.WriteLine($"  Serving until Ctrl-C (settings persist; rerun this command to reconnect).");
 
-            try { await app.RunAsync(); }
-            catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
-                                      || ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.AddressAlreadyInUse })
+            // The command's Ctrl+C/SIGTERM token stops the server (IHost.RunAsync(token)).
+            try { await app.RunAsync(cancellationToken); }
+            catch (IOException ex) when (ex.InnerException is Microsoft.AspNetCore.Connections.AddressInUseException)
             {
                 die($"Port {port} is already in use. Pass a different --port (and rerun so the settings match).");
             }
@@ -120,9 +121,17 @@ internal static class ConnectCommand
         root["claudeCode.environmentVariables"] = envNode;
 
         Directory.CreateDirectory(settingsDir);
-        using var stream = File.Create(settingsPath);
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
-        root.WriteTo(writer);
+        // Write beside settings.json (same volume) and rename over it, so a failed write leaves
+        // the user's settings intact and no temp file behind.
+        var tempPath = Path.Combine(settingsDir, Path.GetRandomFileName());
+        try
+        {
+            using (var stream = File.Create(tempPath))
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+                root.WriteTo(writer);
+            File.Move(tempPath, settingsPath, overwrite: true);
+        }
+        catch { File.Delete(tempPath); throw; }
         return true;
     }
 

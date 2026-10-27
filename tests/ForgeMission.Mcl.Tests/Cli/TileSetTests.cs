@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using XenoAtom.Terminal.UI;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -33,10 +34,7 @@ public sealed class TileSetTests
     private static readonly string[] RingSets = ["CardShape", "CodeBlockShape", "UserShape", "ComposerShape", "CardHoverShape"];
     private static readonly string[] CapSets = ["UserCaps", "ApprovedCaps", "ToolCaps"];
 
-    private static readonly Assembly Forge = LoadForge();
-    private static readonly Type ThemeType = Type("ForgeMission.Cli.Tui.ForgeTheme");
     private static readonly Type StylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
-    private static readonly Type CellType = Type("ForgeMission.Cli.Tui.Graphics.CellSize");
     private static readonly MethodInfo Solve = Type("ForgeMission.Cli.Tui.Graphics.RingGeometry")
         .GetMethod("Solve", BindingFlags.Static | BindingFlags.Public)!;
     private static readonly MethodInfo RenderRing = Type("ForgeMission.Cli.Tui.Graphics.RingTiles")
@@ -147,8 +145,8 @@ public sealed class TileSetTests
 
         Assert.Equal(Size(card), Size(hover));
         Assert.Equal((card.SideInset, card.PadCols, card.PadTop, card.PadBottom), (hover.SideInset, hover.PadCols, hover.PadTop, hover.PadBottom));
-        var border = Rgb(Get(Shape(theme, "CardHoverShape"), "Border"));
-        var cardBorder = Rgb(Get(Shape(theme, "CardShape"), "Border"));
+        var border = Rgb(Get<object>(Shape(theme, "CardHoverShape"), "Border"));
+        var cardBorder = Rgb(Get<object>(Shape(theme, "CardShape"), "Border"));
         Assert.NotEqual(cardBorder, border);
         Assert.Contains(MiddleColumn(hover), px => Distance(px, border) <= 3);
         Assert.Contains(MiddleColumn(card), px => Distance(px, cardBorder) <= 3);
@@ -347,13 +345,13 @@ public sealed class TileSetTests
         var shape = Shape(theme, set);
         var layout = Solve.Invoke(null, [shape, Cell(width, height)])!;
         var tiles = RenderRing.Invoke(null, [shape, layout])!;
-        var all = ((System.Collections.IEnumerable)Get(tiles, "All")).Cast<object>()
-            .Select(tile => new TileFacts(ImageOf(Get(tile, "Image")), (int)Get(tile, "Cols"), (int)Get(tile, "Rows")))
+        var all = ((System.Collections.IEnumerable)Get<object>(tiles, "All")).Cast<object>()
+            .Select(tile => new TileFacts(ImageOf(Get<object>(tile, "Image")), (int)Get<object>(tile, "Cols"), (int)Get<object>(tile, "Rows")))
             .ToList();
-        var shadowed = ((System.Collections.ICollection)Get(shape, "Shadows")).Count > 0;
+        var shadowed = ((System.Collections.ICollection)Get<object>(shape, "Shadows")).Count > 0;
         return new RingFacts(width, height, Int(layout, "SideCols"), Int(layout, "TopRows"), Int(layout, "BottomRows"),
             Int(layout, "SideInset"), Int(layout, "PadCols"), Int(layout, "PadTop"), Int(layout, "PadBottom"), shadowed,
-            ImageOf(Get(tiles, "Template")), all, Rgb(Get(shape, "Surface")), Rgb(Get(shape, "Fill")));
+            ImageOf(Get<object>(tiles, "Template")), all, Rgb(Get<object>(shape, "Surface")), Rgb(Get<object>(shape, "Fill")));
     }
 
     private static CapFacts Caps(string theme, string set, int width, int height)
@@ -361,43 +359,21 @@ public sealed class TileSetTests
         var shape = Shape(theme, set);
         var caps = RenderCaps.Invoke(null, [shape, Cell(width, height)])!;
         var dot = shape.GetType().GetProperty("Dot")!.GetValue(shape) is Color c ? Rgb(c) : ((byte, byte, byte)?)null;
-        return new CapFacts(width, height, ImageOf(Get(Get(caps, "Left"), "Image")), ImageOf(Get(Get(caps, "Right"), "Image")),
-            ImageOf(Get(caps, "Template")), Rgb(Get(shape, "Surface")), Rgb(Get(shape, "Fill")), dot);
+        return new CapFacts(width, height, ImageOf(Get<object>(Get<object>(caps, "Left"), "Image")), ImageOf(Get<object>(Get<object>(caps, "Right"), "Image")),
+            ImageOf(Get<object>(caps, "Template")), Rgb(Get<object>(shape, "Surface")), Rgb(Get<object>(shape, "Fill")), dot);
     }
 
     private static object Shape(string theme, string set) =>
-        StylesType.GetProperty(set)!.GetValue(Activator.CreateInstance(StylesType, Theme(theme)))!;
+        StylesType.GetProperty(set)!.GetValue(ForgeText.Styles(theme))!;
 
-    private static object Cell(int width, int height) => Activator.CreateInstance(CellType, width, height)!;
-
-    private static Image ImageOf(object image) => new((int)Get(image, "Width"), (int)Get(image, "Height"), (byte[])Get(image, "Pixels"));
+    private static Image ImageOf(object image) => new((int)Get<object>(image, "Width"), (int)Get<object>(image, "Height"), (byte[])Get<object>(image, "Pixels"));
 
     private static (byte R, byte G, byte B) Rgb(object color) => (((Color)color).R, ((Color)color).G, ((Color)color).B);
 
-    private static int Int(object target, string name) => (int)Get(target, name);
+    private static int Int(object target, string name) => (int)Get<object>(target, name);
 
     private static uint[] Ids(int theme, int set, int width, int height) => (uint[])ImageIds.Invoke(null, [theme, set, width, height])!;
 
     private static int ImageIdSlot(string theme) =>
-        (int)StylesType.GetProperty("ImageIdSlot")!.GetValue(Activator.CreateInstance(StylesType, Theme(theme)))!;
-
-    private static object Theme(string name) =>
-        ThemeType.GetProperty(name, BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
-
-    private static object Get(object target, string name) => target.GetType().GetProperty(name)!.GetValue(target)!;
-
-    private static Type Type(string name) => Forge.GetType(name, throwOnError: true)!;
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
+        (int)StylesType.GetProperty("ImageIdSlot")!.GetValue(ForgeText.Styles(theme))!;
 }

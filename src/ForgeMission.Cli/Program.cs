@@ -12,46 +12,31 @@ using Katasec.OciClient;
 using ForgeMission.Serve;
 using Microsoft.AspNetCore.Builder;
 using Spectre.Console;
-using ForgeMission.Cli;
+using ForgeMission.Cli.Commands;
+using ForgeMission.Cli.Services;
 using ForgeMission.Docker;
 using ForgeMission.MissionRegistry;
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MclProgram = ForgeMission.Parser.Program;
-
-var rootCommand = new RootCommand("forge — Mission Control Language runtime");
-rootCommand.Add(BuildInitCommand());
-rootCommand.Add(BuildRunCommand());
-rootCommand.Add(BuildValidateCommand());
-rootCommand.Add(BuildListCommand());
-rootCommand.Add(BuildExpertCommand());
-rootCommand.Add(BuildRegistryCommand());
-rootCommand.Add(BuildLoginCommand());
-rootCommand.Add(BuildWhoamiCommand());
-rootCommand.Add(BuildLogoutCommand());
-rootCommand.Add(BuildExecCommand());
-rootCommand.Add(ForgeChat.BuildCommand()); // forge chat (53.2; --hands, Phase 55)
-rootCommand.Add(ForgeProject.BuildCommand());
-rootCommand.Add(BuildPublishCommand());
-rootCommand.Add(CleanCommand.Build());
-rootCommand.Add(BuildServeCommand());
-rootCommand.Add(BuildClaudeCommand());
-rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync, TryBuildMissionServerAsync, Die));
-rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
-rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
-rootCommand.Add(BuildProviderCommand());
-rootCommand.Add(BuildMcpCommand());
 
 // No @file response-file expansion — @handles (forge claude @websearch) are arguments.
 // One top-level exit/exception handler owns every exit code: helpers signal a deliberate exit by
 // throwing ForgeExitException (see Die) rather than calling Environment.Exit deep in the stack, so
 // teardown/finally runs on the way out. System.CommandLine's own exception handler is disabled so
 // those exceptions reach this handler; it also keeps the library's prior behaviour for any
-// unexpected exception (print it, exit 1).
+// unexpected exception (print it, exit 1). Ctrl+C/SIGTERM reaches every action as its token and
+// exits 130 there (CommandActions); a cancellation that reaches this handler is not the command's own.
 var invocation = new InvocationConfiguration { EnableDefaultExceptionHandler = false };
 try
 {
-    return await rootCommand
+    using var host = BuildHost();
+    return await BuildRootCommand(host.Services)
         .Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null })
         .InvokeAsync(invocation);
 }
@@ -70,31 +55,87 @@ catch (Exception ex)
     return 1;
 }
 
+// One generic host is the CLI's composition root: commands resolve shared services from its
+// Services. System.CommandLine owns the arguments, so the host gets none; its console logger writes
+// to stderr only (stdout stays the commands' output and forge mcp's JSON-RPC) at Warning and above.
+static IHost BuildHost()
+{
+    var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
+    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+    builder.Logging.SetMinimumLevel(LogLevel.Warning);
+    builder.Configuration.AddJsonFile(ForgeSettings.DefaultPath, optional: true);
+    builder.Services.AddOptions<ForgeSettings>().Bind(builder.Configuration);
+    builder.Services.AddSingleton<IValidateOptions<ForgeSettings>, ForgeSettingsValidator>();
+    builder.Services.AddCliHttpClients();
+    builder.Services.AddOptions<ForgeApiSettings>()
+        .Bind(builder.Configuration.GetSection(ForgeApiSettings.Section))
+        .PostConfigure(ForgeApiSettings.NormalizeEndpoint);
+    builder.Services.AddOptions<PlatformLoginOptions>()
+        .Bind(builder.Configuration)
+        .PostConfigure(PlatformLoginOptions.TrimPlatformEndpoint);
+    builder.Services.AddOptions<WebSearchOptions>()
+        .Configure<IConfiguration>((options, configuration) =>
+            options.ApiKey = configuration["XAI_API_KEY"] ?? configuration["GROK_API_KEY"]);
+    return builder.Build();
+}
+
+static RootCommand BuildRootCommand(IServiceProvider services)
+{
+    var api = services.GetRequiredService<IOptions<ForgeApiSettings>>();
+    var clients = services.GetRequiredService<IHttpClientFactory>();
+    var webSearch = services.GetRequiredService<IOptions<WebSearchOptions>>();
+    var logger = services.GetRequiredService<ILogger<Program>>();
+    var rootCommand = new RootCommand("forge — Mission Control Language runtime");
+    rootCommand.Add(BuildInitCommand());
+    rootCommand.Add(BuildRunCommand(api, clients));
+    rootCommand.Add(BuildValidateCommand());
+    rootCommand.Add(BuildListCommand());
+    rootCommand.Add(BuildExpertCommand());
+    rootCommand.Add(BuildRegistryCommand());
+    rootCommand.Add(BuildLoginCommand(services.GetRequiredService<IOptions<PlatformLoginOptions>>(), clients));
+    rootCommand.Add(BuildWhoamiCommand(clients));
+    rootCommand.Add(BuildLogoutCommand());
+    rootCommand.Add(BuildExecCommand(api, clients));
+    rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>(), clients)); // forge chat (53.2; --hands, Phase 55)
+    rootCommand.Add(ForgeProject.BuildCommand(clients));
+    rootCommand.Add(BuildPublishCommand());
+    rootCommand.Add(CleanCommand.Build());
+    rootCommand.Add(BuildServeCommand(webSearch, clients, logger));
+    rootCommand.Add(BuildClaudeCommand(webSearch, clients, logger));
+    rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync,
+        (config, agentDir, cancellationToken) => TryBuildMissionServerAsync(webSearch, clients, logger, config, agentDir, cancellationToken), Die));
+    rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
+    rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
+    rootCommand.Add(BuildProviderCommand());
+    rootCommand.Add(BuildMcpCommand(services.GetRequiredService<ILoggerFactory>(), clients, webSearch));
+    return rootCommand;
+}
+
 // ---------------------------------------------------------------------------
 // fms init
 
 static Command BuildInitCommand()
 {
-    var missionArg  = new Argument<FileInfo?>("mission") { Description = "Path to the .mcl mission file (default: mission.mcl)", Arity = ArgumentArity.ZeroOrOne };
+    var missionArg  = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
     var refreshOpt  = new Option<bool>("--refresh") { Description = "Re-pull OCI experts even if already present in ~/.forge/experts" };
 
     var cmd = new Command("init", "Resolve expert sources and generate mcl.lock");
     cmd.Add(missionArg);
     cmd.Add(refreshOpt);
 
-    cmd.SetAction(async result => await RunInitAsync(result.GetValue(missionArg), result.GetValue(refreshOpt)));
+    cmd.SetCancellableAction((result, cancellationToken) =>
+        RunInitAsync(result.GetValue(missionArg)!, result.GetValue(refreshOpt), cancellationToken));
 
     return cmd;
 }
 
 // Resolve local experts, pull any OCI experts, and write mcl.lock. Each helper reports its own
 // failure through Die (which throws ForgeExitException), so the orchestration reads top-down.
-static async Task RunInitAsync(FileInfo? missionArg, bool refresh)
+static async Task RunInitAsync(FileInfo mission, bool refresh, CancellationToken cancellationToken)
 {
-    var mission    = ResolveMission(missionArg);
     var missionDir = mission.DirectoryName!;
 
-    var source = await TryReadFile(mission.FullName);
+    var source = await TryReadFile(mission.FullName, cancellationToken);
     if (source is null) return;
 
     var ast = TryParse(source, mission.FullName);
@@ -110,7 +151,7 @@ static async Task RunInitAsync(FileInfo? missionArg, bool refresh)
     foreach (var (name, entry) in lockFile.Experts.OrderBy(k => k.Key))
         Console.WriteLine($"  ✓ {name,-30} local    {entry.Path}");
 
-    await PullOciExpertsAsync(manifest, refresh, lockFile);
+    await PullOciExpertsAsync(manifest, refresh, lockFile, cancellationToken);
 
     var lockPath = Path.Combine(missionDir, "mcl.lock");
     LockFileIO.Write(lockPath, lockFile);
@@ -134,18 +175,19 @@ static LockFile BuildLocalLockFile(string missionDir)
 
 // OCI experts: pull each manifest expert from its registry into the lock file, in name order.
 // The first failure stops init (PullOciExpertAsync calls Die, which throws).
-static async Task PullOciExpertsAsync(ForgeManifest? manifest, bool refresh, LockFile lockFile)
+static async Task PullOciExpertsAsync(ForgeManifest? manifest, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
 {
     if (manifest is null) return;
     foreach (var (name, ociRef) in manifest.Experts.OrderBy(k => k.Key))
-        await PullOciExpertAsync(name, ociRef, refresh, lockFile);
+        await PullOciExpertAsync(name, ociRef, refresh, lockFile, cancellationToken);
 }
 
-static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, LockFile lockFile)
+// The caller's own cancellation propagates; any other pull failure stops init with MCL011.
+static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
 {
     try
     {
-        var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh);
+        var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh, cancellationToken);
         lockFile.Experts[name] = new LockFileExpert
         {
             Source = "oci",
@@ -154,7 +196,7 @@ static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, L
         };
         Console.WriteLine($"  ✓ {name,-30} {status,-8} {ociRef}");
     }
-    catch (Exception ex)
+    catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
     {
         Console.Error.WriteLine($"  ✗ {name,-30} failed   {ociRef}");
         Console.Error.WriteLine($"    {ex.Message}");
@@ -166,15 +208,15 @@ static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, L
 // ---------------------------------------------------------------------------
 // fms run
 
-static Command BuildRunCommand()
+static Command BuildRunCommand(IOptions<ForgeApiSettings> api, IHttpClientFactory clients)
 {
     var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla" };
     var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
     var cmd = new Command("run", "Run a hosted mission and print the answer");
     cmd.Add(missionArg);
     cmd.Add(promptArg);
-    cmd.SetAction(async result => await ForgeExec.RunAsync(
-        result.GetValue(missionArg)!, result.GetValue(promptArg)));
+    cmd.SetCancellableAction((result, cancellationToken) => ForgeExec.RunAsync(api, clients,
+        result.GetValue(missionArg)!, result.GetValue(promptArg), cancellationToken: cancellationToken));
     return cmd;
 }
 
@@ -183,18 +225,18 @@ static Command BuildRunCommand()
 
 static Command BuildValidateCommand()
 {
-    var missionArg = new Argument<FileInfo?>("mission") { Description = "Path to the .mcl mission file (default: mission.mcl)", Arity = ArgumentArity.ZeroOrOne };
+    var missionArg = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
 
     var cmd = new Command("validate", "Validate a mission file and its expert references");
     cmd.Add(missionArg);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
-        var mission    = ResolveMission(result.GetValue(missionArg));
+        var mission    = result.GetValue(missionArg)!;
         var missionDir = mission.DirectoryName!;
         var lockPath   = Path.Combine(missionDir, "mcl.lock");
 
-        var source = await TryReadFile(mission.FullName);
+        var source = await TryReadFile(mission.FullName, cancellationToken);
         if (source is null) return;
 
         var ast = TryParse(source, mission.FullName);
@@ -240,21 +282,21 @@ static Command BuildListCommand()
     var listExpertsCmd = new Command("experts", "List experts in the experts directory");
     listExpertsCmd.Add(expertsOpt);
 
-    listExpertsCmd.SetAction(async result =>
+    listExpertsCmd.SetCancellableAction((result, _) =>
     {
         var experts    = result.GetValue(expertsOpt);
         var expertsDir = experts?.FullName ?? "experts";
 
         var expertDefs = TryLoadExperts(expertsDir);
-        if (expertDefs is null) return;
+        if (expertDefs is null) return Task.CompletedTask;
 
-        if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return; }
+        if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return Task.CompletedTask; }
 
         Console.WriteLine($"Experts in {expertsDir}:");
         foreach (var (name, def) in expertDefs.OrderBy(k => k.Key))
             Console.WriteLine($"  {name,-30} {def.Input} -> {def.Output}");
 
-        await Task.CompletedTask;
+        return Task.CompletedTask;
     });
 
     listCommand.Add(listExpertsCmd);
@@ -274,7 +316,7 @@ static Command BuildExpertCommand()
     initExpertCmd.Add(nameArg);
     initExpertCmd.Add(expertsOpt);
 
-    initExpertCmd.SetAction(async result =>
+    initExpertCmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var name       = result.GetValue(nameArg)!;
         var experts    = result.GetValue(expertsOpt);
@@ -296,7 +338,7 @@ static Command BuildExpertCommand()
         }
 
         Directory.CreateDirectory(expertDir);
-        await File.WriteAllTextAsync(expertMd, ExpertTemplate(name));
+        await File.WriteAllTextAsync(expertMd, ExpertTemplate(name), cancellationToken);
 
         Console.WriteLine($"Created {expertMd}");
     });
@@ -325,30 +367,34 @@ static Command BuildRegistryLoginCommand()
     cmd.Add(registryArg);
     cmd.Add(tokenOpt);
 
-    cmd.SetAction(result => SaveRegistryCredential(result.GetValue(registryArg)!, result.GetValue(tokenOpt)!));
+    cmd.SetCancellableAction((result, _) =>
+    {
+        SaveRegistryCredential(result.GetValue(registryArg)!, result.GetValue(tokenOpt)!);
+        return Task.CompletedTask;
+    });
     return cmd;
 }
 
 // forge login = platform sign-in (loopback + PKCE → platform key).
 // OCI-registry credentials live under `forge registry login`.
-static Command BuildLoginCommand()
+static Command BuildLoginCommand(IOptions<PlatformLoginOptions> login, IHttpClientFactory clients)
 {
     var cmd = new Command("login", "Sign in to Forge (browser) and store a platform key");
-    cmd.SetAction(async _ => await PlatformLogin.RunAsync());
+    cmd.SetCancellableAction((_, cancellationToken) => PlatformLogin.RunAsync(login, clients, cancellationToken));
     return cmd;
 }
 
-static Command BuildWhoamiCommand()
+static Command BuildWhoamiCommand(IHttpClientFactory clients)
 {
     var cmd = new Command("whoami", "Show the signed-in Forge user and credit balance");
-    cmd.SetAction(async _ => await PlatformLogin.WhoAmIAsync());
+    cmd.SetCancellableAction((_, cancellationToken) => PlatformLogin.WhoAmIAsync(clients, cancellationToken));
     return cmd;
 }
 
 static Command BuildLogoutCommand()
 {
     var cmd = new Command("logout", "Sign out of Forge (remove the stored platform key)");
-    cmd.SetAction(_ => PlatformLogin.Logout());
+    cmd.SetCancellableAction((_, _) => Task.FromResult(PlatformLogin.Logout()));
     return cmd;
 }
 
@@ -358,7 +404,7 @@ static Command BuildLogoutCommand()
 // ("Required argument missing", not a forge bug — confirmed 2026-07-19: `@websearch` fails in pwsh,
 // `"@websearch"` or bare `websearch` both work). Documented as the plain form so pwsh users aren't
 // steered into the gotcha; bash/zsh users can still type `@handle` fine.
-static Command BuildExecCommand()
+static Command BuildExecCommand(IOptions<ForgeApiSettings> api, IHttpClientFactory clients)
 {
     var targetArg = new Argument<string>("target") { Description = "Mission handle, e.g. websearch (an optional leading @ is also accepted, but quote it in pwsh: \"@websearch\")" };
     var promptArg = new Argument<string?>("prompt") { Description = "The mission's free-text input", Arity = ArgumentArity.ZeroOrOne };
@@ -373,13 +419,14 @@ static Command BuildExecCommand()
     cmd.Add(modeOpt);
     cmd.Add(outOpt);
 
-    cmd.SetAction(async result =>
-        await ForgeExec.RunAsync(
+    cmd.SetCancellableAction((result, cancellationToken) =>
+        ForgeExec.RunAsync(api, clients,
             result.GetValue(targetArg)!,
             result.GetValue(promptArg),
             result.GetValue(inputOpt),
             result.GetValue(modeOpt),
-            result.GetValue(outOpt)));
+            result.GetValue(outOpt),
+            cancellationToken));
     return cmd;
 }
 
@@ -395,7 +442,7 @@ static void SaveRegistryCredential(string registry, string token)
 static Command BuildPublishCommand()
 {
     var refArg  = new Argument<string>("reference") { Description = "OCI reference, e.g. ghcr.io/katasec/forge-mission-guard:0.1.0" };
-    var dirArg  = new Argument<DirectoryInfo?>("dir") { Description = "Mission directory (default: current dir)", Arity = ArgumentArity.ZeroOrOne };
+    var dirArg  = new Argument<DirectoryInfo>("dir") { Description = "Mission directory", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new DirectoryInfo(".") };
     var descOpt = new Option<string?>("--description") { Description = "Human description (annotation)" };
 
     var cmd = new Command("publish", "Package a mission directory into a self-contained OCI artifact and push it");
@@ -403,10 +450,10 @@ static Command BuildPublishCommand()
     cmd.Add(dirArg);
     cmd.Add(descOpt);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var reference = result.GetValue(refArg)!;
-        var dir       = result.GetValue(dirArg) ?? new DirectoryInfo(Directory.GetCurrentDirectory());
+        var dir       = result.GetValue(dirArg)!;
         var desc      = result.GetValue(descOpt);
 
         if (!File.Exists(Path.Combine(dir.FullName, "mission.mcl")))
@@ -427,7 +474,7 @@ static Command BuildPublishCommand()
             : new Dictionary<string, string> { ["org.opencontainers.image.description"] = desc };
 
         using var client = new OciClient(credential: token);
-        var digest = await client.PushMissionAsync(registry, name, tag, bundle, annotations);
+        var digest = await client.PushMissionAsync(registry, name, tag, bundle, annotations, cancellationToken);
 
         Console.WriteLine($"Published {registry}/{name}:{tag} ({bundle.Length} bytes)");
         Console.WriteLine($"Digest:  {digest}");
@@ -440,17 +487,16 @@ static Command BuildPublishCommand()
 // ---------------------------------------------------------------------------
 // forge serve
 
-static Command BuildServeCommand()
+static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients, ILogger logger)
 {
-    var agentArg = new Argument<FileInfo?>("agent") { Description = "Path to agent.yaml (default: agent.yaml)", Arity = ArgumentArity.ZeroOrOne };
+    var agentArg = new Argument<FileInfo>("agent") { Description = "Path to agent.yaml", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("agent.yaml") };
 
     var cmd = new Command("serve", "Serve a mission as an OpenAI-compatible endpoint");
     cmd.Add(agentArg);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
-        var agentFile = result.GetValue(agentArg)
-            ?? new FileInfo(Path.GetFullPath("agent.yaml"));
+        var agentFile = result.GetValue(agentArg)!;
 
         if (!agentFile.Exists) { Die($"Agent config not found: {agentFile.FullName}\nCreate an agent.yaml next to your mission.mcl."); return; }
 
@@ -458,7 +504,7 @@ static Command BuildServeCommand()
         try { config = AgentConfigLoader.Load(agentFile.FullName); }
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return; }
 
-        var built = await TryBuildMissionServerAsync(config, agentFile.DirectoryName!);
+        var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, agentFile.DirectoryName!, cancellationToken);
         if (built is not { } server) return;
         var (app, missionPath, anthropicDoor, openAiDoor) = server;
 
@@ -476,12 +522,12 @@ static Command BuildServeCommand()
         }
         Console.Error.WriteLine($"    GET  /health");
 
+        // The command's Ctrl+C/SIGTERM token stops the server (IHost.RunAsync(token)).
         try
         {
-            await app.RunAsync();
+            await app.RunAsync(cancellationToken);
         }
-        catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
-                                  || ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.AddressAlreadyInUse })
+        catch (IOException ex) when (ex.InnerException is Microsoft.AspNetCore.Connections.AddressInUseException)
         {
             Die($"Port {config.Port} is already in use. Stop the existing process or change the port in agent.yaml.");
         }
@@ -495,7 +541,7 @@ static Command BuildServeCommand()
 // wired to it + tear down on exit (Phase 42.2). In-process by default for speed;
 // --container runs the same image the cloud runs for exact parity.
 
-static Command BuildClaudeCommand()
+static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients, ILogger logger)
 {
     var targetArg    = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
     var containerOpt = new Option<bool>("--container")   { Description = "Run the mission as a Docker container (cloud parity) instead of in-process" };
@@ -511,7 +557,7 @@ static Command BuildClaudeCommand()
     cmd.Add(promptOpt);
     cmd.TreatUnmatchedTokensAsErrors = false;   // anything after the options is forwarded to claude
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var printEnv = result.GetValue(printEnvOpt);
         if (!printEnv && !IsOnPath("claude"))
@@ -524,7 +570,7 @@ static Command BuildClaudeCommand()
         if (resolved is not { } target) return;
         var (missionPath, missionName) = target;
 
-        if (!await EnsureInitializedAsync(missionPath)) return;
+        if (!await EnsureInitializedAsync(missionPath, cancellationToken)) return;
 
         var port = result.GetValue(portOpt) ?? FindFreePort();
         var config = new AgentConfig
@@ -546,18 +592,18 @@ static Command BuildClaudeCommand()
         }
         else
         {
-            var built = await TryBuildMissionServerAsync(config, Path.GetDirectoryName(missionPath)!);
+            var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, Path.GetDirectoryName(missionPath)!, cancellationToken);
             if (built is not { } server) return;
             var app = server.App;
-            await app.StartAsync();
-            teardown = async () => await app.StopAsync();
+            await app.StartAsync(cancellationToken);
+            teardown = async () => { await app.StopAsync(); await app.DisposeAsync(); };
             mode     = "in-process";
         }
 
         var baseUrl = $"http://127.0.0.1:{port}";
         try
         {
-            if (!await WaitUntilHealthyAsync(baseUrl, timeoutMs: 60_000))
+            if (!await WaitUntilHealthyAsync(clients, baseUrl, timeoutMs: 60_000, cancellationToken))
             {
                 Die($"Mission endpoint did not become healthy at {baseUrl}.");
                 return;
@@ -572,7 +618,8 @@ static Command BuildClaudeCommand()
                 Console.WriteLine($"export ANTHROPIC_BASE_URL={baseUrl}");
                 Console.WriteLine("export ANTHROPIC_API_KEY=forge-local");
                 Console.Error.WriteLine("↳ serving until Ctrl-C…");
-                await WaitForCtrlCAsync();
+                // Ctrl-C/SIGTERM cancels the action's token: stop waiting and fall through to teardown.
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
                 return;
             }
 
@@ -620,7 +667,7 @@ static (string MissionPath, string MissionName)? ResolveClaudeTarget(string? tar
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return null; }
     }
 
-    var candidates = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.mcl");
+    var candidates = Directory.EnumerateFiles(Directory.GetCurrentDirectory(), "*.mcl").Take(2).ToArray();
     if (candidates.Length == 1)
         return (candidates[0], new DirectoryInfo(Directory.GetCurrentDirectory()).Name);
 
@@ -631,13 +678,13 @@ static (string MissionPath, string MissionName)? ResolveClaudeTarget(string? tar
 }
 
 // Missing mcl.lock ⇒ run `forge init` silently (local experts resolve without network).
-static async Task<bool> EnsureInitializedAsync(string missionPath)
+static async Task<bool> EnsureInitializedAsync(string missionPath, CancellationToken cancellationToken)
 {
     var lockPath = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
     if (File.Exists(lockPath)) return true;
 
     Console.Error.WriteLine("↳ initialising mission (forge init)…");
-    try { await RunInitAsync(new FileInfo(missionPath), refresh: false); }
+    try { await RunInitAsync(new FileInfo(missionPath), refresh: false, cancellationToken); }
     catch (ForgeExitException) { return false; }
     return File.Exists(lockPath);
 }
@@ -684,30 +731,43 @@ static async Task<Func<Task>?> StartMissionContainerAsync(AgentConfig config, st
     return async () => await DockerCli.StopAndRemoveAsync(containerName);
 }
 
-static async Task<bool> WaitUntilHealthyAsync(string baseUrl, int timeoutMs)
+static async Task<bool> WaitUntilHealthyAsync(IHttpClientFactory clients, string baseUrl, int timeoutMs, CancellationToken cancellationToken)
 {
-    using var http = new HttpClient();
-    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-    while (DateTime.UtcNow < deadline)
+    var http = clients.CreateClient(CliHttpClients.Health);
+    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    deadline.CancelAfter(timeoutMs);
+    try
     {
-        try
-        {
-            var response = await http.SendAsync(new HttpRequestMessage(HttpMethod.Head, baseUrl + "/"));
-            if (response.IsSuccessStatusCode) return true;
-        }
-        catch (HttpRequestException)
-        {
-            // Contract: swallow by design. While polling, a refused connection or
-            // unresolved host means the server has not finished binding its port yet
-            // — an expected transient state, not a failure. We retry until the
-            // deadline; the owning boundary is the timeout, which returns false and
-            // surfaces the "never became healthy" result to the caller. Only
-            // HttpRequestException (transport-level "not up yet") is caught here;
-            // any other exception propagates.
-        }
-        await Task.Delay(250);
+        while (!await IsHealthyAsync(http, baseUrl, deadline.Token))
+            await Task.Delay(250, deadline.Token);
+        return true;
     }
-    return false;
+    // The deadline passing is the poll's own timeout ("never became healthy"); the action's
+    // token being cancelled propagates.
+    catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+    {
+        return false;
+    }
+}
+
+static async Task<bool> IsHealthyAsync(HttpClient http, string baseUrl, CancellationToken cancellationToken)
+{
+    try
+    {
+        var response = await http.SendAsync(new HttpRequestMessage(HttpMethod.Head, baseUrl + "/"), cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+    catch (HttpRequestException)
+    {
+        // Contract: swallow by design. While polling, a refused connection or
+        // unresolved host means the server has not finished binding its port yet
+        // — an expected transient state, not a failure. We retry until the
+        // deadline; the owning boundary is the timeout, which returns false and
+        // surfaces the "never became healthy" result to the caller. Only
+        // HttpRequestException (transport-level "not up yet") is caught here;
+        // any other exception propagates.
+        return false;
+    }
 }
 
 // Launch claude with the redirect env, stdio inherited (fully interactive), and
@@ -738,13 +798,6 @@ static async Task<int> RunWiredClaudeAsync(string baseUrl, string? prompt, IRead
     static void Survive(object? _, ConsoleCancelEventArgs e) => e.Cancel = true;
 }
 
-static async Task WaitForCtrlCAsync()
-{
-    var stopped = new TaskCompletionSource();
-    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stopped.TrySetResult(); };
-    await stopped.Task;
-}
-
 static int FindFreePort()
 {
     var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
@@ -764,7 +817,7 @@ static bool IsOnPath(string binary) =>
 // Shared by `forge serve` (blocking RunAsync) and `forge claude` (background StartAsync).
 // Returns null after reporting the error (Die) — callers just return.
 static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?> TryBuildMissionServerAsync(
-    AgentConfig config, string agentDir)
+    IOptions<WebSearchOptions> webSearchOptions, IHttpClientFactory clients, ILogger logger, AgentConfig config, string agentDir, CancellationToken cancellationToken)
 {
     var missionPath = Path.GetFullPath(Path.Combine(agentDir, config.Mission));
     var lockPath    = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
@@ -772,7 +825,7 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
     if (!File.Exists(missionPath)) { Die($"Mission file not found: {missionPath}"); return null; }
     if (!File.Exists(lockPath))    { Die("MCL007 Mission not initialised — run 'forge init' first."); return null; }
 
-    var source = await TryReadFile(missionPath);
+    var source = await TryReadFile(missionPath, cancellationToken);
     if (source is null) return null;
 
     var ast = TryParse(source, missionPath);
@@ -818,7 +871,7 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
 
     // kind:search backend (41.2) — same seam as `forge run` and the cloud runner; null when
     // XAI_API_KEY is unset, so missions without kind:search are unaffected.
-    var webSearch = ProviderClientBuilder.BuildWebSearch();
+    var webSearch = ProviderClientBuilder.BuildWebSearch(webSearchOptions, clients);
 
     var (anthropicDoor, openAiDoor) = MissionServerFactory.BuildDoors(
         ast, expertDefs, defaultRunner, anthropicEnabled, openAiEnabled, webSearch);
@@ -826,12 +879,13 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
     // Aux passthrough (42.3 §0): client housekeeping (title-gen, state-check) is answered by a
     // plain provider model; the mission never runs — and never bills — for those. The aux client is
     // OPTIONAL: if its provider can't be built (missing key, bad profile), serving deliberately
-    // degrades to a null aux client and the server answers housekeeping with its canned replies.
+    // degrades to a null aux client and the server answers housekeeping with its canned replies;
+    // the failure is logged as a Warning.
     IChatClient? auxClient = null;
     if (anthropicDoor is not null && ResolveDefaultProfile(manifest, seedContext) is { } auxProfile)
     {
         try { auxClient = ForgeMission.ChatClients.ChatClients.BuildChatClient(auxProfile); }
-        catch (Exception) { auxClient = null; }
+        catch (Exception ex) { logger.AuxClientUnavailable(ex, auxProfile.Provider); auxClient = null; }
     }
 
     var app = ForgeServe.BuildApp(config.Id, config.Port, anthropicDoor, openAiDoor, auxClient);
@@ -845,10 +899,10 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
 // ---------------------------------------------------------------------------
 // Helpers
 
-static async Task<string?> TryReadFile(string path)
+static async Task<string?> TryReadFile(string path, CancellationToken cancellationToken)
 {
-    try { return await File.ReadAllTextAsync(path); }
-    catch (Exception ex) { Die($"Cannot read file '{path}': {ex.Message}"); return null; }
+    try { return await File.ReadAllTextAsync(path, cancellationToken); }
+    catch (Exception ex) when (ex is not OperationCanceledException) { Die($"Cannot read file '{path}': {ex.Message}"); return null; }
 }
 
 static MclProgram? TryParse(string source, string filePath)
@@ -891,10 +945,8 @@ static void ReportExpertDiagnostic(ExpertLoadException ex)
     // No file path — fall back to plain Die-style output
     if (ex.FilePath is null || ex.Line == 0) { Die(ex.Message); return; }
 
-    var source     = File.Exists(ex.FilePath) ? File.ReadAllText(ex.FilePath) : string.Empty;
-    var lines      = source.Split('\n');
-    var sourceLine = ex.Line >= 1 && ex.Line <= lines.Length
-        ? lines[ex.Line - 1].TrimEnd('\r')
+    var sourceLine = File.Exists(ex.FilePath)
+        ? File.ReadLines(ex.FilePath).ElementAtOrDefault(ex.Line - 1) ?? string.Empty
         : string.Empty;
 
     var lineNumStr = ex.Line.ToString();
@@ -1027,9 +1079,6 @@ static string ExpertTemplate(string name) => $"""
 static string? GetContextString(Dictionary<string, object> ctx, string key)
     => ctx.TryGetValue(key, out var v) && v is string s && s.Length > 0 ? s : null;
 
-static FileInfo ResolveMission(FileInfo? arg)
-    => new FileInfo(Path.GetFullPath(arg?.FullName ?? "mission.mcl"));
-
 static void Die(string message)
 {
     Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");
@@ -1050,7 +1099,7 @@ static Command BuildProviderCommand()
 static Command BuildProviderListCommand()
 {
     var cmd = new Command("list", "List all known LLM providers");
-    cmd.SetAction(_ =>
+    cmd.SetCancellableAction((_, _) =>
     {
         Console.WriteLine("Known providers:\n");
         Console.WriteLine($"  {"NAME",-12} {"REQUIRED FIELDS",-30} NOTES");
@@ -1058,6 +1107,7 @@ static Command BuildProviderListCommand()
         foreach (var p in ForgeMission.ChatClients.ProviderCatalog.Entries)
             Console.WriteLine($"  {p.Name,-12} {p.RequiredFields,-30} {p.Notes}");
         Console.WriteLine("\nRun 'forge provider scaffold <name>' to generate a forge.toml block.");
+        return Task.CompletedTask;
     });
     return cmd;
 }
@@ -1065,13 +1115,14 @@ static Command BuildProviderListCommand()
 static Command BuildProviderScaffoldCommand()
 {
     var nameArg  = new Argument<string>("name") { Description = "Provider name (openai, anthropic, azure, ollama)" };
+    nameArg.CompletionSources.Add([.. ForgeMission.ChatClients.ProviderCatalog.Entries.Select(e => e.Name)]);
     var writeOpt = new Option<bool>("--write") { Description = "Append the block to forge.toml instead of printing it" };
 
     var cmd = new Command("scaffold", "Generate a ready-to-paste forge.toml provider block");
     cmd.Add(nameArg);
     cmd.Add(writeOpt);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var name  = result.GetValue(nameArg)!.ToLowerInvariant();
         var write = result.GetValue(writeOpt);
@@ -1086,7 +1137,7 @@ static Command BuildProviderScaffoldCommand()
 
         if (write)
         {
-            await File.AppendAllTextAsync("forge.toml", $"\n{block}\n");
+            await File.AppendAllTextAsync("forge.toml", $"\n{block}\n", cancellationToken);
             Console.WriteLine("Appended to forge.toml.");
         }
         else
@@ -1102,27 +1153,29 @@ static Command BuildProviderScaffoldCommand()
 // forge mcp
 
 // Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared
-// mission to McpCommand, which owns the stdio MCP server. Runners are built lazily per tool call.
-static Command BuildMcpCommand()
+// mission to McpCommand, which owns the stdio MCP server. Runners are built lazily per tool call;
+// the server runs until stdin closes or the command's Ctrl+C/SIGTERM token is cancelled.
+static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory clients, IOptions<WebSearchOptions> webSearch)
 {
-    var missionArg = new Argument<FileInfo?>("mission")
+    var missionArg = new Argument<FileInfo>("mission")
     {
-        Description = "Path to the .mcl mission file (default: mission.mcl)",
-        Arity = ArgumentArity.ZeroOrOne
+        Description = "Path to the .mcl mission file",
+        Arity = ArgumentArity.ZeroOrOne,
+        DefaultValueFactory = _ => new FileInfo("mission.mcl")
     };
 
     var cmd = new Command("mcp", "Expose a mission as a stdio MCP server (for Claude Desktop and MCP-aware tools)");
     cmd.Add(missionArg);
 
-    cmd.SetAction(async result =>
+    cmd.SetCancellableAction(async (result, ct) =>
     {
-        var mission    = ResolveMission(result.GetValue(missionArg));
+        var mission    = result.GetValue(missionArg)!;
         var missionDir = mission.DirectoryName!;
         var lockPath   = Path.Combine(missionDir, "mcl.lock");
 
         if (!File.Exists(lockPath)) { Die("MCL007 Mission not initialised — run 'forge init' first."); return; }
 
-        var source = await TryReadFile(mission.FullName);
+        var source = await TryReadFile(mission.FullName, ct);
         if (source is null) return;
 
         var ast = TryParse(source, mission.FullName);
@@ -1146,8 +1199,8 @@ static Command BuildMcpCommand()
         var firstMission = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault();
         if (firstMission is null) { Die("No mission declaration found in mission file."); return; }
 
-        await McpCommand.ServeAsync(firstMission, ast, expertDefs, manifest, mission.FullName,
-            callSeedContext => BuildRunners(manifest, callSeedContext));
+        await McpCommand.ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName,
+            callSeedContext => BuildRunners(manifest, callSeedContext), ct);
     });
 
     return cmd;

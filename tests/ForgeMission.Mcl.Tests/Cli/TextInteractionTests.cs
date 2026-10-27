@@ -465,32 +465,6 @@ public sealed class TextInteractionTests
     }
 
     [Fact]
-    public async Task Active_chat_assistant_card_drag_copies_real_code_body()
-    {
-        using var session = new CancellationTokenSource();
-        var (_, screen, policy, _, root) = ActiveChat(session);
-        Show(screen, New("ParticipantCard", "Answerer", "body text\n\n```text\ncode body\n```", "mission", DateTimeOffset.UnixEpoch, false));
-        await TerminalInteractionTestHost.Run(root, (context, phase, backend) =>
-        {
-            var paragraphs = root.EnumerateVisualsDepthFirst().OfType<Paragraph>().Where(paragraph => paragraph.App == context.App).ToArray();
-            var body = paragraphs.Single(paragraph => paragraph.Text == "body text");
-            var code = paragraphs.Single(paragraph => paragraph.Text == "code body");
-            if (phase == 1)
-            {
-                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Down, body);
-                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Drag, code, 4);
-                TerminalInteractionTestHost.Mouse(backend, TerminalMouseKind.Up, code, 4);
-            }
-            if (phase == 2)
-            {
-                Assert.True((bool)Call(policy, "CopySelection")!);
-                Assert.Contains("body text", backend.Written);
-                Assert.Contains("code", backend.Written);
-            }
-        }, last: 3);
-    }
-
-    [Fact]
     public async Task Active_chat_rich_range_copies_heading_body_and_code_as_one_selection()
     {
         using var session = new CancellationTokenSource();

@@ -5,6 +5,7 @@ using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp;
 using XenoAtom.Terminal.UI.Rendering;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -14,7 +15,6 @@ namespace ForgeMission.Tests.Cli;
 [Collection(XenoAtomUiCollection.Name)]
 public sealed class FileEditorTests : IDisposable
 {
-    private static readonly Assembly Forge = LoadForge();
     private static readonly Type EditFileType = Type("ForgeMission.Cli.Tui.EditFile");
     private static readonly Type FileEditorType = Type("ForgeMission.Cli.Tui.FileEditor");
     // VS Code Dark+ keyword blue (#569CD6) as a truecolor foreground: the screen theme is Dark.
@@ -103,15 +103,18 @@ public sealed class FileEditorTests : IDisposable
         Assert.True(Get<bool>(file, "IsNew"));
     }
 
+    // A save writes the text as UTF-8 without a BOM, newlines as given, and leaves no other file.
     [Fact]
     public void The_first_save_creates_the_file_and_later_saves_overwrite()
     {
         var file = Open("d.txt");
-        Assert.Equal("saved", Save(file, "one"));
-        Assert.Equal("one", File.ReadAllText(Path.Combine(_dir, "d.txt")));
+        var path = Path.Combine(_dir, "d.txt");
+        Assert.Equal("saved", Save(file, "one é\n"));
+        Assert.Equal("one é\n"u8.ToArray(), File.ReadAllBytes(path));
         Assert.Equal("d.txt", Get<string>(file, "Header"));
-        Assert.Equal("saved", Save(file, "two"));
-        Assert.Equal("two", File.ReadAllText(Path.Combine(_dir, "d.txt")));
+        Assert.Equal("saved", Save(file, "two\r\n"));
+        Assert.Equal("two\r\n"u8.ToArray(), File.ReadAllBytes(path));
+        Assert.Equal([path], Directory.GetFileSystemEntries(_dir));
     }
 
     // ── Esc ─────────────────────────────────────────────────────────────────────────────────
@@ -250,15 +253,10 @@ public sealed class FileEditorTests : IDisposable
 
     private static string Escape(object file, string text) => EditFileType.GetMethod("Escape")!.Invoke(file, [text])!.ToString()!;
 
-    private static T Get<T>(object target, string property) => (T)target.GetType().GetProperty(property)!.GetValue(target)!;
-
     private static object? EditorHighlighter(string fileName) =>
         Type("ForgeMission.Cli.Tui.Graphics.CodeColours").GetMethod("EditorHighlighter")!.Invoke(null, [fileName]);
 
-    private static object Styles() => Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ForgeStyles"),
-        Type("ForgeMission.Cli.Tui.ForgeTheme").GetProperty("Dark", BindingFlags.Static | BindingFlags.Public)!.GetValue(null))!;
-
-    private static object NewEditor(object file, Action close) => Activator.CreateInstance(FileEditorType, file, Styles(), close, Activator.CreateInstance(Type("ForgeMission.Cli.Tui.TextInteraction"), nonPublic: true)!)!;
+    private static object NewEditor(object file, Action close) => Activator.CreateInstance(FileEditorType, file, Styles("Dark"), close, Activator.CreateInstance(Type("ForgeMission.Cli.Tui.TextInteraction"), nonPublic: true)!)!;
 
     private static string EditorText(object editor) =>
         (string)FileEditorType.GetProperty("Text", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(editor)!;
@@ -266,7 +264,7 @@ public sealed class FileEditorTests : IDisposable
     private static (object Screen, Type ScreenType, Visual Root) NewScreen()
     {
         var screenType = Type("ForgeMission.Cli.Tui.ChatScreen");
-        var styles = Styles();
+        var styles = Styles("Dark");
         var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
         var screen = Activator.CreateInstance(screenType, [header, styles])!;
         var cell = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.CellSize"), 19, 42)!;
@@ -294,7 +292,7 @@ public sealed class FileEditorTests : IDisposable
             ? new VirtualTerminalBackend(initialSize: new TerminalSize(60, 12))
             : new VirtualTerminalBackend(output, new StringWriter(), new TerminalSize(60, 12), null, false);
         using var terminal = Terminal.Open(backend, new TerminalOptions { RespectNoColor = false }, force: true);
-        var root = new Padder(view).Style((XenoAtom.Terminal.UI.Styling.Theme)Styles().GetType().GetProperty("Screen")!.GetValue(Styles())!);
+        var root = new Padder(view).Style((XenoAtom.Terminal.UI.Styling.Theme)Styles("Dark").GetType().GetProperty("Screen")!.GetValue(Styles("Dark"))!);
         var ticks = 0;
 
         ValueTask<TerminalLoopResult> Update(TerminalRunningContext context)
@@ -317,19 +315,4 @@ public sealed class FileEditorTests : IDisposable
     private static TerminalKeyEvent Key(TerminalKey key) => new() { Key = key };
 
     private static TerminalKeyEvent Ctrl(char c) => new() { Key = TerminalKey.Unknown, Char = c, Modifiers = TerminalModifiers.Ctrl };
-
-    private static Type Type(string name) => Forge.GetType(name, throwOnError: true)!;
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }

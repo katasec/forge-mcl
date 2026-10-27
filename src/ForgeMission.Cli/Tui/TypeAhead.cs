@@ -8,7 +8,7 @@ namespace ForgeMission.Cli.Tui;
 // the letters became composer text ("y Please reply…"). The TUI discards that queue as it starts,
 // so only keys typed into the running TUI reach the composer. The terminal's replies to the TUI's
 // own probes are not affected: the probes are sent after this, inside Terminal.Run.
-internal static class TypeAhead
+internal static partial class TypeAhead
 {
     private const int StandardInput = 0;
 
@@ -28,8 +28,8 @@ internal static class TypeAhead
     }
 
     // "libc" is resolved by the runtime's library probing on each platform (libSystem on macOS,
-    // glibc or musl on Linux). DllImport, not LibraryImport: both arguments are blittable, so no
-    // marshalling code (and no unsafe code in the project) is needed.
-    [DllImport("libc", EntryPoint = "tcflush", SetLastError = true)]
-    private static extern int Flush(int fd, int queue);
+    // glibc or musl on Linux). LibraryImport generates the marshalling stub at compile time, as
+    // Native AOT prefers; it needs AllowUnsafeBlocks, which the project already sets.
+    [LibraryImport("libc", EntryPoint = "tcflush", SetLastError = true)]
+    private static partial int Flush(int fd, int queue);
 }

@@ -53,7 +53,7 @@ behavior in forge-client.
 | [ForgeChat](ForgeChat.cs) | Portable Project opening, hosted conversation reconnection, fresh hands approval/attachment, and terminal/line-mode selection. |
 | [MacChatWindow](MacChatWindow.cs) | Interactive Mac launch into a dedicated Ghostty instance, exact child context and visible request/child failures. |
 | [ChatHandsAttachment](ChatHandsAttachment.cs) | Executes file requests for an acknowledged hands attachment off the conversation follow loop. |
-| [ForgeConfig](ForgeConfig.cs) | Reads the chat theme from `~/.forge/config.json`. |
+| [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (chat theme, API endpoint) bound by the CLI host. |
 
 ### Terminal UI — [Tui/](Tui)
 

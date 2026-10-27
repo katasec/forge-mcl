@@ -2,6 +2,7 @@ using System.Reflection;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Extensions.Markdown.Styling;
 using XenoAtom.Terminal.UI.Styling;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -10,9 +11,8 @@ namespace ForgeMission.Tests.Cli;
 // and code blocks take the code-block tokens. The styles are read from forge.dll through reflection.
 public sealed class ForgeMarkdownStyleTests
 {
-    private static readonly Assembly Forge = LoadForge();
-    private static readonly Type ThemeType = Forge.GetType("ForgeMission.Cli.Tui.ForgeTheme", throwOnError: true)!;
-    private static readonly Type StylesType = Forge.GetType("ForgeMission.Cli.Tui.ForgeStyles", throwOnError: true)!;
+    private static readonly Type ThemeType = Type("ForgeMission.Cli.Tui.ForgeTheme");
+    private static readonly Type StylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
 
     [Theory]
     [InlineData("Light")]
@@ -98,23 +98,7 @@ public sealed class ForgeMarkdownStyleTests
 
     private static object Styles(object tokens) => Activator.CreateInstance(StylesType, tokens)!;
 
-    private static object Theme(string name) =>
-        ThemeType.GetProperty(name, BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
-
     private static Color Token(object tokens, string name) => (Color)ThemeType.GetProperty(name)!.GetValue(tokens)!;
 
     private static Style Fg(object tokens, string name) => Style.None.WithForeground(Token(tokens, name));
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }

@@ -41,23 +41,20 @@
     <Nullable>enable</Nullable>
     <AssemblyName>forge</AssemblyName>
     <PublishAot>true</PublishAot>
+    <!-- Ships as a Native AOT payload via scripts/build.ps1, never as a NuGet package. -->
+    <IsPackable>false</IsPackable>
     <!-- StbTrueTypeSharp's API takes pointers; unsafe code is allowed in Tui/Graphics/GlyphText.cs only (TuiColourLiteralTests). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- YamlDotNet uses reflection-based builders; our types are preserved via
-         [DynamicDependency] so these warnings are safe to suppress. -->
-    <IlcSuppressWarnings>IL3050</IlcSuppressWarnings>
+    <!-- Runs the code-style rules .editorconfig raises to warnings (IDE0130: namespace matches folder) on build. -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- IL3050 x4: ForgeMission.Core's YamlDotNet builders in static initializers (its field-level suppressions miss the .cctor ILC reports).
+         IL2104/IL3053: summaries of YamlDotNet 18.0.0's reflection-based trim/AOT warnings. -->
     <NoWarn>$(NoWarn);IL3050;IL2104;IL3053</NoWarn>
   </PropertyGroup>
 
-  <!-- Keep linker-only inputs inside the link target: Rider otherwise presents them as source items. -->
-  <Target Name="AddMacNativeAotLinkerArgs" BeforeTargets="LinkNative"
-          Condition="$([MSBuild]::IsOSPlatform('osx'))">
-    <ItemGroup>
-      <!-- LinkerArgs on a referenced library are not propagated to this executable's final AOT link. -->
-      <LinkerArg Include="-Wl,-ld_classic" />
-      <LinkerArg Include="-L/opt/homebrew/lib" />
-      <LinkerArg Include="-L/opt/homebrew/opt/openssl@3/lib" />
-    </ItemGroup>
-  </Target>
+  <!-- macOS Native AOT links the runtime's OpenSSL and brotli as system libraries (brew install openssl@3 brotli). -->
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+    <LinkerArg Include="-L/opt/homebrew/lib" />
+  </ItemGroup>
 
 </Project>

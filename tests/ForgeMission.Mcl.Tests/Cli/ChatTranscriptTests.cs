@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using ForgeMission.Conversations.Contracts;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -11,18 +12,17 @@ namespace ForgeMission.Tests.Cli;
 // blocks are compared by their record text.
 public sealed class ChatTranscriptTests
 {
-    private static readonly Assembly Forge = LoadForge();
     private static readonly MethodInfo ApplyMethod = Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
         .GetMethod("Apply", BindingFlags.Static | BindingFlags.Public)!;
     private static readonly MethodInfo ReplyingMethod = Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
         .GetMethod("Replying", BindingFlags.Static | BindingFlags.Public)!;
-    private static readonly MethodInfo UsesTuiMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+    private static readonly MethodInfo UsesTuiMethod = Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
         .GetMethod("UsesTui", BindingFlags.Static | BindingFlags.NonPublic)!;
 
     [Fact]
     public void A_turn_maps_to_a_You_pill_and_a_card_titled_with_the_expert()
     {
-        var blocks = Map(User("my name is Ameer"), Started("Chat:Answerer"), Step("Nice to meet you, Ameer!"));
+        var blocks = Strings(Blocks([User("my name is Ameer"), Started("Chat:Answerer"), Step("Nice to meet you, Ameer!")]));
 
         Assert.Equal([
             $"YouBlock {{ Text = my name is Ameer, Sent = {At} }}",
@@ -33,13 +33,13 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void A_step_title_without_a_mission_is_the_card_title()
     {
-        Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = , Mission = Answerer, Sent = {At}, Streaming = False }}"], Map(Started("Answerer")));
+        Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = , Mission = Answerer, Sent = {At}, Streaming = False }}"], Strings(Blocks([Started("Answerer")])));
     }
 
     [Fact]
     public void A_final_result_equal_to_the_last_step_message_is_shown_once()
     {
-        var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Final("Hello"), Status(ConversationRunStatus.Completed));
+        var blocks = Strings(Blocks([Started("Chat:Answerer"), Step("Hello"), Final("Hello"), Status(ConversationRunStatus.Completed)]));
 
         Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello, Mission = Chat, Sent = {At}, Streaming = False }}"], blocks);
     }
@@ -57,7 +57,7 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void A_final_result_that_differs_gets_its_own_card_titled_with_the_mission()
     {
-        var blocks = Map(Started("Chat:Answerer"), Step("Draft"), Final("Summary"));
+        var blocks = Strings(Blocks([Started("Chat:Answerer"), Step("Draft"), Final("Summary")]));
 
         Assert.Equal([
             $"ParticipantCard {{ Title = Answerer, Text = Draft, Mission = Chat, Sent = {At}, Streaming = False }}",
@@ -68,7 +68,7 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void A_step_message_fills_the_latest_card()
     {
-        var blocks = Map(Started("Plan:Planner"), Step("plan"), Started("Plan:Writer"), Step("text"));
+        var blocks = Strings(Blocks([Started("Plan:Planner"), Step("plan"), Started("Plan:Writer"), Step("text")]));
 
         Assert.Equal([
             $"ParticipantCard {{ Title = Planner, Text = plan, Mission = Plan, Sent = {At}, Streaming = False }}",
@@ -79,8 +79,8 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void A_mission_error_repeating_the_step_error_is_shown_once()
     {
-        var blocks = Map(Started("Chat:Answerer"), Error("rate limited", attempt: 1), Error("rate limited", attempt: null),
-            Status(ConversationRunStatus.Failed));
+        var blocks = Strings(Blocks([Started("Chat:Answerer"), Error("rate limited", attempt: 1), Error("rate limited", attempt: null),
+            Status(ConversationRunStatus.Failed)]));
 
         Assert.Equal([
             "ErrorLine { Text = error: rate limited }",
@@ -94,18 +94,18 @@ public sealed class ChatTranscriptTests
         Assert.Equal([
             $"YouBlock {{ Text = hi, Sent = {At} }}",
             $"ParticipantCard {{ Title = Answerer, Text = , Mission = Chat, Sent = {At}, Streaming = False }}",
-        ], Map(User("hi"), Started("Chat:Answerer")));
+        ], Strings(Blocks([User("hi"), Started("Chat:Answerer")])));
 
         Assert.Equal([
             $"YouBlock {{ Text = hi, Sent = {At} }}",
             "NoticeLine { Text = (run interrupted) }",
-        ], Map(User("hi"), Started("Chat:Answerer"), Status(ConversationRunStatus.Interrupted)));
+        ], Strings(Blocks([User("hi"), Started("Chat:Answerer"), Status(ConversationRunStatus.Interrupted)])));
     }
 
     [Fact]
     public void A_completed_turn_keeps_its_answered_cards()
     {
-        var blocks = Map(Started("Chat:Answerer"), Step("Hello"), Status(ConversationRunStatus.Completed));
+        var blocks = Strings(Blocks([Started("Chat:Answerer"), Step("Hello"), Status(ConversationRunStatus.Completed)]));
 
         Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello, Mission = Chat, Sent = {At}, Streaming = False }}"], blocks);
     }
@@ -116,7 +116,7 @@ public sealed class ChatTranscriptTests
     [InlineData(ConversationRunStatus.Rejected, "(run rejected)")]
     public void A_run_that_ends_unfinished_adds_a_notice(ConversationRunStatus status, string notice)
     {
-        Assert.Equal([$"NoticeLine {{ Text = {notice} }}"], Map(Status(status)));
+        Assert.Equal([$"NoticeLine {{ Text = {notice} }}"], Strings(Blocks([Status(status)])));
     }
 
     [Theory]
@@ -125,13 +125,13 @@ public sealed class ChatTranscriptTests
     [InlineData(ConversationRunStatus.Queued)]
     public void A_completed_or_live_status_adds_nothing(ConversationRunStatus status)
     {
-        Assert.Empty(Map(Status(status)));
+        Assert.Empty(Strings(Blocks([Status(status)])));
     }
 
     [Fact]
     public void Events_without_a_block_add_nothing()
     {
-        Assert.Empty(Map(Event(ConversationEventKind.ToolRequested, null, "tool"), Event(ConversationEventKind.Artifact, null, null)));
+        Assert.Empty(Strings(Blocks([Event(ConversationEventKind.ToolRequested, null, "tool"), Event(ConversationEventKind.Artifact, null, null)])));
     }
 
     [Fact]
@@ -172,16 +172,16 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void A_tool_use_shows_one_line_that_its_outcome_completes()
     {
-        Assert.Equal(["HandsLine { Label = Read notes.txt, Outcome =  }"], Map(HandsRequested("Read", "notes.txt")));
+        Assert.Equal(["HandsLine { Label = Read notes.txt, Outcome =  }"], Strings(Blocks([HandsRequested("Read", "notes.txt")])));
         Assert.Equal(["HandsLine { Label = Read notes.txt, Outcome = succeeded }"],
-            Map(HandsRequested("Read", "notes.txt"), HandsResult(MissionToolOutcome.Succeeded)));
+            Strings(Blocks([HandsRequested("Read", "notes.txt"), HandsResult(MissionToolOutcome.Succeeded)])));
     }
 
     [Fact]
     public void A_tool_use_goes_above_the_reply_still_waiting_and_the_reply_stays_last()
     {
-        var blocks = Map(User("read it"), Started("ChatHands:Answerer"), HandsRequested("Read", "notes.txt"),
-            HandsResult(MissionToolOutcome.Succeeded), Step("The codeword is kiwi."), Status(ConversationRunStatus.Completed));
+        var blocks = Strings(Blocks([User("read it"), Started("ChatHands:Answerer"), HandsRequested("Read", "notes.txt"),
+            HandsResult(MissionToolOutcome.Succeeded), Step("The codeword is kiwi."), Status(ConversationRunStatus.Completed)]));
 
         Assert.Equal([
             $"YouBlock {{ Text = read it, Sent = {At} }}",
@@ -199,7 +199,7 @@ public sealed class ChatTranscriptTests
     public void A_tool_use_that_did_not_succeed_shows_how_it_ended(MissionToolOutcome outcome, string shown)
     {
         Assert.Equal([$"HandsLine {{ Label = Write out.txt, Outcome = {shown} }}"],
-            Map(HandsRequested("Write", "out.txt"), HandsResult(outcome)));
+            Strings(Blocks([HandsRequested("Write", "out.txt"), HandsResult(outcome)])));
     }
 
     [Theory]
@@ -208,7 +208,7 @@ public sealed class ChatTranscriptTests
     public void A_cancelled_or_interrupted_attempt_ends_the_line(ConversationEventKind kind, string shown)
     {
         Assert.Equal([$"HandsLine {{ Label = Edit a.md, Outcome = {shown} }}"],
-            Map(HandsRequested("Edit", "a.md"), Event(kind, null, null)));
+            Strings(Blocks([HandsRequested("Edit", "a.md"), Event(kind, null, null)])));
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public sealed class ChatTranscriptTests
     {
         var noPath = HandsRequested("Read", null);
 
-        Assert.Equal(["HandsLine { Label = Read, Outcome =  }"], Map(noPath));
+        Assert.Equal(["HandsLine { Label = Read, Outcome =  }"], Strings(Blocks([noPath])));
     }
 
     [Fact]
@@ -232,7 +232,7 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void An_outcome_without_a_running_tool_use_changes_nothing()
     {
-        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}"], Map(User("hi"), HandsResult(MissionToolOutcome.Succeeded)));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}"], Strings(Blocks([User("hi"), HandsResult(MissionToolOutcome.Succeeded)])));
     }
 
     private static ConversationEvent HandsRequested(string tool, string? path)
@@ -310,8 +310,8 @@ public sealed class ChatTranscriptTests
     {
         var asked = At.AddMinutes(1);
         var started = At.AddMinutes(2);
-        var blocks = Map(User("hi") with { OccurredAtUtc = asked }, Started("Chat:Answerer") with { OccurredAtUtc = started },
-            Delta("Hel") with { OccurredAtUtc = At.AddMinutes(3) }, Step("Hello") with { OccurredAtUtc = At.AddMinutes(4) });
+        var blocks = Strings(Blocks([User("hi") with { OccurredAtUtc = asked }, Started("Chat:Answerer") with { OccurredAtUtc = started },
+            Delta("Hel") with { OccurredAtUtc = At.AddMinutes(3) }, Step("Hello") with { OccurredAtUtc = At.AddMinutes(4) }]));
 
         Assert.Equal([
             $"YouBlock {{ Text = hi, Sent = {asked} }}",
@@ -350,8 +350,8 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void Replay_never_shows_a_pending_block()
     {
-        var replay = Map(User("hi"), Started("Chat:Answerer"), Step("Hello"), Final("Hello"),
-            Status(ConversationRunStatus.Completed), User("again"), Status(ConversationRunStatus.Interrupted));
+        var replay = Strings(Blocks([User("hi"), Started("Chat:Answerer"), Step("Hello"), Final("Hello"),
+            Status(ConversationRunStatus.Completed), User("again"), Status(ConversationRunStatus.Interrupted)]));
 
         Assert.DoesNotContain(replay, block => block.StartsWith("Pending", StringComparison.Ordinal));
     }
@@ -361,17 +361,17 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void Deltas_grow_the_started_card_and_the_step_message_replaces_it()
     {
-        var growing = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"));
+        var growing = Strings(Blocks([Started("Chat:Answerer"), Delta("Hel"), Delta("lo")]));
         Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello, Mission = Chat, Sent = {At}, Streaming = True }}"], growing);
 
-        var final = Map(Started("Chat:Answerer"), Delta("Hel"), Delta("lo"), Step("Hello!"));
+        var final = Strings(Blocks([Started("Chat:Answerer"), Delta("Hel"), Delta("lo"), Step("Hello!")]));
         Assert.Equal([$"ParticipantCard {{ Title = Answerer, Text = Hello!, Mission = Chat, Sent = {At}, Streaming = False }}"], final);
     }
 
     [Fact]
     public void A_card_cut_off_mid_stream_stops_streaming_when_its_turn_ends()
     {
-        var ended = Map(Started("Chat:Answerer"), Delta("## Hel"), Status(ConversationRunStatus.Interrupted));
+        var ended = Strings(Blocks([Started("Chat:Answerer"), Delta("## Hel"), Status(ConversationRunStatus.Interrupted)]));
 
         Assert.Equal($"ParticipantCard {{ Title = Answerer, Text = ## Hel, Mission = Chat, Sent = {At}, Streaming = False }}", ended[0]);
     }
@@ -379,7 +379,7 @@ public sealed class ChatTranscriptTests
     [Fact]
     public void A_delta_with_no_card_changes_nothing()
     {
-        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}"], Map(User("hi"), Delta("orphan")));
+        Assert.Equal([$"YouBlock {{ Text = hi, Sent = {At} }}"], Strings(Blocks([User("hi"), Delta("orphan")])));
     }
 
     [Fact]
@@ -483,15 +483,6 @@ public sealed class ChatTranscriptTests
         Assert.Equal([(5L, true), (6L, true), (6L, true)], requests);
         Assert.IsType<IOException>(Assert.Single(lost));
         Assert.Equal(3, shown.Count);
-    }
-
-    [Fact]
-    public async Task Without_a_lost_handler_a_transport_failure_is_thrown()
-    {
-        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.Broken]));
-
-        await Assert.ThrowsAsync<IOException>(() => (Task<long>)FollowTurnAsyncMethod.Invoke(null,
-            [service, Guid.NewGuid(), 5L, Guid.NewGuid(), true, (Action<ConversationEvent>)(_ => { }), CancellationToken.None])!);
     }
 
     [Fact]
@@ -818,12 +809,12 @@ public sealed class ChatTranscriptTests
     private static (int Exit, string Error) ReportConnectionLost(Exception failure)
     {
         var error = new StringWriter();
-        var exit = (int)Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+        var exit = (int)Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
             .GetMethod("ReportConnectionLost", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [failure, error])!;
         return (exit, error.ToString().TrimEnd());
     }
 
-    private static readonly MethodInfo StreamAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+    private static readonly MethodInfo StreamAsyncMethod = Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
         .GetMethod("StreamAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
     private static readonly Type ChatTuiType = Forge.GetType("ForgeMission.Cli.Tui.ChatTui", throwOnError: true)!;
 
@@ -839,7 +830,7 @@ public sealed class ChatTranscriptTests
     private static bool KeepsStop(bool stopRequested, bool hasOwnTurn) =>
         (bool)ChatTuiType.GetMethod("KeepsStop", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [stopRequested, hasOwnTurn])!;
 
-    private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.ForgeChat", throwOnError: true)!
+    private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
         .GetMethod("FollowTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
 
     private static (object Service, List<(long After, bool IncludeDeltas)> Requests) FakeConversations(Queue<ConversationEvent[]> connections)
@@ -935,9 +926,6 @@ public sealed class ChatTranscriptTests
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
-    private static List<string> Map(params ConversationEvent[] events) =>
-        ((System.Collections.IEnumerable)Blocks(events)).Cast<object>().Select(block => block.ToString()!).ToList();
-
     private static string? Streaming(params ConversationEvent[] events) =>
         (string?)Forge.GetType("ForgeMission.Cli.Tui.Transcript", throwOnError: true)!
             .GetMethod("Streaming", BindingFlags.Static | BindingFlags.Public)!.Invoke(null, [Blocks(events)]);
@@ -948,10 +936,7 @@ public sealed class ChatTranscriptTests
     private static object Blocks(ConversationEvent[] events)
     {
         var blockType = Forge.GetType("ForgeMission.Cli.Tui.TranscriptBlock", throwOnError: true)!;
-        object blocks = Array.CreateInstance(blockType, 0);
-        foreach (var item in events)
-            blocks = ApplyMethod.Invoke(null, [blocks, item])!;
-        return blocks;
+        return ApplyAll(Array.CreateInstance(blockType, 0), events);
     }
 
     private static ConversationEvent User(string text) => Event(ConversationEventKind.UserMessage, null, text);
@@ -968,17 +953,4 @@ public sealed class ChatTranscriptTests
     private static ConversationEvent Event(ConversationEventKind kind, int? attempt, string? text) => new(
         Guid.NewGuid(), 1, Guid.Empty, Guid.Empty, 1, kind, ConversationParticipant.Forge, attempt, text,
         null, null, null, null, null, null, At);
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
 }

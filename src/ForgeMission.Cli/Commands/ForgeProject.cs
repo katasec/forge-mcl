@@ -1,18 +1,16 @@
 using System.CommandLine;
-using System.Net.Http.Headers;
 using ForgeMission.Application;
 using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
-using Microsoft.Extensions.DependencyInjection;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // Projects and Missions own creation and recovery. This surface selects the folder, supplies
 // the saved platform login, and reports their result; it writes no Project or package files.
 public static class ForgeProject
 {
-    internal static Command BuildCommand()
+    internal static Command BuildCommand(IHttpClientFactory clients)
     {
         var project = new Command("project", "Manage portable Forge projects");
         var create = new Command("create", "Create a portable project with a hosted Chat conversation");
@@ -22,13 +20,15 @@ public static class ForgeProject
             Arity = ArgumentArity.ZeroOrOne,
         };
         create.Add(folder);
-        create.SetAction(async result => await RunAsync(result.GetValue(folder)));
+        create.SetCancellableAction((result, _) => RunAsync(result.GetValue(folder), clients));
         project.Add(create);
         return project;
     }
 
-    public static Task<int> RunAsync(string? folder) =>
-        RunCoreAsync(folder, CredentialStore.GetPlatform(), CreateAsync, Console.Out, Console.Error);
+    // The conversation-host client carries the saved platform key itself (CliHttpClients).
+    internal static Task<int> RunAsync(string? folder, IHttpClientFactory clients) =>
+        RunCoreAsync(folder, CredentialStore.GetPlatform(),
+            (request, _) => CreateAsync(request, clients), Console.Out, Console.Error);
 
     // The seam keeps startup/output checks independent of actual saved credentials and network.
     internal static async Task<int> RunCoreAsync(string? folder, PlatformCredential? platform,
@@ -68,17 +68,12 @@ public static class ForgeProject
         return 0;
     }
 
+    // Deliberately not the command's token: Missions report a cancelled creation as an uncertain
+    // submission (an error and exit 1), where Ctrl+C exits 130.
     private static async Task<CreateChatProjectResponse> CreateAsync(
-        CreateChatProjectRequest request, PlatformCredential platform)
+        CreateChatProjectRequest request, IHttpClientFactory clients)
     {
-        var services = new ServiceCollection();
-        services.AddHttpClient("conversation-host", client =>
-        {
-            client.BaseAddress = new Uri(ForgeExec.ApiEndpoint + "/");
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", platform.Key);
-        });
-        await using var provider = services.BuildServiceProvider();
-        await using var app = ApplicationComposition.Create(provider.GetRequiredService<IHttpClientFactory>(),
+        await using var app = ApplicationComposition.Create(clients,
             null, new CapabilityAuthorizationPolicy([], null), _ => { }, CancellationToken.None);
         return await app.MissionConversations.CreateChatProjectAsync(request, CancellationToken.None);
     }

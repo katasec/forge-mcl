@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reflection;
 using System.Net;
 using System.Text;
@@ -7,6 +6,7 @@ using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 using ForgeMission.Conversations.Contracts;
+using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -197,36 +197,14 @@ public sealed class ForgeProjectTests
 
     private static async Task<(int ExitCode, string Output, string Error)> InvokeAsync(string[] args)
     {
-        var start = new ProcessStartInfo("dotnet")
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        start.ArgumentList.Add(RunCore.DeclaringType!.Assembly.Location);
-        foreach (var arg in args) start.ArgumentList.Add(arg);
+        await using var harness = ForgeCliHarness.Start();
         // Controlled parser-only check; no remote endpoint is used.
-        start.Environment["FORGE_API_ENDPOINT"] = "invalid-endpoint";
-        using var process = Process.Start(start)!;
-        process.StandardInput.Close();
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        try { await process.WaitForExitAsync(timeout.Token); }
-        finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-        return (process.ExitCode, await output, await error);
+        harness.Variables["FORGE_API_ENDPOINT"] = "invalid-endpoint";
+        var result = await harness.RunAsync(args);
+        return (result.ExitCode, result.StandardOutput, result.StandardError);
     }
 
-    private static MethodInfo LoadRunCore()
-    {
-        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-        {
-            var path = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", configuration, "net10.0", "forge.dll");
-            if (File.Exists(path)) return Assembly.LoadFrom(path).GetType("ForgeMission.Cli.ForgeProject", throwOnError: true)!
-                .GetMethod("RunCoreAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
-        }
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI tests.");
-    }
+    private static MethodInfo LoadRunCore() =>
+        Assembly.LoadFrom(ForgeCliHarness.ForgeDllPath).GetType("ForgeMission.Cli.Commands.ForgeProject", throwOnError: true)!
+            .GetMethod("RunCoreAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
 }

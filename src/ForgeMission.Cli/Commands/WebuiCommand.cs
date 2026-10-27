@@ -1,9 +1,10 @@
 using System.CommandLine;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Docker;
+using ForgeMission.Cli.Services;
 using Spectre.Console;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Commands;
 
 // forge webui start/stop — run Open WebUI in Docker, pre-wired to talk to a running forge agent
 // container over the shared forge-net network. Docker orchestration lives in ForgeMission.Docker;
@@ -25,17 +26,17 @@ internal static class WebuiCommand
         Action<string> die,
         Func<IEnumerable<PrereqCheck>, bool> runAndPrintPrereqs)
     {
-        var agentFileOpt = new Option<string?>("--agent-file") { Description = "Path to agent.yaml (default: ./agent.yaml)" };
-        var portOpt = new Option<int?>("--port") { Description = "Host port for Open WebUI (default: 3000)" };
+        var agentFileOpt = new Option<string>("--agent-file") { Description = "Path to agent.yaml", DefaultValueFactory = _ => "./agent.yaml" };
+        var portOpt = new Option<int>("--port") { Description = "Host port for Open WebUI", DefaultValueFactory = _ => 3000 };
 
         var cmd = new Command("start", "Start Open WebUI pre-configured to connect to the forge agent");
         cmd.Add(agentFileOpt);
         cmd.Add(portOpt);
 
-        cmd.SetAction(async result =>
+        cmd.SetCancellableAction(async (result, _) =>
         {
-            var agentFile = result.GetValue(agentFileOpt) ?? "./agent.yaml";
-            var webuiPort = result.GetValue(portOpt) ?? 3000;
+            var agentFile = result.GetValue(agentFileOpt)!;
+            var webuiPort = result.GetValue(portOpt);
             var agentFileFull = Path.GetFullPath(agentFile);
 
             if (!File.Exists(agentFileFull))
@@ -106,7 +107,7 @@ internal static class WebuiCommand
     {
         var cmd = new Command("stop", "Stop and remove the Open WebUI container");
 
-        cmd.SetAction(async _ =>
+        cmd.SetCancellableAction(async (_, _) =>
         {
             await DockerCli.StopAndRemoveAsync("open-webui");
             AnsiConsole.MarkupLine("[green]✓[/] Open WebUI stopped");

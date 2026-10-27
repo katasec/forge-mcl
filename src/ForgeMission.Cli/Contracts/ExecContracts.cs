@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Contracts;
 
 // --- Wire types (mirrors ForgeMission.Api/Messages.cs — a client, not a shared-lib reference,
 // since ForgeAPI is a non-AOT server project the AOT `forge` CLI must not depend on) -------------

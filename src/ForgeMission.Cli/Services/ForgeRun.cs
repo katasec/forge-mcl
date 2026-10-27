@@ -5,7 +5,7 @@ using ForgeMission.Core.Tools;
 using Microsoft.Extensions.AI;
 using MclProgram = ForgeMission.Parser.Program;
 
-namespace ForgeMission.Cli;
+namespace ForgeMission.Cli.Services;
 
 // CLI composition only: Core reasons and checkpoints; Hands owns local capability authority.
 internal static class ForgeRun

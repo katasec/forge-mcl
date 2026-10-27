@@ -1,0 +1,4 @@
+# IDE0130: namespaces match the folder layout (ForgeMission.Cli.Commands, .Contracts, .Services, .Tui, .Tui.Graphics).
+[*.cs]
+dotnet_style_namespace_match_folder = true
+dotnet_diagnostic.IDE0130.severity = warning

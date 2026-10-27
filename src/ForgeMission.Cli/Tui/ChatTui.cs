@@ -2,6 +2,8 @@ using ForgeMission.Application;
 using System.Collections.Concurrent;
 using ForgeMission.Conversations.Contracts;
 using ForgeMission.Cli.Tui.Graphics;
+using ForgeMission.Cli.Services;
+using ForgeMission.Cli.Commands;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Commands;
@@ -93,11 +95,12 @@ internal sealed class ChatTui
     /// <summary>Runs the TUI until Ctrl-D, or until the terminal gives no cell size on the first
     /// tick (<see cref="TuiExit.NoCellSize"/>; the caller reports it). A turn still running on quit
     /// keeps running on Forge; only this process stops following it. A file operation still
-    /// running is cancelled.</summary>
+    /// running is cancelled. The session also ends when <paramref name="cancellationToken"/> is cancelled.</summary>
     public static async Task<TuiExit> RunAsync(IMissionConversationService conversations, Guid conversationId, ChatHeader header,
-        ForgeTheme theme, TextFonts fonts, ChatHandsAttachment? hands, ConcurrentQueue<string> notices)
+        ForgeTheme theme, TextFonts fonts, ChatHandsAttachment? hands, ConcurrentQueue<string> notices,
+        CancellationToken cancellationToken)
     {
-        using var session = new CancellationTokenSource();
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var tui = new ChatTui(conversations, conversationId, header, theme, fonts, hands, notices, session);
         TypeAhead.Discard();
         await TerminalCaret.WhileRunning(tui._styles.Caret, () => TerminalPointer.WhileRunning(() =>
