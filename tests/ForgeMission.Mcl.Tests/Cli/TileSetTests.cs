@@ -34,7 +34,6 @@ public sealed class TileSetTests
     private static readonly string[] RingSets = ["CardShape", "CodeBlockShape", "UserShape", "ComposerShape", "CardHoverShape"];
     private static readonly string[] CapSets = ["UserCaps", "ApprovedCaps", "ToolCaps"];
 
-    private static readonly Type ThemeType = Type("ForgeMission.Cli.Tui.ForgeTheme");
     private static readonly Type StylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
     private static readonly MethodInfo Solve = Type("ForgeMission.Cli.Tui.Graphics.RingGeometry")
         .GetMethod("Solve", BindingFlags.Static | BindingFlags.Public)!;
@@ -365,7 +364,7 @@ public sealed class TileSetTests
     }
 
     private static object Shape(string theme, string set) =>
-        StylesType.GetProperty(set)!.GetValue(Activator.CreateInstance(StylesType, Theme(theme)))!;
+        StylesType.GetProperty(set)!.GetValue(ForgeText.Styles(theme))!;
 
     private static Image ImageOf(object image) => new((int)Get<object>(image, "Width"), (int)Get<object>(image, "Height"), (byte[])Get<object>(image, "Pixels"));
 
@@ -376,5 +375,5 @@ public sealed class TileSetTests
     private static uint[] Ids(int theme, int set, int width, int height) => (uint[])ImageIds.Invoke(null, [theme, set, width, height])!;
 
     private static int ImageIdSlot(string theme) =>
-        (int)StylesType.GetProperty("ImageIdSlot")!.GetValue(Activator.CreateInstance(StylesType, Theme(theme)))!;
+        (int)StylesType.GetProperty("ImageIdSlot")!.GetValue(ForgeText.Styles(theme))!;
 }
