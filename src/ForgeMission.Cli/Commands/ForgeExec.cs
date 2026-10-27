@@ -186,7 +186,8 @@ public static class ForgeExec
 
     private static async Task<DownloadedInput?> DownloadUrlInputAsync(HttpClient http, Uri uri, CancellationToken cancellationToken)
     {
-        using var cts = new CancellationTokenSource(InputDownloadTimeout);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(InputDownloadTimeout);
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, uri);

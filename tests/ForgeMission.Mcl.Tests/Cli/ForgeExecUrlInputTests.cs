@@ -106,14 +106,15 @@ public sealed class ForgeExecUrlInputTests
     }
 
     // A cancelled download is reported as the download's own timeout only while the caller has not
-    // cancelled; the caller's own cancellation propagates to it unreported.
+    // cancelled; the caller's own cancellation reaches the download and propagates unreported.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_cancelled_download_is_a_timeout_only_when_the_caller_did_not_cancel(bool callerCancelled)
     {
         var uri = new Uri("https://example.test/scan.jpg");
-        using var http = new HttpClient(new CancellingHandler());
+        var handler = new CancellingHandler();
+        using var http = new HttpClient(handler);
         using var caller = new CancellationTokenSource();
         if (callerCancelled) caller.Cancel();
         var error = new StringWriter();
@@ -129,16 +130,23 @@ public sealed class ForgeExecUrlInputTests
         }
         finally { Console.SetError(original); }
 
+        Assert.Equal(callerCancelled, handler.SawCancellation);
         var timedOut = $"input download timed out after 30 seconds: {uri}";
         if (callerCancelled) Assert.DoesNotContain(timedOut, error.ToString());
         else Assert.Contains(timedOut, error.ToString());
     }
 
-    // Every send is cancelled, as a timeout or a caller's cancellation would end it.
+    // Every send is cancelled, as a timeout or a caller's cancellation would end it; records whether
+    // the token the download sent with was already cancelled.
     private sealed class CancellingHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+        public bool SawCancellation { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            SawCancellation = ct.IsCancellationRequested;
             throw new TaskCanceledException();
+        }
     }
 
     private static async Task<object?> Result(Task task)
