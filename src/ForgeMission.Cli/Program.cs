@@ -595,7 +595,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
         var baseUrl = $"http://127.0.0.1:{port}";
         try
         {
-            if (!await WaitUntilHealthyAsync(baseUrl, timeoutMs: 60_000))
+            if (!await WaitUntilHealthyAsync(clients, baseUrl, timeoutMs: 60_000))
             {
                 Die($"Mission endpoint did not become healthy at {baseUrl}.");
                 return;
@@ -722,9 +722,9 @@ static async Task<Func<Task>?> StartMissionContainerAsync(AgentConfig config, st
     return async () => await DockerCli.StopAndRemoveAsync(containerName);
 }
 
-static async Task<bool> WaitUntilHealthyAsync(string baseUrl, int timeoutMs)
+static async Task<bool> WaitUntilHealthyAsync(IHttpClientFactory clients, string baseUrl, int timeoutMs)
 {
-    using var http = new HttpClient();
+    var http = clients.CreateClient(CliHttpClients.Health);
     var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
     while (DateTime.UtcNow < deadline)
     {

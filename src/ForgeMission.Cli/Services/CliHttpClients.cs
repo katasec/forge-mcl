@@ -16,6 +16,7 @@ internal static class CliHttpClients
     internal const string Login = "forge-login";
     internal const string WebSearch = "forge-websearch";
     internal const string ConversationHost = "conversation-host";
+    internal const string Health = "forge-health";
 
     internal static IServiceCollection AddCliHttpClients(this IServiceCollection services)
     {
@@ -24,6 +25,7 @@ internal static class CliHttpClients
         services.AddHttpClient(WebSearch, client => client.Timeout = TimeSpan.FromMinutes(3)) // live-retrieval backend
             .UseSocketsHttpHandler((handler, _) => handler.PooledConnectionLifetime = TimeSpan.FromMinutes(2))
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan); // held for a whole mission run: rotate connections, not handlers
+        services.AddHttpClient(Health); // forge claude's readiness probe of the mission endpoint
         services.AddHttpClient(ConversationHost, (provider, client) =>
         {
             client.BaseAddress = new Uri(provider.GetRequiredService<IOptions<ForgeApiSettings>>().Value.Endpoint + "/");
