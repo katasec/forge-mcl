@@ -11,8 +11,8 @@ namespace ForgeMission.Tests.Cli;
 // and code blocks take the code-block tokens. The styles are read from forge.dll through reflection.
 public sealed class ForgeMarkdownStyleTests
 {
-    private static readonly Type ThemeType = Forge.GetType("ForgeMission.Cli.Tui.ForgeTheme", throwOnError: true)!;
-    private static readonly Type StylesType = Forge.GetType("ForgeMission.Cli.Tui.ForgeStyles", throwOnError: true)!;
+    private static readonly Type ThemeType = Type("ForgeMission.Cli.Tui.ForgeTheme");
+    private static readonly Type StylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
 
     [Theory]
     [InlineData("Light")]
