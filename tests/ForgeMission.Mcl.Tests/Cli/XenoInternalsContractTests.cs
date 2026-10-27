@@ -74,13 +74,13 @@ public sealed class XenoInternalsContractTests
         buffer.WriteText(4, 0, "L", style, buffer.RegisterHyperlink("https://example.com"));
 
         var a = Read(buffer, 1, 0);
-        Assert.Equal('A', (int)Get(a, "Rune"));
-        Assert.Equal(style, (Style)Get(a, "Style"));
-        Assert.False((bool)Get(a, "Link"));
-        Assert.False((bool)Get(a, "Placeholder"));
-        Assert.True((bool)Get(Read(buffer, 2, 0), "Placeholder"));
-        Assert.True((bool)Get(Read(buffer, 4, 0), "Link"));
-        Assert.True((bool)Get(Read(buffer, 5, 0), "Blank"));
+        Assert.Equal('A', (int)Get<object>(a, "Rune"));
+        Assert.Equal(style, (Style)Get<object>(a, "Style"));
+        Assert.False((bool)Get<object>(a, "Link"));
+        Assert.False((bool)Get<object>(a, "Placeholder"));
+        Assert.True((bool)Get<object>(Read(buffer, 2, 0), "Placeholder"));
+        Assert.True((bool)Get<object>(Read(buffer, 4, 0), "Link"));
+        Assert.True((bool)Get<object>(Read(buffer, 5, 0), "Blank"));
     }
 
     [Fact]
@@ -103,11 +103,11 @@ public sealed class XenoInternalsContractTests
         buffer.OverlayCellStyle(1, 0, Style.None.WithForeground(Green.WithAlpha(0)));
 
         var opaque = Read(buffer, 0, 0);
-        Assert.Equal('a', (int)Get(opaque, "Rune"));
-        Assert.True((bool)Get(opaque, "Link"));
-        Assert.True(((Style)Get(opaque, "Style")).TryGetForeground(out var green) && green == Green);
+        Assert.Equal('a', (int)Get<object>(opaque, "Rune"));
+        Assert.True((bool)Get<object>(opaque, "Link"));
+        Assert.True(((Style)Get<object>(opaque, "Style")).TryGetForeground(out var green) && green == Green);
         // Why FadeIn mixes colours itself: alpha 0 gives the background, not the cell's own red.
-        Assert.True(((Style)Get(Read(buffer, 1, 0), "Style")).TryGetForeground(out var under) && under == Blue);
+        Assert.True(((Style)Get<object>(Read(buffer, 1, 0), "Style")).TryGetForeground(out var under) && under == Blue);
     }
 
     [Fact]
@@ -157,8 +157,6 @@ public sealed class XenoInternalsContractTests
     }
 
     private static object Read(CellBuffer buffer, int x, int y) => Cells.GetMethod("Read")!.Invoke(null, [buffer, x, y])!;
-
-    private static object Get(object target, string property) => target.GetType().GetProperty(property)!.GetValue(target)!;
 
     /// <summary>An animation that reports no next tick until told otherwise.</summary>
     private sealed class IdleAnimation : Visual, IAnimatedVisual
