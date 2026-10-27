@@ -41,6 +41,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>forge</AssemblyName>
     <PublishAot>true</PublishAot>
+    <!-- Ships as a Native AOT payload via scripts/build.ps1, never as a NuGet package. -->
+    <IsPackable>false</IsPackable>
     <!-- StbTrueTypeSharp's API takes pointers; unsafe code is allowed in Tui/Graphics/GlyphText.cs only (TuiColourLiteralTests). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- YamlDotNet uses reflection-based builders; our types are preserved via
