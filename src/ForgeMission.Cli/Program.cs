@@ -605,7 +605,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
         var baseUrl = $"http://127.0.0.1:{port}";
         try
         {
-            if (!await WaitUntilHealthyAsync(clients, baseUrl, timeoutMs: 60_000))
+            if (!await WaitUntilHealthyAsync(clients, baseUrl, timeoutMs: 60_000, cancellationToken))
             {
                 Die($"Mission endpoint did not become healthy at {baseUrl}.");
                 return;
@@ -732,30 +732,43 @@ static async Task<Func<Task>?> StartMissionContainerAsync(AgentConfig config, st
     return async () => await DockerCli.StopAndRemoveAsync(containerName);
 }
 
-static async Task<bool> WaitUntilHealthyAsync(IHttpClientFactory clients, string baseUrl, int timeoutMs)
+static async Task<bool> WaitUntilHealthyAsync(IHttpClientFactory clients, string baseUrl, int timeoutMs, CancellationToken cancellationToken)
 {
     var http = clients.CreateClient(CliHttpClients.Health);
-    var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-    while (DateTime.UtcNow < deadline)
+    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    deadline.CancelAfter(timeoutMs);
+    try
     {
-        try
-        {
-            var response = await http.SendAsync(new HttpRequestMessage(HttpMethod.Head, baseUrl + "/"));
-            if (response.IsSuccessStatusCode) return true;
-        }
-        catch (HttpRequestException)
-        {
-            // Contract: swallow by design. While polling, a refused connection or
-            // unresolved host means the server has not finished binding its port yet
-            // — an expected transient state, not a failure. We retry until the
-            // deadline; the owning boundary is the timeout, which returns false and
-            // surfaces the "never became healthy" result to the caller. Only
-            // HttpRequestException (transport-level "not up yet") is caught here;
-            // any other exception propagates.
-        }
-        await Task.Delay(250);
+        while (!await IsHealthyAsync(http, baseUrl, deadline.Token))
+            await Task.Delay(250, deadline.Token);
+        return true;
     }
-    return false;
+    // The deadline passing is the poll's own timeout ("never became healthy"); the action's
+    // token being cancelled propagates.
+    catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+    {
+        return false;
+    }
+}
+
+static async Task<bool> IsHealthyAsync(HttpClient http, string baseUrl, CancellationToken cancellationToken)
+{
+    try
+    {
+        var response = await http.SendAsync(new HttpRequestMessage(HttpMethod.Head, baseUrl + "/"), cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+    catch (HttpRequestException)
+    {
+        // Contract: swallow by design. While polling, a refused connection or
+        // unresolved host means the server has not finished binding its port yet
+        // — an expected transient state, not a failure. We retry until the
+        // deadline; the owning boundary is the timeout, which returns false and
+        // surfaces the "never became healthy" result to the caller. Only
+        // HttpRequestException (transport-level "not up yet") is caught here;
+        // any other exception propagates.
+        return false;
+    }
 }
 
 // Launch claude with the redirect env, stdio inherited (fully interactive), and

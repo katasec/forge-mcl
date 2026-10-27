@@ -53,6 +53,29 @@ public sealed class ForgeServeTests
         Assert.Contains(banner.Replace("{port}", port.ToString()), result.StandardError);
     }
 
+    // forge claude --print-env waits for its in-process endpoint to answer, then prints the wiring on
+    // stdout and keeps serving until Ctrl+C. Needs no claude CLI.
+    [SkippableFact]
+    public async Task Claude_print_env_prints_the_wiring_once_the_endpoint_is_healthy()
+    {
+        Skip.If(OperatingSystem.IsWindows(), "SIGINT is POSIX.");
+        await using var harness = ForgeCliHarness.Start();
+        var port = FreePort();
+        harness.WorkingDirectory = WriteAgent(harness.Home, port);
+        var printed = new List<string>();
+
+        var result = await harness.InterruptWhileAsync(async stdout =>
+        {
+            printed.Add((await stdout.ReadLineAsync())!);
+            printed.Add((await stdout.ReadLineAsync())!);
+        }, "claude", "--print-env", "--port", port.ToString());
+
+        Assert.Equal([$"export ANTHROPIC_BASE_URL=http://127.0.0.1:{port}", "export ANTHROPIC_API_KEY=forge-local"], printed);
+        Assert.Equal("", result.StandardOutput);
+        Assert.Contains($"✓ endpoint  /v1/messages    http://127.0.0.1:{port}   (in-process)", result.StandardError);
+        Assert.DoesNotContain("did not become healthy", result.StandardError);
+    }
+
     private static string WriteAgent(string home, int port)
     {
         var dir = Path.Combine(home, "agent");
