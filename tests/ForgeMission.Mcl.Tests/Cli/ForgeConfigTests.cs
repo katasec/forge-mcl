@@ -102,6 +102,52 @@ public sealed class ForgeConfigTests
         Assert.Contains(new ProxyAttempt("CONNECT", "api.forge.katasec.com:443"), harness.Proxy.Attempts);
     }
 
+    // Every hosted call of forge exec — input upload, the run, artifact download — goes to the
+    // configured endpoint.
+    [Fact]
+    public async Task Every_exec_call_goes_to_the_configured_api_endpoint()
+    {
+        await using var harness = ForgeCliHarness.Start();
+        var stub = await harness.StartStubAsync(request => request.PathAndQuery switch
+        {
+            "/api/UploadArtifact" => new StubResponse(200, """{"artifact":{"id":"in-1","name":"in.txt"}}"""),
+            "/api/ExecuteMission" => new StubResponse(200,
+                """{"type":"result","result":{"answer":"done","artifacts":[{"id":"out-1","name":"out.txt"}]}}"""),
+            _ => new StubResponse(200, "converted", "application/octet-stream"),
+        });
+        harness.SignIn("https://example.invalid");
+        harness.WriteConfig($$"""{ "api": { "endpoint": "{{stub.Address}}" } }""");
+        File.WriteAllText(Path.Combine(harness.WorkingDirectory, "in.txt"), "source");
+
+        var result = await harness.RunAsync("exec", "Noop", "--input", "in.txt", "--out", "out.txt");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Created: out.txt", result.StandardOutput);
+        Assert.Equal(["/api/UploadArtifact", "/api/ExecuteMission", "/api/GetArtifact"], stub.Requests.Select(r => r.PathAndQuery));
+        Assert.Equal("converted", File.ReadAllText(Path.Combine(harness.WorkingDirectory, "out.txt")));
+    }
+
+    // forge project create and forge chat reach the hosted conversations at the configured endpoint.
+    [Theory]
+    [InlineData("/api/CreateMissionConversation", "project", "create")]
+    [InlineData("/api/ListMissionConversations", "chat")]
+    public async Task Conversation_commands_go_to_the_configured_api_endpoint(string firstCall, params string[] args)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        var stub = await harness.StartStubAsync(_ => new StubResponse(500, "boom"));
+        harness.SignIn("https://example.invalid");
+        harness.WriteConfig($$"""{ "api": { "endpoint": "{{stub.Address}}" } }""");
+        File.WriteAllText(Path.Combine(harness.WorkingDirectory, "forge.project.json"),
+            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
+
+        var result = await harness.RunAsync(args);
+
+        Assert.Equal(1, result.ExitCode);
+        var request = Assert.Single(stub.Requests);
+        Assert.Equal(("POST", firstCall, "Bearer fg_test_key"), (request.Method, request.PathAndQuery, request.Headers["Authorization"]));
+        Assert.Empty(harness.Proxy.Attempts);
+    }
+
     private static ForgeCliHarness StartInProject()
     {
         var harness = ForgeCliHarness.Start();

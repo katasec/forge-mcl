@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using ForgeMission.Core.Resolution;
+using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli;
 
@@ -17,12 +18,11 @@ public static class ForgeExec
     internal const long MaxInputDownloadBytes = 100L * 1024L * 1024L;
     private static readonly TimeSpan InputDownloadTimeout = TimeSpan.FromSeconds(30);
 
-    // The bound ~/.forge/config.json api.endpoint, set once by the CLI host at startup.
-    internal static string ApiEndpoint { get; set; } = ForgeApiSettings.DefaultEndpoint;
-
     private static HttpClient Http => CliHttpClients.Create(CliHttpClients.Exec);
 
-    public static async Task<int> RunAsync(
+    // Every hosted call goes to the configured api.endpoint (ForgeApiSettings).
+    internal static async Task<int> RunAsync(
+        IOptions<ForgeApiSettings> api,
         string target,
         string? prompt,
         string? inputPath = null,
@@ -36,11 +36,12 @@ public static class ForgeExec
             return 1;
         }
 
+        var endpoint = api.Value.Endpoint;
         var mission = target.StartsWith('@') ? target[1..] : target;
         var inputArtifacts = new List<MissionArtifactDto>();
         if (!string.IsNullOrWhiteSpace(inputPath))
         {
-            var upload = await UploadInputAsync(inputPath, platform.Key);
+            var upload = await UploadInputAsync(inputPath, endpoint, platform.Key);
             if (upload is null) return 1;
             inputArtifacts.Add(upload);
         }
@@ -62,7 +63,7 @@ public static class ForgeExec
             Stream = true,
         };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiEndpoint}/api/ExecuteMission")
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/api/ExecuteMission")
         {
             Content = JsonContent.Create(request, ForgeExecJsonContext.Default.ExecuteMissionRequest),
         };
@@ -75,7 +76,7 @@ public static class ForgeExec
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            Console.Error.WriteLine($"Could not reach {ApiEndpoint}: {ex.Message}");
+            Console.Error.WriteLine($"Could not reach {endpoint}: {ex.Message}");
             return 1;
         }
 
@@ -130,7 +131,7 @@ public static class ForgeExec
 
         if (result.Artifacts is { Count: > 0 })
         {
-            if (!await DownloadArtifactsAsync(result.Artifacts, platform.Key, inputPath, mode, outPath))
+            if (!await DownloadArtifactsAsync(result.Artifacts, endpoint, platform.Key, inputPath, mode, outPath))
                 return 1;
         }
         else
@@ -147,7 +148,7 @@ public static class ForgeExec
             ? null
             : new Dictionary<string, string>(StringComparer.Ordinal) { ["mode"] = mode };
 
-    private static async Task<MissionArtifactDto?> UploadInputAsync(string path, string platformKey)
+    private static async Task<MissionArtifactDto?> UploadInputAsync(string path, string endpoint, string platformKey)
     {
         if (IsHttpUrl(path, out var uri))
         {
@@ -160,6 +161,7 @@ public static class ForgeExec
                     download.Path,
                     download.FileName,
                     download.ContentTypeHint,
+                    endpoint,
                     platformKey);
             }
             finally
@@ -175,7 +177,7 @@ public static class ForgeExec
         }
 
         var fullPath = Path.GetFullPath(path);
-        return await UploadLocalInputAsync(fullPath, Path.GetFileName(fullPath), contentTypeHint: null, platformKey);
+        return await UploadLocalInputAsync(fullPath, Path.GetFileName(fullPath), contentTypeHint: null, endpoint, platformKey);
     }
 
     private static async Task<DownloadedInput?> DownloadUrlInputAsync(Uri uri)
@@ -259,6 +261,7 @@ public static class ForgeExec
         string fullPath,
         string artifactName,
         string? contentTypeHint,
+        string endpoint,
         string platformKey)
     {
         var sha256 = await Sha256Async(fullPath);
@@ -267,7 +270,7 @@ public static class ForgeExec
         content.Headers.ContentType = new MediaTypeHeaderValue(contentTypeHint ?? ContentTypeFor(artifactName));
         content.Headers.ContentLength = file.Length;
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiEndpoint}/api/UploadArtifact")
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/api/UploadArtifact")
         {
             Content = content,
         };
@@ -296,6 +299,7 @@ public static class ForgeExec
 
     private static async Task<bool> DownloadArtifactsAsync(
         List<MissionArtifactDto> artifacts,
+        string endpoint,
         string platformKey,
         string? inputPath,
         string? mode,
@@ -310,7 +314,7 @@ public static class ForgeExec
                     ? InferOutputPath(inputPath!, mode, artifact)
                     : artifact.Name;
 
-            if (!await DownloadArtifactAsync(artifact.Id, targetPath, platformKey))
+            if (!await DownloadArtifactAsync(artifact.Id, targetPath, endpoint, platformKey))
                 return false;
             Console.WriteLine($"Created: {targetPath}");
         }
@@ -319,9 +323,9 @@ public static class ForgeExec
         return true;
     }
 
-    private static async Task<bool> DownloadArtifactAsync(string artifactId, string path, string platformKey)
+    private static async Task<bool> DownloadArtifactAsync(string artifactId, string path, string endpoint, string platformKey)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiEndpoint}/api/GetArtifact")
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/api/GetArtifact")
         {
             Content = JsonContent.Create(
                 new GetArtifactRequest { Version = 1, ArtifactId = artifactId },

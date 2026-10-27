@@ -26,7 +26,7 @@ public static class ForgeChat
         "(not inside tmux). Open forge chat again from one of those.";
 
     /// <summary>The <c>forge chat</c> command and its flags.</summary>
-    internal static Command BuildCommand(IOptions<ForgeSettings> settings)
+    internal static Command BuildCommand(IOptions<ForgeSettings> settings, IOptions<ForgeApiSettings> api)
     {
         var cmd = new Command("chat", "Chat with a hosted mission in the current Forge project");
         cmd.Add(new Option<bool>(HandsFlag)
@@ -38,7 +38,7 @@ public static class ForgeChat
             Description = "Path to a project file (default: ./forge.project.json)",
         });
         cmd.SetAction(async result => await MacChatWindow.RunCommandAsync(
-            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag), settings),
+            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag), settings, api),
             MacChatWindow.ChildMarker(OperatingSystem.IsMacOS(),
                 UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected),
                 Environment.GetEnvironmentVariable(MacChatWindow.Marker)),
@@ -48,7 +48,8 @@ public static class ForgeChat
         return cmd;
     }
 
-    internal static async Task<int> RunAsync(bool hands, string? projectPath, IOptions<ForgeSettings> settings)
+    internal static async Task<int> RunAsync(bool hands, string? projectPath, IOptions<ForgeSettings> settings,
+        IOptions<ForgeApiSettings> api)
     {
         var projectFile = Path.GetFullPath(projectPath
             ?? Path.Combine(Directory.GetCurrentDirectory(), "forge.project.json"));
@@ -103,7 +104,7 @@ public static class ForgeChat
         var services = new ServiceCollection();
         services.AddHttpClient("conversation-host", client =>
         {
-            client.BaseAddress = new Uri(ForgeExec.ApiEndpoint + "/");
+            client.BaseAddress = new Uri(api.Value.Endpoint + "/");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", platform.Key);
         });
         await using var provider = services.BuildServiceProvider();
@@ -420,7 +421,7 @@ public static class ForgeChat
     private static bool Hands(ParseResult result) => result.GetValue<bool>(HandsFlag);
 
     /// <summary>Whether <paramref name="args"/> (after <c>chat</c>) ask for hands.</summary>
-    internal static bool ParseHands(string[] args) => Hands(BuildCommand(Options.Create(new ForgeSettings())).Parse(args));
+    internal static bool ParseHands(string[] args) => Hands(BuildCommand(Options.Create(new ForgeSettings()), Options.Create(new ForgeApiSettings())).Parse(args));
 
     internal static ChatMode ModeFor(bool hands) => hands ? ChatMode.Hands : ChatMode.Plain;
 

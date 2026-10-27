@@ -5,6 +5,7 @@ using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli;
 
@@ -12,7 +13,7 @@ namespace ForgeMission.Cli;
 // the saved platform login, and reports their result; it writes no Project or package files.
 public static class ForgeProject
 {
-    internal static Command BuildCommand()
+    internal static Command BuildCommand(IOptions<ForgeApiSettings> api)
     {
         var project = new Command("project", "Manage portable Forge projects");
         var create = new Command("create", "Create a portable project with a hosted Chat conversation");
@@ -22,13 +23,14 @@ public static class ForgeProject
             Arity = ArgumentArity.ZeroOrOne,
         };
         create.Add(folder);
-        create.SetAction(async result => await RunAsync(result.GetValue(folder)));
+        create.SetAction(async result => await RunAsync(result.GetValue(folder), api));
         project.Add(create);
         return project;
     }
 
-    public static Task<int> RunAsync(string? folder) =>
-        RunCoreAsync(folder, CredentialStore.GetPlatform(), CreateAsync, Console.Out, Console.Error);
+    internal static Task<int> RunAsync(string? folder, IOptions<ForgeApiSettings> api) =>
+        RunCoreAsync(folder, CredentialStore.GetPlatform(),
+            (request, platform) => CreateAsync(request, platform, api.Value.Endpoint), Console.Out, Console.Error);
 
     // The seam keeps startup/output checks independent of actual saved credentials and network.
     internal static async Task<int> RunCoreAsync(string? folder, PlatformCredential? platform,
@@ -69,12 +71,12 @@ public static class ForgeProject
     }
 
     private static async Task<CreateChatProjectResponse> CreateAsync(
-        CreateChatProjectRequest request, PlatformCredential platform)
+        CreateChatProjectRequest request, PlatformCredential platform, string endpoint)
     {
         var services = new ServiceCollection();
         services.AddHttpClient("conversation-host", client =>
         {
-            client.BaseAddress = new Uri(ForgeExec.ApiEndpoint + "/");
+            client.BaseAddress = new Uri(endpoint + "/");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", platform.Key);
         });
         await using var provider = services.BuildServiceProvider();

@@ -72,11 +72,10 @@ static IHost BuildHost()
 
 static RootCommand BuildRootCommand(IServiceProvider services)
 {
-    // row-2 bridge; row 4 hands IOptions<ForgeApiSettings> to each endpoint reader
-    ForgeExec.ApiEndpoint = services.GetRequiredService<IOptions<ForgeApiSettings>>().Value.Endpoint;
+    var api = services.GetRequiredService<IOptions<ForgeApiSettings>>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(BuildInitCommand());
-    rootCommand.Add(BuildRunCommand());
+    rootCommand.Add(BuildRunCommand(api));
     rootCommand.Add(BuildValidateCommand());
     rootCommand.Add(BuildListCommand());
     rootCommand.Add(BuildExpertCommand());
@@ -84,9 +83,9 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(BuildLoginCommand());
     rootCommand.Add(BuildWhoamiCommand());
     rootCommand.Add(BuildLogoutCommand());
-    rootCommand.Add(BuildExecCommand());
-    rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>())); // forge chat (53.2; --hands, Phase 55)
-    rootCommand.Add(ForgeProject.BuildCommand());
+    rootCommand.Add(BuildExecCommand(api));
+    rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>(), api)); // forge chat (53.2; --hands, Phase 55)
+    rootCommand.Add(ForgeProject.BuildCommand(api));
     rootCommand.Add(BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());
     rootCommand.Add(BuildServeCommand());
@@ -195,14 +194,14 @@ static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, L
 // ---------------------------------------------------------------------------
 // fms run
 
-static Command BuildRunCommand()
+static Command BuildRunCommand(IOptions<ForgeApiSettings> api)
 {
     var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla" };
     var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
     var cmd = new Command("run", "Run a hosted mission and print the answer");
     cmd.Add(missionArg);
     cmd.Add(promptArg);
-    cmd.SetAction(async result => await ForgeExec.RunAsync(
+    cmd.SetAction(async result => await ForgeExec.RunAsync(api,
         result.GetValue(missionArg)!, result.GetValue(promptArg)));
     return cmd;
 }
@@ -387,7 +386,7 @@ static Command BuildLogoutCommand()
 // ("Required argument missing", not a forge bug — confirmed 2026-07-19: `@websearch` fails in pwsh,
 // `"@websearch"` or bare `websearch` both work). Documented as the plain form so pwsh users aren't
 // steered into the gotcha; bash/zsh users can still type `@handle` fine.
-static Command BuildExecCommand()
+static Command BuildExecCommand(IOptions<ForgeApiSettings> api)
 {
     var targetArg = new Argument<string>("target") { Description = "Mission handle, e.g. websearch (an optional leading @ is also accepted, but quote it in pwsh: \"@websearch\")" };
     var promptArg = new Argument<string?>("prompt") { Description = "The mission's free-text input", Arity = ArgumentArity.ZeroOrOne };
@@ -403,7 +402,7 @@ static Command BuildExecCommand()
     cmd.Add(outOpt);
 
     cmd.SetAction(async result =>
-        await ForgeExec.RunAsync(
+        await ForgeExec.RunAsync(api,
             result.GetValue(targetArg)!,
             result.GetValue(promptArg),
             result.GetValue(inputOpt),
