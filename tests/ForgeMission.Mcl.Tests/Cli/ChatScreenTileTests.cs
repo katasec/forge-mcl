@@ -358,8 +358,7 @@ public sealed partial class ChatScreenTileTests
 
         public Screen(List<uint>? sent = null, Func<long>? clock = null, string theme = "Light")
         {
-            var stylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
-            var styles = Activator.CreateInstance(stylesType, Theme(theme))!;
+            var styles = ForgeText.Styles(theme);
             var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
             _screen = clock is null
                 ? Activator.CreateInstance(_screenType, [header, styles])!
@@ -374,9 +373,7 @@ public sealed partial class ChatScreenTileTests
 
         public Screen Show(params object[] blocks)
         {
-            var array = Array.CreateInstance(Type("ForgeMission.Cli.Tui.TranscriptBlock"), blocks.Length);
-            for (var i = 0; i < blocks.Length; i++) array.SetValue(blocks[i], i);
-            _screenType.GetMethod("Show")!.Invoke(_screen, [array]);
+            TextInteractionTests.Show(_screen, blocks);
             return this;
         }
 
@@ -391,7 +388,7 @@ public sealed partial class ChatScreenTileTests
     /// <summary>The session's text images, drawn with the embedded fonts; sends are discarded.</summary>
     internal static object TextImagesFor(object styles, object cell, List<uint>? sent = null)
     {
-        var fonts = Type("ForgeMission.Cli.Tui.Graphics.TextFonts").GetMethod("LoadEmbedded")!.Invoke(null, null)!;
+        var fonts = ForgeText.Fonts();
         var artStyle = styles.GetType().GetProperty("TextArt")!.GetValue(styles)!;
         var art = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.Graphics.TextArt"), artStyle, fonts, cell)!;
         var slot = styles.GetType().GetProperty("ImageIdSlot")!.GetValue(styles)!;
