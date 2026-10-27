@@ -528,8 +528,7 @@ static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClie
         {
             await app.RunAsync(cancellationToken);
         }
-        catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
-                                  || ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.AddressAlreadyInUse })
+        catch (IOException ex) when (ex.InnerException is Microsoft.AspNetCore.Connections.AddressInUseException)
         {
             Die($"Port {config.Port} is already in use. Stop the existing process or change the port in agent.yaml.");
         }

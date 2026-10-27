@@ -53,6 +53,26 @@ public sealed class ForgeServeTests
         Assert.Contains(banner.Replace("{port}", port.ToString()), result.StandardError);
     }
 
+    // A serving command whose port is taken reports it on stderr and exits 1.
+    [Theory]
+    [InlineData("Port {port} is already in use. Stop the existing process or change the port in agent.yaml.", "serve")]
+    [InlineData("Port {port} is already in use. Pass a different --port (and rerun so the settings match).", "connect", "vscode", "mission.mcl", "--port")]
+    public async Task A_taken_port_is_reported_and_exits_1(string error, params string[] args)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        using var taken = new TcpListener(IPAddress.Any, 0);
+        taken.Start();
+        var port = ((IPEndPoint)taken.LocalEndpoint).Port;
+        harness.WorkingDirectory = WriteAgent(harness.Home, port);
+        string[] command = args[^1] == "--port" ? [.. args, port.ToString()] : args;
+
+        var result = await harness.RunAsync(command);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("", result.StandardOutput);
+        Assert.Contains(error.Replace("{port}", port.ToString()), result.StandardError);
+    }
+
     // forge claude --print-env waits for its in-process endpoint to answer, then prints the wiring on
     // stdout and keeps serving until Ctrl+C, which stops it cleanly with exit 0. Needs no claude CLI.
     [SkippableFact]

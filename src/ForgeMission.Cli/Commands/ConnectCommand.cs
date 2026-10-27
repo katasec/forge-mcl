@@ -66,8 +66,7 @@ internal static class ConnectCommand
 
             // The command's Ctrl+C/SIGTERM token stops the server (IHost.RunAsync(token)).
             try { await app.RunAsync(cancellationToken); }
-            catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
-                                      || ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.AddressAlreadyInUse })
+            catch (IOException ex) when (ex.InnerException is Microsoft.AspNetCore.Connections.AddressInUseException)
             {
                 die($"Port {port} is already in use. Pass a different --port (and rerun so the settings match).");
             }
