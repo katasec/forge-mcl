@@ -116,8 +116,7 @@ public sealed class ForgeChatTests
                 .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
             await using var app = (IAsyncDisposable)create.Invoke(null,
                 [host, null, PolicyFor.Invoke(null, [hands]), publish, CancellationToken.None])!;
-            var theme = EndsTurn.DeclaringType!.Assembly.GetType("ForgeMission.Cli.Tui.ForgeTheme")!
-                .GetProperty("Dark", BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
+            var theme = ForgeText.Theme("Dark");
             var failure = await Assert.ThrowsAnyAsync<Exception>(() => (Task<int>)chat.Invoke(null,
                 [app, ModeFor.Invoke(null, [hands]), projectFile, theme, null, new ConcurrentQueue<string>(), CancellationToken.None])!);
             Assert.Equal("ChatStoppedException", failure.GetType().Name);
@@ -304,13 +303,13 @@ public sealed class ForgeChatTests
     {
         var policy = PolicyFor.Invoke(null, [hands])!;
         var rule = policy.GetType().GetMethod("RuleFor")!.Invoke(policy, [capability])!;
-        return Property(rule, "Outcome").ToString()!;
+        return ForgeText.Get<object>(rule, "Outcome").ToString()!;
     }
 
     private static (string Mission, bool Hands, string Profile) Mode(bool hands)
     {
         var mode = ModeFor.Invoke(null, [hands])!;
-        return ((string)Property(mode, "MissionName"), (bool)Property(mode, "HasHands"), Property(mode, "ExpectedProfile").ToString()!);
+        return ((string)ForgeText.Get<object>(mode, "MissionName"), (bool)ForgeText.Get<object>(mode, "HasHands"), ForgeText.Get<object>(mode, "ExpectedProfile").ToString()!);
     }
 
     private static (string Answer, string Shown) Ask(bool interactive, string typed)
@@ -319,8 +318,6 @@ public sealed class ForgeChatTests
         var answer = AskApproval.Invoke(null, ["/p/chat", interactive, new StringReader(typed), output])!;
         return (answer.ToString()!, output.ToString());
     }
-
-    private static object Property(object target, string name) => target.GetType().GetProperty(name)!.GetValue(target)!;
 
     [Theory]
     [InlineData("Completed")]
@@ -386,18 +383,6 @@ public sealed class ForgeChatTests
             .GetType("ForgeMission.Cli.Tui.Graphics.TerminalFacts", throwOnError: true)!
             .GetMethod(name, BindingFlags.Static | BindingFlags.Public)!;
 
-    private static MethodInfo LoadForgeChatMethod(string name)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate))
-                return Assembly.LoadFrom(candidate).GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
-                    .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
-    }
+    private static MethodInfo LoadForgeChatMethod(string name) =>
+        ForgeText.Type("ForgeMission.Cli.Commands.ForgeChat").GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
 }
