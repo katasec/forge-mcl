@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
@@ -18,9 +17,10 @@ namespace ForgeMission.Cli;
 // and runner factory. The JSON schema is hand-built (AOT-safe, no STJ reflection).
 internal static class McpCommand
 {
-    // Serves one validated mission over stdio until the transport closes. Runners are built lazily
-    // through buildRunners at each tool call so startup never needs the provider API key. The
-    // server logs through the CLI host's logger factory (stderr only; stdout is the protocol).
+    // Serves one validated mission over stdio until the transport closes or cancellationToken
+    // (the command's Ctrl+C/SIGTERM token) is cancelled. Runners are built lazily through
+    // buildRunners at each tool call so startup never needs the provider API key. The server logs
+    // through the CLI host's logger factory (stderr only; stdout is the protocol).
     internal static async Task ServeAsync(
         ILoggerFactory loggerFactory,
         IHttpClientFactory clients,
@@ -30,7 +30,8 @@ internal static class McpCommand
         Dictionary<string, ExpertDefinition> expertDefs,
         ForgeManifest? manifest,
         string missionPath,
-        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>?> buildRunners)
+        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>?> buildRunners,
+        CancellationToken cancellationToken)
     {
         // Build the JSON schema for this mission's parameters
         var toolName   = firstMission.Name;
@@ -43,64 +44,60 @@ internal static class McpCommand
         Console.Error.WriteLine($"forge mcp — serving mission '{toolName}' over stdio");
         Console.Error.WriteLine($"  mission: {missionPath}");
 
-        var services = new ServiceCollection();
-        services.AddSingleton(loggerFactory);
-        services.AddMcpServer(options => { options.ServerInfo = new Implementation { Name = "forge", Version = "1.0" }; })
-            .WithStdioServerTransport()
-            .WithListToolsHandler((_, _) => ValueTask.FromResult(new ListToolsResult
-            {
-                Tools =
-                [
-                    new Tool
-                    {
-                        Name        = toolName,
-                        Description = $"Run the '{toolName}' MCL mission",
-                        InputSchema = inputSchema.ToJsonElement()
-                    }
-                ]
-            }))
-            .WithCallToolHandler(async (request, ct) =>
-            {
-                if (request.Params?.Name != toolName)
-                    return new CallToolResult { Content = [new McpTextContent { Text = $"Unknown tool: {request.Params?.Name}" }], IsError = true };
-
-                // Extract call-time arguments as string overrides
-                var callVars = new Dictionary<string, string>(StringComparer.Ordinal);
-                if (request.Params.Arguments is { } callArgs)
+        var options = new McpServerOptions { ServerInfo = new Implementation { Name = "forge", Version = "1.0" } };
+        options.Handlers.ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult
+        {
+            Tools =
+            [
+                new Tool
                 {
-                    foreach (var kv in callArgs)
-                    {
-                        var strVal = kv.Value.ValueKind == System.Text.Json.JsonValueKind.String
-                            ? kv.Value.GetString() ?? string.Empty
-                            : kv.Value.ToString();
-                        callVars[kv.Key] = strVal;
-                    }
+                    Name        = toolName,
+                    Description = $"Run the '{toolName}' MCL mission",
+                    InputSchema = inputSchema.ToJsonElement()
                 }
+            ]
+        });
+        options.Handlers.CallToolHandler = async (request, ct) =>
+        {
+            if (request.Params?.Name != toolName)
+                return new CallToolResult { Content = [new McpTextContent { Text = $"Unknown tool: {request.Params?.Name}" }], IsError = true };
 
-                // Build runners lazily at call time so startup never needs the API key
-                Dictionary<string, object> callSeedContext;
-                try { callSeedContext = ContextBuilder.Seed(ast, callVars); }
-                catch (InvalidOperationException ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
+            // Extract call-time arguments as string overrides
+            var callVars = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (request.Params.Arguments is { } callArgs)
+            {
+                foreach (var kv in callArgs)
+                {
+                    var strVal = kv.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? kv.Value.GetString() ?? string.Empty
+                        : kv.Value.ToString();
+                    callVars[kv.Key] = strVal;
+                }
+            }
 
-                var callRunners = buildRunners(callSeedContext);
-                if (callRunners is null)
-                    return new CallToolResult { Content = [new McpTextContent { Text = "Cannot initialise provider — check API key env vars in claude_desktop_config.json" }], IsError = true };
+            // Build runners lazily at call time so startup never needs the API key
+            Dictionary<string, object> callSeedContext;
+            try { callSeedContext = ContextBuilder.Seed(ast, callVars); }
+            catch (InvalidOperationException ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
 
-                var runOptions = new PipelineRunOptions(toolName, callVars);
+            var callRunners = buildRunners(callSeedContext);
+            if (callRunners is null)
+                return new CallToolResult { Content = [new McpTextContent { Text = "Cannot initialise provider — check API key env vars in claude_desktop_config.json" }], IsError = true };
 
-                MissionResult missionResult;
-                try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions); }
-                catch (Exception ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
+            var runOptions = new PipelineRunOptions(toolName, callVars);
 
-                if (missionResult.Status == MissionStatus.Fail)
-                    return new CallToolResult { Content = [new McpTextContent { Text = $"Mission failed: {missionResult.FailReason}" }], IsError = true };
+            MissionResult missionResult;
+            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions); }
+            catch (Exception ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
 
-                return new CallToolResult { Content = [new McpTextContent { Text = missionResult.Text }] };
-            });
+            if (missionResult.Status == MissionStatus.Fail)
+                return new CallToolResult { Content = [new McpTextContent { Text = $"Mission failed: {missionResult.FailReason}" }], IsError = true };
 
-        var sp = services.BuildServiceProvider();
-        var server = sp.GetRequiredService<McpServer>();
-        await server.RunAsync(CancellationToken.None);
+            return new CallToolResult { Content = [new McpTextContent { Text = missionResult.Text }] };
+        };
+
+        await using var server = McpServer.Create(new StdioServerTransport("forge", loggerFactory), options, loggerFactory);
+        await server.RunAsync(cancellationToken);
     }
 }
 

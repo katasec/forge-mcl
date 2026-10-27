@@ -1142,7 +1142,8 @@ static Command BuildProviderScaffoldCommand()
 // forge mcp
 
 // Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared
-// mission to McpCommand, which owns the stdio MCP server. Runners are built lazily per tool call.
+// mission to McpCommand, which owns the stdio MCP server. Runners are built lazily per tool call;
+// the server runs until stdin closes or the command's Ctrl+C/SIGTERM token is cancelled.
 static Command BuildMcpCommand(IServiceProvider services)
 {
     var missionArg = new Argument<FileInfo?>("mission")
@@ -1154,7 +1155,7 @@ static Command BuildMcpCommand(IServiceProvider services)
     var cmd = new Command("mcp", "Expose a mission as a stdio MCP server (for Claude Desktop and MCP-aware tools)");
     cmd.Add(missionArg);
 
-    cmd.SetAction(async result =>
+    cmd.SetAction(async (result, ct) =>
     {
         var mission    = ResolveMission(result.GetValue(missionArg));
         var missionDir = mission.DirectoryName!;
@@ -1188,7 +1189,7 @@ static Command BuildMcpCommand(IServiceProvider services)
 
         await McpCommand.ServeAsync(services.GetRequiredService<ILoggerFactory>(),
             services.GetRequiredService<IHttpClientFactory>(), services.GetRequiredService<IOptions<WebSearchOptions>>(), firstMission, ast, expertDefs, manifest, mission.FullName,
-            callSeedContext => BuildRunners(manifest, callSeedContext));
+            callSeedContext => BuildRunners(manifest, callSeedContext), ct);
     });
 
     return cmd;
