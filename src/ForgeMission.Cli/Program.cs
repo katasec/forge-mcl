@@ -913,21 +913,7 @@ static void ReportDiagnostic(string source, string filePath, Diagnostic d)
     var sourceLine = d.Line >= 1 && d.Line <= lines.Length
         ? lines[d.Line - 1].TrimEnd('\r')
         : string.Empty;
-
-    var lineNumStr = d.Line.ToString();
-    var gutter     = new string(' ', lineNumStr.Length);
-    var col        = Math.Max(0, d.Column);
-    var caretLen   = d.EndColumn > d.Column ? d.EndColumn - d.Column : 1;
-    var carets     = new string('^', caretLen);
-    var spaces     = new string(' ', Math.Min(col, sourceLine.Length));
-
-    var e = Console.Error;
-    e.WriteLine($"{BoldRed("error")}{Bold($": {d.Message}")}");
-    e.WriteLine($"  {BoldBlue("-->")} {filePath}:{d.Line}:{col + 1}");
-    e.WriteLine($"{BoldBlue($"{gutter}   |")}");
-    e.WriteLine($"{BoldBlue($"{lineNumStr}   |")} {sourceLine}");
-    e.WriteLine($"{BoldBlue($"{gutter}   |")} {spaces}{BoldRed(carets)}");
-    e.WriteLine($"{BoldBlue($"{gutter}   |")}");
+    RenderDiagnostic(d.Message, filePath, d.Line, d.Column, d.EndColumn, sourceLine);
 }
 
 static void ReportExpertDiagnostic(ExpertLoadException ex)
@@ -938,17 +924,24 @@ static void ReportExpertDiagnostic(ExpertLoadException ex)
     var sourceLine = File.Exists(ex.FilePath)
         ? File.ReadLines(ex.FilePath).ElementAtOrDefault(ex.Line - 1) ?? string.Empty
         : string.Empty;
+    RenderDiagnostic(ex.Message, ex.FilePath, ex.Line, ex.Column, ex.EndColumn, sourceLine);
+}
 
-    var lineNumStr = ex.Line.ToString();
+// One rustc-style diagnostic block on stderr: the message, a `-->` location line, and the source
+// line with carets under [column, endColumn). The two callers differ only in how they obtain the
+// source line (in-memory parse source vs a file on disk).
+static void RenderDiagnostic(string message, string filePath, int line, int column, int endColumn, string sourceLine)
+{
+    var lineNumStr = line.ToString();
     var gutter     = new string(' ', lineNumStr.Length);
-    var col        = Math.Max(0, ex.Column);
-    var caretLen   = ex.EndColumn > ex.Column ? ex.EndColumn - ex.Column : 1;
+    var col        = Math.Max(0, column);
+    var caretLen   = endColumn > column ? endColumn - column : 1;
     var carets     = new string('^', caretLen);
     var spaces     = new string(' ', Math.Min(col, sourceLine.Length));
 
     var e = Console.Error;
-    e.WriteLine($"{BoldRed("error")}{Bold($": {ex.Message}")}");
-    e.WriteLine($"  {BoldBlue("-->")} {ex.FilePath}:{ex.Line}:{col + 1}");
+    e.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");
+    e.WriteLine($"  {BoldBlue("-->")} {filePath}:{line}:{col + 1}");
     e.WriteLine($"{BoldBlue($"{gutter}   |")}");
     e.WriteLine($"{BoldBlue($"{lineNumStr}   |")} {sourceLine}");
     e.WriteLine($"{BoldBlue($"{gutter}   |")} {spaces}{BoldRed(carets)}");
