@@ -98,6 +98,22 @@ public sealed class ForgeCliHarness : IAsyncDisposable
         finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
     }
 
+    /// <summary>
+    /// Runs a long-lived command (a server such as <c>forge serve</c>) while <paramref name="whileRunning"/>
+    /// exercises it, then stops it; the result's exit code is that of the stopped process.
+    /// </summary>
+    public async Task<CliResult> RunWhileAsync(Func<Task> whileRunning, params string[] args)
+    {
+        using var process = Process.Start(BuildStartInfo(args))
+            ?? throw new InvalidOperationException("dotnet did not start the forge CLI.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        try { await whileRunning().WaitAsync(TimeSpan.FromSeconds(30)); }
+        finally { process.Kill(entireProcessTree: true); }
+        await process.WaitForExitAsync();
+        return new CliResult(process.ExitCode, await output, await error);
+    }
+
     internal ProcessStartInfo BuildStartInfo(IEnumerable<string> args)
     {
         var start = new ProcessStartInfo("dotnet")

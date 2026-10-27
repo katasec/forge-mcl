@@ -82,6 +82,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     var api = services.GetRequiredService<IOptions<ForgeApiSettings>>();
     var clients = services.GetRequiredService<IHttpClientFactory>();
     var webSearch = services.GetRequiredService<IOptions<WebSearchOptions>>();
+    var logger = services.GetRequiredService<ILogger<Program>>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(BuildInitCommand());
     rootCommand.Add(BuildRunCommand(api, clients));
@@ -97,10 +98,10 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(ForgeProject.BuildCommand(clients));
     rootCommand.Add(BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());
-    rootCommand.Add(BuildServeCommand(webSearch, clients));
-    rootCommand.Add(BuildClaudeCommand(webSearch, clients));
+    rootCommand.Add(BuildServeCommand(webSearch, clients, logger));
+    rootCommand.Add(BuildClaudeCommand(webSearch, clients, logger));
     rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync,
-        (config, agentDir) => TryBuildMissionServerAsync(webSearch, clients, config, agentDir), Die));
+        (config, agentDir) => TryBuildMissionServerAsync(webSearch, clients, logger, config, agentDir), Die));
     rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
     rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
     rootCommand.Add(BuildProviderCommand());
@@ -478,7 +479,7 @@ static Command BuildPublishCommand()
 // ---------------------------------------------------------------------------
 // forge serve
 
-static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients)
+static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients, ILogger logger)
 {
     var agentArg = new Argument<FileInfo?>("agent") { Description = "Path to agent.yaml (default: agent.yaml)", Arity = ArgumentArity.ZeroOrOne };
 
@@ -496,7 +497,7 @@ static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClie
         try { config = AgentConfigLoader.Load(agentFile.FullName); }
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return; }
 
-        var built = await TryBuildMissionServerAsync(webSearch, clients, config, agentFile.DirectoryName!);
+        var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, agentFile.DirectoryName!);
         if (built is not { } server) return;
         var (app, missionPath, anthropicDoor, openAiDoor) = server;
 
@@ -533,7 +534,7 @@ static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClie
 // wired to it + tear down on exit (Phase 42.2). In-process by default for speed;
 // --container runs the same image the cloud runs for exact parity.
 
-static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients)
+static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients, ILogger logger)
 {
     var targetArg    = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
     var containerOpt = new Option<bool>("--container")   { Description = "Run the mission as a Docker container (cloud parity) instead of in-process" };
@@ -584,7 +585,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
         }
         else
         {
-            var built = await TryBuildMissionServerAsync(webSearch, clients, config, Path.GetDirectoryName(missionPath)!);
+            var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, Path.GetDirectoryName(missionPath)!);
             if (built is not { } server) return;
             var app = server.App;
             await app.StartAsync();
@@ -802,7 +803,7 @@ static bool IsOnPath(string binary) =>
 // Shared by `forge serve` (blocking RunAsync) and `forge claude` (background StartAsync).
 // Returns null after reporting the error (Die) — callers just return.
 static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?> TryBuildMissionServerAsync(
-    IOptions<WebSearchOptions> webSearchOptions, IHttpClientFactory clients, AgentConfig config, string agentDir)
+    IOptions<WebSearchOptions> webSearchOptions, IHttpClientFactory clients, ILogger logger, AgentConfig config, string agentDir)
 {
     var missionPath = Path.GetFullPath(Path.Combine(agentDir, config.Mission));
     var lockPath    = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
@@ -864,12 +865,13 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
     // Aux passthrough (42.3 §0): client housekeeping (title-gen, state-check) is answered by a
     // plain provider model; the mission never runs — and never bills — for those. The aux client is
     // OPTIONAL: if its provider can't be built (missing key, bad profile), serving deliberately
-    // degrades to a null aux client and the server answers housekeeping with its canned replies.
+    // degrades to a null aux client and the server answers housekeeping with its canned replies;
+    // the failure is logged as a Warning.
     IChatClient? auxClient = null;
     if (anthropicDoor is not null && ResolveDefaultProfile(manifest, seedContext) is { } auxProfile)
     {
         try { auxClient = ForgeMission.ChatClients.ChatClients.BuildChatClient(auxProfile); }
-        catch (Exception) { auxClient = null; }
+        catch (Exception ex) { logger.AuxClientUnavailable(ex, auxProfile.Provider); auxClient = null; }
     }
 
     var app = ForgeServe.BuildApp(config.Id, config.Port, anthropicDoor, openAiDoor, auxClient);
