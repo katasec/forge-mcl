@@ -598,7 +598,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
             if (built is not { } server) return;
             var app = server.App;
             await app.StartAsync(cancellationToken);
-            teardown = async () => await app.StopAsync();
+            teardown = async () => { await app.StopAsync(); await app.DisposeAsync(); };
             mode     = "in-process";
         }
 
