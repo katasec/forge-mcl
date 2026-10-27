@@ -17,30 +17,10 @@ using ForgeMission.Docker;
 using ForgeMission.MissionRegistry;
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using MclProgram = ForgeMission.Parser.Program;
-
-var rootCommand = new RootCommand("forge — Mission Control Language runtime");
-rootCommand.Add(BuildInitCommand());
-rootCommand.Add(BuildRunCommand());
-rootCommand.Add(BuildValidateCommand());
-rootCommand.Add(BuildListCommand());
-rootCommand.Add(BuildExpertCommand());
-rootCommand.Add(BuildRegistryCommand());
-rootCommand.Add(BuildLoginCommand());
-rootCommand.Add(BuildWhoamiCommand());
-rootCommand.Add(BuildLogoutCommand());
-rootCommand.Add(BuildExecCommand());
-rootCommand.Add(ForgeChat.BuildCommand()); // forge chat (53.2; --hands, Phase 55)
-rootCommand.Add(ForgeProject.BuildCommand());
-rootCommand.Add(BuildPublishCommand());
-rootCommand.Add(CleanCommand.Build());
-rootCommand.Add(BuildServeCommand());
-rootCommand.Add(BuildClaudeCommand());
-rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync, TryBuildMissionServerAsync, Die));
-rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
-rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
-rootCommand.Add(BuildProviderCommand());
-rootCommand.Add(BuildMcpCommand());
 
 // No @file response-file expansion — @handles (forge claude @websearch) are arguments.
 // One top-level exit/exception handler owns every exit code: helpers signal a deliberate exit by
@@ -51,7 +31,8 @@ rootCommand.Add(BuildMcpCommand());
 var invocation = new InvocationConfiguration { EnableDefaultExceptionHandler = false };
 try
 {
-    return await rootCommand
+    using var host = BuildHost();
+    return await BuildRootCommand(host.Services)
         .Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null })
         .InvokeAsync(invocation);
 }
@@ -68,6 +49,44 @@ catch (Exception ex)
     Console.Error.Write("Unhandled exception: ");
     Console.Error.WriteLine(ex);
     return 1;
+}
+
+// One generic host is the CLI's composition root: commands resolve shared services from its
+// Services. System.CommandLine owns the arguments, so the host gets none; its console logger writes
+// to stderr only (stdout stays the commands' output and forge mcp's JSON-RPC) at Warning and above.
+static IHost BuildHost()
+{
+    var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
+    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+    builder.Logging.SetMinimumLevel(LogLevel.Warning);
+    return builder.Build();
+}
+
+static RootCommand BuildRootCommand(IServiceProvider services)
+{
+    var rootCommand = new RootCommand("forge — Mission Control Language runtime");
+    rootCommand.Add(BuildInitCommand());
+    rootCommand.Add(BuildRunCommand());
+    rootCommand.Add(BuildValidateCommand());
+    rootCommand.Add(BuildListCommand());
+    rootCommand.Add(BuildExpertCommand());
+    rootCommand.Add(BuildRegistryCommand());
+    rootCommand.Add(BuildLoginCommand());
+    rootCommand.Add(BuildWhoamiCommand());
+    rootCommand.Add(BuildLogoutCommand());
+    rootCommand.Add(BuildExecCommand());
+    rootCommand.Add(ForgeChat.BuildCommand()); // forge chat (53.2; --hands, Phase 55)
+    rootCommand.Add(ForgeProject.BuildCommand());
+    rootCommand.Add(BuildPublishCommand());
+    rootCommand.Add(CleanCommand.Build());
+    rootCommand.Add(BuildServeCommand());
+    rootCommand.Add(BuildClaudeCommand());
+    rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync, TryBuildMissionServerAsync, Die));
+    rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
+    rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
+    rootCommand.Add(BuildProviderCommand());
+    rootCommand.Add(BuildMcpCommand(services));
+    return rootCommand;
 }
 
 // ---------------------------------------------------------------------------
@@ -1103,7 +1122,7 @@ static Command BuildProviderScaffoldCommand()
 
 // Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared
 // mission to McpCommand, which owns the stdio MCP server. Runners are built lazily per tool call.
-static Command BuildMcpCommand()
+static Command BuildMcpCommand(IServiceProvider services)
 {
     var missionArg = new Argument<FileInfo?>("mission")
     {
@@ -1146,7 +1165,7 @@ static Command BuildMcpCommand()
         var firstMission = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault();
         if (firstMission is null) { Die("No mission declaration found in mission file."); return; }
 
-        await McpCommand.ServeAsync(firstMission, ast, expertDefs, manifest, mission.FullName,
+        await McpCommand.ServeAsync(services.GetRequiredService<ILoggerFactory>(), firstMission, ast, expertDefs, manifest, mission.FullName,
             callSeedContext => BuildRunners(manifest, callSeedContext));
     });
 

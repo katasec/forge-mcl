@@ -62,18 +62,30 @@ public sealed class ForgeCliHarness : IAsyncDisposable
     public void WriteForgeFile(string fileName, string contents) =>
         File.WriteAllText(Path.Combine(Home, ".forge", fileName), contents);
 
-    public async Task<CliResult> RunAsync(params string[] args)
+    public Task<CliResult> RunAsync(params string[] args) =>
+        ConverseAsync((_, _) => Task.CompletedTask, args);
+
+    /// <summary>
+    /// Runs the CLI while <paramref name="converse"/> drives its stdin and reads its stdout (for a
+    /// stdio server such as <c>forge mcp</c>); stdin closes when it returns. The result's
+    /// <see cref="CliResult.StandardOutput"/> holds only the output the conversation did not read.
+    /// </summary>
+    public async Task<CliResult> ConverseAsync(Func<StreamWriter, StreamReader, Task> converse, params string[] args)
     {
         var start = BuildStartInfo(args);
         using var process = Process.Start(start)
             ?? throw new InvalidOperationException("dotnet did not start the forge CLI.");
-        process.StandardInput.Close();
-        var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        try { await process.WaitForExitAsync(timeout.Token); }
+        try
+        {
+            await converse(process.StandardInput, process.StandardOutput).WaitAsync(timeout.Token);
+            process.StandardInput.Close();
+            var output = process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync(timeout.Token);
+            return new CliResult(process.ExitCode, await output, await error);
+        }
         finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-        return new CliResult(process.ExitCode, await output, await error);
     }
 
     internal ProcessStartInfo BuildStartInfo(IEnumerable<string> args)

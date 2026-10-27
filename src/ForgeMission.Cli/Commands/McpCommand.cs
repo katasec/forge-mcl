@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using ForgeMission.Core.Adapters;
@@ -17,8 +18,10 @@ namespace ForgeMission.Cli;
 internal static class McpCommand
 {
     // Serves one validated mission over stdio until the transport closes. Runners are built lazily
-    // through buildRunners at each tool call so startup never needs the provider API key.
+    // through buildRunners at each tool call so startup never needs the provider API key. The
+    // server logs through the CLI host's logger factory (stderr only; stdout is the protocol).
     internal static async Task ServeAsync(
+        ILoggerFactory loggerFactory,
         ForgeMission.Parser.MissionDeclaration firstMission,
         MclProgram ast,
         Dictionary<string, ExpertDefinition> expertDefs,
@@ -38,6 +41,7 @@ internal static class McpCommand
         Console.Error.WriteLine($"  mission: {missionPath}");
 
         var services = new ServiceCollection();
+        services.AddSingleton(loggerFactory);
         services.AddMcpServer(options => { options.ServerInfo = new Implementation { Name = "forge", Version = "1.0" }; })
             .WithStdioServerTransport()
             .WithListToolsHandler((_, _) => ValueTask.FromResult(new ListToolsResult
