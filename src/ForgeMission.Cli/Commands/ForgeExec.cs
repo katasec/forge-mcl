@@ -217,7 +217,7 @@ public static class ForgeExec
             try
             {
                 await using var input = await resp.Content.ReadAsStreamAsync(cts.Token);
-                await using var output = File.Create(tempPath);
+                await using var output = File.Create(tempPath, 4096, FileOptions.Asynchronous);
                 await CopyWithLimitAsync(input, output, MaxInputDownloadBytes, cts.Token);
             }
             catch
@@ -276,7 +276,7 @@ public static class ForgeExec
         CancellationToken cancellationToken)
     {
         var sha256 = await Sha256Async(fullPath, cancellationToken);
-        await using var file = File.OpenRead(fullPath);
+        await using var file = File.Open(fullPath, new FileStreamOptions { Options = FileOptions.Asynchronous });
         using var content = new StreamContent(file);
         content.Headers.ContentType = new MediaTypeHeaderValue(contentTypeHint ?? ContentTypeFor(artifactName));
         content.Headers.ContentLength = file.Length;
@@ -359,7 +359,7 @@ public static class ForgeExec
             Directory.CreateDirectory(dir);
 
         await using var input = await resp.Content.ReadAsStreamAsync(cancellationToken);
-        await using var output = File.Create(path);
+        await using var output = File.Create(path, 4096, FileOptions.Asynchronous);
         await input.CopyToAsync(output, cancellationToken);
         return true;
     }
@@ -401,7 +401,7 @@ public static class ForgeExec
 
     private static async Task<string> Sha256Async(string path, CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(path);
+        await using var stream = File.Open(path, new FileStreamOptions { Options = FileOptions.Asynchronous });
         return Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken));
     }
 
