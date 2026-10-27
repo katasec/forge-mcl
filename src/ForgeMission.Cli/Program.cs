@@ -86,8 +86,8 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(BuildWhoamiCommand(clients));
     rootCommand.Add(BuildLogoutCommand());
     rootCommand.Add(BuildExecCommand(api, clients));
-    rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>(), api)); // forge chat (53.2; --hands, Phase 55)
-    rootCommand.Add(ForgeProject.BuildCommand(api));
+    rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>(), clients)); // forge chat (53.2; --hands, Phase 55)
+    rootCommand.Add(ForgeProject.BuildCommand(clients));
     rootCommand.Add(BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());
     rootCommand.Add(BuildServeCommand(clients));

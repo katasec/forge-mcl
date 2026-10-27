@@ -1,11 +1,8 @@
 using System.CommandLine;
-using System.Net.Http.Headers;
 using ForgeMission.Application;
 using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli;
 
@@ -13,7 +10,7 @@ namespace ForgeMission.Cli;
 // the saved platform login, and reports their result; it writes no Project or package files.
 public static class ForgeProject
 {
-    internal static Command BuildCommand(IOptions<ForgeApiSettings> api)
+    internal static Command BuildCommand(IHttpClientFactory clients)
     {
         var project = new Command("project", "Manage portable Forge projects");
         var create = new Command("create", "Create a portable project with a hosted Chat conversation");
@@ -23,14 +20,15 @@ public static class ForgeProject
             Arity = ArgumentArity.ZeroOrOne,
         };
         create.Add(folder);
-        create.SetAction(async result => await RunAsync(result.GetValue(folder), api));
+        create.SetAction(async result => await RunAsync(result.GetValue(folder), clients));
         project.Add(create);
         return project;
     }
 
-    internal static Task<int> RunAsync(string? folder, IOptions<ForgeApiSettings> api) =>
+    // The conversation-host client carries the saved platform key itself (CliHttpClients).
+    internal static Task<int> RunAsync(string? folder, IHttpClientFactory clients) =>
         RunCoreAsync(folder, CredentialStore.GetPlatform(),
-            (request, platform) => CreateAsync(request, platform, api.Value.Endpoint), Console.Out, Console.Error);
+            (request, _) => CreateAsync(request, clients), Console.Out, Console.Error);
 
     // The seam keeps startup/output checks independent of actual saved credentials and network.
     internal static async Task<int> RunCoreAsync(string? folder, PlatformCredential? platform,
@@ -71,16 +69,9 @@ public static class ForgeProject
     }
 
     private static async Task<CreateChatProjectResponse> CreateAsync(
-        CreateChatProjectRequest request, PlatformCredential platform, string endpoint)
+        CreateChatProjectRequest request, IHttpClientFactory clients)
     {
-        var services = new ServiceCollection();
-        services.AddHttpClient("conversation-host", client =>
-        {
-            client.BaseAddress = new Uri(endpoint + "/");
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", platform.Key);
-        });
-        await using var provider = services.BuildServiceProvider();
-        await using var app = ApplicationComposition.Create(provider.GetRequiredService<IHttpClientFactory>(),
+        await using var app = ApplicationComposition.Create(clients,
             null, new CapabilityAuthorizationPolicy([], null), _ => { }, CancellationToken.None);
         return await app.MissionConversations.CreateChatProjectAsync(request, CancellationToken.None);
     }

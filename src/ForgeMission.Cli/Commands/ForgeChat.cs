@@ -1,7 +1,6 @@
 using System.CommandLine;
 using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
-using System.Net.Http.Headers;
 using ForgeMission.Application;
 using ForgeMission.Application.Transport;
 using ForgeMission.Conversations.Contracts;
@@ -9,7 +8,6 @@ using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Tools;
 using ForgeMission.Cli.Tui;
 using ForgeMission.Cli.Tui.Graphics;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli;
@@ -26,7 +24,7 @@ public static class ForgeChat
         "(not inside tmux). Open forge chat again from one of those.";
 
     /// <summary>The <c>forge chat</c> command and its flags.</summary>
-    internal static Command BuildCommand(IOptions<ForgeSettings> settings, IOptions<ForgeApiSettings> api)
+    internal static Command BuildCommand(IOptions<ForgeSettings> settings, IHttpClientFactory clients)
     {
         var cmd = new Command("chat", "Chat with a hosted mission in the current Forge project");
         cmd.Add(new Option<bool>(HandsFlag)
@@ -38,7 +36,7 @@ public static class ForgeChat
             Description = "Path to a project file (default: ./forge.project.json)",
         });
         cmd.SetAction(async result => await MacChatWindow.RunCommandAsync(
-            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag), settings, api),
+            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag), settings, clients),
             MacChatWindow.ChildMarker(OperatingSystem.IsMacOS(),
                 UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected),
                 Environment.GetEnvironmentVariable(MacChatWindow.Marker)),
@@ -49,7 +47,7 @@ public static class ForgeChat
     }
 
     internal static async Task<int> RunAsync(bool hands, string? projectPath, IOptions<ForgeSettings> settings,
-        IOptions<ForgeApiSettings> api)
+        IHttpClientFactory clients)
     {
         var projectFile = Path.GetFullPath(projectPath
             ?? Path.Combine(Directory.GetCurrentDirectory(), "forge.project.json"));
@@ -101,16 +99,9 @@ public static class ForgeChat
                 Directory.GetCurrentDirectory(), Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT"),
                 Console.Out, Console.Error);
 
-        var services = new ServiceCollection();
-        services.AddHttpClient("conversation-host", client =>
-        {
-            client.BaseAddress = new Uri(api.Value.Endpoint + "/");
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", platform.Key);
-        });
-        await using var provider = services.BuildServiceProvider();
         try
         {
-            return await RunApplicationAsync(provider.GetRequiredService<IHttpClientFactory>(), ModeFor(hands), projectFile, theme, fonts);
+            return await RunApplicationAsync(clients, ModeFor(hands), projectFile, theme, fonts);
         }
         catch (ChatStoppedException stopped)
         {
@@ -420,8 +411,9 @@ public static class ForgeChat
 
     private static bool Hands(ParseResult result) => result.GetValue<bool>(HandsFlag);
 
-    /// <summary>Whether <paramref name="args"/> (after <c>chat</c>) ask for hands.</summary>
-    internal static bool ParseHands(string[] args) => Hands(BuildCommand(Options.Create(new ForgeSettings()), Options.Create(new ForgeApiSettings())).Parse(args));
+    /// <summary>Whether <paramref name="args"/> (after <c>chat</c>) ask for hands. Parsing only: the
+    /// action, the one user of the settings and clients, never runs.</summary>
+    internal static bool ParseHands(string[] args) => Hands(BuildCommand(Options.Create(new ForgeSettings()), null!).Parse(args));
 
     internal static ChatMode ModeFor(bool hands) => hands ? ChatMode.Hands : ChatMode.Plain;
 
