@@ -17,7 +17,6 @@ using ForgeMission.Cli.Services;
 using ForgeMission.Docker;
 using ForgeMission.MissionRegistry;
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
