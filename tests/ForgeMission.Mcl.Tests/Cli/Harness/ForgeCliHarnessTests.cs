@@ -30,8 +30,8 @@ public sealed class ForgeCliHarnessTests
 
         var result = await harness.RunAsync("whoami");
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Signed in as harness@test", result.StandardOutput);
+        Assert.Equal((0, $"Signed in as harness@test{Environment.NewLine}  $0.00 credit · {stub.Address}{Environment.NewLine}"),
+            (result.ExitCode, result.StandardOutput));
         var request = Assert.Single(stub.Requests);
         Assert.Equal(("GET", "/me", "Bearer fg_test_key"), (request.Method, request.PathAndQuery, request.Headers["Authorization"]));
         Assert.Empty(harness.Proxy.Attempts);

@@ -73,6 +73,32 @@ public sealed class PlatformLoginTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
+    // A failing or unreadable answer from the platform (whoami's /me, login's key issuance) is
+    // reported on stderr and exits 1 ({platform}: the stub's address).
+    [Theory]
+    [InlineData("/me", 200, "not json", "whoami returned an unreadable response.")]
+    [InlineData("/me", 500, "boom", "whoami failed (500) at {platform}/me: boom")]
+    [InlineData("/platform/keys", 200, "not json", "Key issuance returned an unreadable response.")]
+    [InlineData("/platform/keys", 500, "boom", "Key issuance failed (500) at {platform}/platform/keys: boom")]
+    public async Task A_bad_platform_answer_is_reported_and_exits_1(string path, int status, string body, string error)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        var stub = await harness.StartStubAsync(request =>
+            request.PathAndQuery == path ? new StubResponse(status, body) : SignInResponses(request));
+        var platform = stub.Address.ToString().TrimEnd('/');
+        harness.Variables["FORGE_AUTH_AUTHORITY"] = platform + "/tenant";
+        harness.Variables["FORGE_PLATFORM_ENDPOINT"] = platform;
+        harness.SignIn(platform);
+
+        var result = path == "/me"
+            ? await harness.RunAsync("whoami")
+            : (await LoginAsync(harness, state => $"code=test-code&state={state}")).Result;
+
+        Assert.Equal((1, "", error.Replace("{platform}", platform)),
+            (result.ExitCode, result.StandardOutput, result.StandardError.Trim()));
+        Assert.Empty(harness.Proxy.Attempts);
+    }
+
     // Ctrl+C while login waits (for the browser's callback, the token exchange or the key issuance)
     // exits 130, prints nothing more and stores no key.
     [SkippableTheory]

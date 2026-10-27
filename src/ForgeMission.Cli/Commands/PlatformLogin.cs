@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -104,14 +105,14 @@ public static class PlatformLogin
             return null;
         }
 
-        var json = await resp.Content.ReadAsStringAsync(cancellationToken);
         if (!resp.IsSuccessStatusCode)
         {
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
             Console.Error.WriteLine($"whoami failed ({(int)resp.StatusCode}) at {baseUrl}/me: {json}");
             return null;
         }
 
-        try { return JsonSerializer.Deserialize(json, PlatformLoginJsonContext.Default.MeResponse); }
+        try { return await resp.Content.ReadFromJsonAsync(PlatformLoginJsonContext.Default.MeResponse, cancellationToken); }
         catch (JsonException) { Console.Error.WriteLine("whoami returned an unreadable response."); return null; }
     }
 
@@ -123,17 +124,16 @@ public static class PlatformLogin
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         using var resp = await http.SendAsync(req, cancellationToken);
-        var json = await resp.Content.ReadAsStringAsync(cancellationToken);
-
         if (!resp.IsSuccessStatusCode)
         {
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
             Console.Error.WriteLine($"Key issuance failed ({(int)resp.StatusCode}) at {platformEndpoint}/platform/keys: {json}");
             var wwwAuth = resp.Headers.WwwAuthenticate.ToString();
             if (!string.IsNullOrEmpty(wwwAuth)) Console.Error.WriteLine($"  WWW-Authenticate: {wwwAuth}");
             return null;
         }
 
-        try { return JsonSerializer.Deserialize(json, PlatformLoginJsonContext.Default.IssueKeyResponse); }
+        try { return await resp.Content.ReadFromJsonAsync(PlatformLoginJsonContext.Default.IssueKeyResponse, cancellationToken); }
         catch (JsonException)
         {
             Console.Error.WriteLine("Key issuance returned an unreadable response.");
