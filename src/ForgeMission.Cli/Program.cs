@@ -945,10 +945,8 @@ static void ReportExpertDiagnostic(ExpertLoadException ex)
     // No file path — fall back to plain Die-style output
     if (ex.FilePath is null || ex.Line == 0) { Die(ex.Message); return; }
 
-    var source     = File.Exists(ex.FilePath) ? File.ReadAllText(ex.FilePath) : string.Empty;
-    var lines      = source.Split('\n');
-    var sourceLine = ex.Line >= 1 && ex.Line <= lines.Length
-        ? lines[ex.Line - 1].TrimEnd('\r')
+    var sourceLine = File.Exists(ex.FilePath)
+        ? File.ReadLines(ex.FilePath).ElementAtOrDefault(ex.Line - 1) ?? string.Empty
         : string.Empty;
 
     var lineNumStr = ex.Line.ToString();
