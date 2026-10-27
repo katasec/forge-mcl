@@ -121,9 +121,17 @@ internal static class ConnectCommand
         root["claudeCode.environmentVariables"] = envNode;
 
         Directory.CreateDirectory(settingsDir);
-        using var stream = File.Create(settingsPath);
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
-        root.WriteTo(writer);
+        // Write beside settings.json (same volume) and rename over it, so a failed write leaves
+        // the user's settings intact and no temp file behind.
+        var tempPath = Path.Combine(settingsDir, Path.GetRandomFileName());
+        try
+        {
+            using (var stream = File.Create(tempPath))
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+                root.WriteTo(writer);
+            File.Move(tempPath, settingsPath, overwrite: true);
+        }
+        catch { File.Delete(tempPath); throw; }
         return true;
     }
 

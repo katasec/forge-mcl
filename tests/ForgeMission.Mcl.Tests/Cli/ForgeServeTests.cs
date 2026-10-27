@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
@@ -71,6 +72,49 @@ public sealed class ForgeServeTests
         Assert.Equal(1, result.ExitCode);
         Assert.Equal("", result.StandardOutput);
         Assert.Contains(error.Replace("{port}", port.ToString()), result.StandardError);
+    }
+
+    // forge connect vscode writes .vscode/settings.json before it serves: it creates the file when
+    // absent and merges its key into a comment-free one. A taken port makes the run exit right after.
+    [Theory]
+    [InlineData(null, """
+        {
+          "claudeCode.environmentVariables": {
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:{port}",
+            "ANTHROPIC_API_KEY": "forge-local"
+          }
+        }
+        """)]
+    [InlineData("""{ "editor.tabSize": 4, "claudeCode.environmentVariables": { "OLD": "x" }, "files.eol": "\n", }""", """
+        {
+          "editor.tabSize": 4,
+          "claudeCode.environmentVariables": {
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:{port}",
+            "ANTHROPIC_API_KEY": "forge-local"
+          },
+          "files.eol": "\n"
+        }
+        """)]
+    public async Task Connect_vscode_writes_the_extension_settings(string? existing, string expected)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        using var taken = new TcpListener(IPAddress.Any, 0);
+        taken.Start();
+        var port = ((IPEndPoint)taken.LocalEndpoint).Port;
+        harness.WorkingDirectory = WriteAgent(harness.Home, port);
+        var settingsDir = Path.Combine(harness.WorkingDirectory, ".vscode");
+        if (existing is not null)
+        {
+            Directory.CreateDirectory(settingsDir);
+            File.WriteAllText(Path.Combine(settingsDir, "settings.json"), existing);
+        }
+
+        var result = await harness.RunAsync("connect", "vscode", "mission.mcl", "--port", port.ToString());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(Encoding.UTF8.GetBytes(expected.Replace("{port}", port.ToString()).ReplaceLineEndings()),
+            File.ReadAllBytes(Path.Combine(settingsDir, "settings.json")));
+        Assert.Equal(["settings.json"], Directory.GetFiles(settingsDir).Select(Path.GetFileName));
     }
 
     // forge claude --print-env waits for its in-process endpoint to answer, then prints the wiring on
