@@ -48,6 +48,9 @@ public sealed class HttpStub : IAsyncDisposable
         context.Response.StatusCode = response.Status;
         context.Response.ContentType = response.ContentType;
         await context.Response.WriteAsync(response.Body);
+        if (response.HoldOpen is null) return;
+        await context.Response.Body.FlushAsync();
+        await response.HoldOpen;
     }
 
     private static async Task<StubRequest> RecordAsync(HttpRequest request)
@@ -60,4 +63,6 @@ public sealed class HttpStub : IAsyncDisposable
 
 public sealed record StubRequest(string Method, string PathAndQuery, IReadOnlyDictionary<string, string> Headers, string Body);
 
-public sealed record StubResponse(int Status, string Body, string ContentType = "application/json");
+/// <param name="HoldOpen">When set, the body is sent and the response stays open (a stream that has
+/// not ended) until this task completes.</param>
+public sealed record StubResponse(int Status, string Body, string ContentType = "application/json", Task? HoldOpen = null);
