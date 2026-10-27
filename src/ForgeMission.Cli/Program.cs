@@ -62,16 +62,18 @@ static IHost BuildHost()
     builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
     builder.Configuration.AddJsonFile(ForgeSettings.DefaultPath, optional: true);
-    builder.Services.AddOptions<ForgeSettings>()
-        .Bind(builder.Configuration)
-        .PostConfigure(ForgeSettings.NormalizeEndpoint);
+    builder.Services.AddOptions<ForgeSettings>().Bind(builder.Configuration);
+    builder.Services.AddSingleton<IValidateOptions<ForgeSettings>, ForgeSettingsValidator>();
+    builder.Services.AddOptions<ForgeApiSettings>()
+        .Bind(builder.Configuration.GetSection(ForgeApiSettings.Section))
+        .PostConfigure(ForgeApiSettings.NormalizeEndpoint);
     return builder.Build();
 }
 
 static RootCommand BuildRootCommand(IServiceProvider services)
 {
-    var settings = services.GetRequiredService<IOptions<ForgeSettings>>().Value;
-    ForgeExec.ApiEndpoint = settings.Api.Endpoint; // row-2 bridge; row 4 hands IOptions<ForgeSettings> to each endpoint reader
+    // row-2 bridge; row 4 hands IOptions<ForgeApiSettings> to each endpoint reader
+    ForgeExec.ApiEndpoint = services.GetRequiredService<IOptions<ForgeApiSettings>>().Value.Endpoint;
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(BuildInitCommand());
     rootCommand.Add(BuildRunCommand());
@@ -83,7 +85,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(BuildWhoamiCommand());
     rootCommand.Add(BuildLogoutCommand());
     rootCommand.Add(BuildExecCommand());
-    rootCommand.Add(ForgeChat.BuildCommand(settings)); // forge chat (53.2; --hands, Phase 55)
+    rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>())); // forge chat (53.2; --hands, Phase 55)
     rootCommand.Add(ForgeProject.BuildCommand());
     rootCommand.Add(BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());

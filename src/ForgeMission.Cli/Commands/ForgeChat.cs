@@ -10,6 +10,7 @@ using ForgeMission.Core.Tools;
 using ForgeMission.Cli.Tui;
 using ForgeMission.Cli.Tui.Graphics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli;
 
@@ -25,7 +26,7 @@ public static class ForgeChat
         "(not inside tmux). Open forge chat again from one of those.";
 
     /// <summary>The <c>forge chat</c> command and its flags.</summary>
-    internal static Command BuildCommand(ForgeSettings settings)
+    internal static Command BuildCommand(IOptions<ForgeSettings> settings)
     {
         var cmd = new Command("chat", "Chat with a hosted mission in the current Forge project");
         cmd.Add(new Option<bool>(HandsFlag)
@@ -47,7 +48,7 @@ public static class ForgeChat
         return cmd;
     }
 
-    internal static async Task<int> RunAsync(bool hands, string? projectPath, ForgeSettings settings)
+    internal static async Task<int> RunAsync(bool hands, string? projectPath, IOptions<ForgeSettings> settings)
     {
         var projectFile = Path.GetFullPath(projectPath
             ?? Path.Combine(Directory.GetCurrentDirectory(), "forge.project.json"));
@@ -66,8 +67,8 @@ public static class ForgeChat
 
         // Configuration and terminal prerequisites still precede login/network work.
         ForgeTheme theme;
-        try { theme = settings.SelectedTheme(); }
-        catch (ForgeConfigException bad)
+        try { theme = settings.Value.SelectedTheme(); }
+        catch (OptionsValidationException bad)
         {
             Console.Error.WriteLine($"forge chat: {bad.Message}");
             return 1;
@@ -419,7 +420,7 @@ public static class ForgeChat
     private static bool Hands(ParseResult result) => result.GetValue<bool>(HandsFlag);
 
     /// <summary>Whether <paramref name="args"/> (after <c>chat</c>) ask for hands.</summary>
-    internal static bool ParseHands(string[] args) => Hands(BuildCommand(new ForgeSettings()).Parse(args));
+    internal static bool ParseHands(string[] args) => Hands(BuildCommand(Options.Create(new ForgeSettings())).Parse(args));
 
     internal static ChatMode ModeFor(bool hands) => hands ? ChatMode.Hands : ChatMode.Plain;
 

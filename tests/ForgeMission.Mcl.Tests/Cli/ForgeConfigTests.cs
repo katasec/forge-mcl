@@ -3,10 +3,10 @@ using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
 
-// ~/.forge/config.json. The theme (53.6): missing file or key → dark (56 G10); "light" and "dark" pick
-// those themes; anything else stops forge chat with the valid names — checked on the bound
-// ForgeSettings through reflection like the other CLI tests (the test project does not reference the
-// forge assembly). The file itself and api.endpoint are pinned through the process with the harness.
+// ~/.forge/config.json. The theme (53.6): missing file or key → dark (56 G10); "light" and "dark"
+// pick those themes — checked on ForgeSettings through reflection like the other CLI tests (the test
+// project does not reference the forge assembly). An unknown theme, the file itself and api.endpoint
+// are pinned through the process with the shared harness.
 public sealed class ForgeConfigTests
 {
     private static readonly Assembly Forge = LoadForge();
@@ -30,12 +30,17 @@ public sealed class ForgeConfigTests
     [Theory]
     [InlineData("solarized")]
     [InlineData("Dark")]
-    public void An_unknown_theme_stops_with_the_valid_names(string name)
+    public async Task An_unknown_theme_stops_with_the_valid_names(string name)
     {
-        var error = ReadFailure(name);
+        await using var harness = StartInProject();
+        harness.WriteConfig($$"""{ "theme": "{{name}}" }""");
 
-        Assert.Contains($"Unknown theme \"{name}\"", error.Message);
-        Assert.Contains("Valid themes: light, dark.", error.Message);
+        var result = await harness.RunAsync("chat");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("", result.StandardOutput);
+        Assert.Equal($"forge chat: Unknown theme \"{name}\" in {ConfigPath(harness)}. Valid themes: light, dark.",
+            result.StandardError.Trim());
     }
 
     // Pins through the process: a malformed ~/.forge/config.json stops the command with exit 1,
@@ -67,13 +72,14 @@ public sealed class ForgeConfigTests
     }
 
     // api.endpoint is trimmed of whitespace and trailing slashes; blank means the hosted default.
+    // The theme is forge chat's alone: an unknown one does not stop a hosted run.
     [Fact]
     public async Task The_configured_api_endpoint_is_where_a_hosted_run_is_sent()
     {
         await using var harness = ForgeCliHarness.Start();
         var stub = await harness.StartStubAsync(_ => new StubResponse(500, "boom"));
         harness.SignIn(stub.Address.ToString());
-        harness.WriteConfig($$"""{ "api": { "endpoint": "  {{stub.Address}}/ " } }""");
+        harness.WriteConfig($$"""{ "theme": "solarized", "api": { "endpoint": "  {{stub.Address}}/ " } }""");
 
         var result = await harness.RunAsync("run", "Noop", "hello");
 
@@ -106,18 +112,14 @@ public sealed class ForgeConfigTests
     private static string ConfigPath(ForgeCliHarness harness) => Path.Combine(harness.Home, ".forge", "config.json");
 
     // The theme a bound ForgeSettings selects when config.json names <paramref name="theme"/>.
-    private static object Read(string? theme)
+    private static object Read(string? theme) =>
+        SettingsType.GetMethod("SelectedTheme")!.Invoke(Settings(theme), null)!;
+
+    private static object Settings(string? theme)
     {
         var settings = Activator.CreateInstance(SettingsType)!;
         SettingsType.GetProperty("Theme")!.SetValue(settings, theme);
-        return SettingsType.GetMethod("SelectedTheme")!.Invoke(settings, null)!;
-    }
-
-    private static Exception ReadFailure(string theme)
-    {
-        var failure = Assert.Throws<TargetInvocationException>(() => Read(theme)).InnerException!;
-        Assert.Equal("ForgeConfigException", failure.GetType().Name);
-        return failure;
+        return settings;
     }
 
     private static object Theme(string name) =>
