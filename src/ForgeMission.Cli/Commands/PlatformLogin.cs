@@ -161,19 +161,12 @@ public static class PlatformLogin
 
     private static HttpListener StartLoopbackListener(out string redirectUri)
     {
-        var port = FindFreePort();
+        var port = FreePort.Find();
         var listener = new HttpListener();
         listener.Prefixes.Add($"http://localhost:{port}/");
         listener.Start();
         redirectUri = $"http://localhost:{port}";
         return listener;
-    }
-
-    private static int FindFreePort()
-    {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        return ((IPEndPoint)probe.LocalEndpoint).Port;
     }
 
     // The sign-in deadline is one CTS linked to the caller's token: the deadline reports the timeout,

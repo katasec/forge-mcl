@@ -571,7 +571,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
 
         if (!await EnsureInitializedAsync(missionPath, cancellationToken)) return;
 
-        var port = result.GetValue(portOpt) ?? FindFreePort();
+        var port = result.GetValue(portOpt) ?? FreePort.Find();
         var config = new AgentConfig
         {
             Mission = missionPath,
@@ -795,15 +795,6 @@ static async Task<int> RunWiredClaudeAsync(string baseUrl, string? prompt, IRead
     }
 
     static void Survive(object? _, ConsoleCancelEventArgs e) => e.Cancel = true;
-}
-
-static int FindFreePort()
-{
-    var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-    listener.Start();
-    var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-    listener.Stop();
-    return port;
 }
 
 static bool IsOnPath(string binary) =>
