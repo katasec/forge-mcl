@@ -282,21 +282,21 @@ static Command BuildListCommand()
     var listExpertsCmd = new Command("experts", "List experts in the experts directory");
     listExpertsCmd.Add(expertsOpt);
 
-    listExpertsCmd.SetCancellableAction(async (result, _) =>
+    listExpertsCmd.SetCancellableAction((result, _) =>
     {
         var experts    = result.GetValue(expertsOpt);
         var expertsDir = experts?.FullName ?? "experts";
 
         var expertDefs = TryLoadExperts(expertsDir);
-        if (expertDefs is null) return;
+        if (expertDefs is null) return Task.CompletedTask;
 
-        if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return; }
+        if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return Task.CompletedTask; }
 
         Console.WriteLine($"Experts in {expertsDir}:");
         foreach (var (name, def) in expertDefs.OrderBy(k => k.Key))
             Console.WriteLine($"  {name,-30} {def.Input} -> {def.Output}");
 
-        await Task.CompletedTask;
+        return Task.CompletedTask;
     });
 
     listCommand.Add(listExpertsCmd);
