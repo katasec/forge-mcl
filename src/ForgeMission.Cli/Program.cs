@@ -102,7 +102,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(BuildServeCommand(webSearch, clients, logger));
     rootCommand.Add(BuildClaudeCommand(webSearch, clients, logger));
     rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync,
-        (config, agentDir) => TryBuildMissionServerAsync(webSearch, clients, logger, config, agentDir), Die));
+        (config, agentDir, cancellationToken) => TryBuildMissionServerAsync(webSearch, clients, logger, config, agentDir, cancellationToken), Die));
     rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
     rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
     rootCommand.Add(BuildProviderCommand());
@@ -505,7 +505,7 @@ static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClie
         try { config = AgentConfigLoader.Load(agentFile.FullName); }
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return; }
 
-        var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, agentFile.DirectoryName!);
+        var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, agentFile.DirectoryName!, cancellationToken);
         if (built is not { } server) return;
         var (app, missionPath, anthropicDoor, openAiDoor) = server;
 
@@ -594,7 +594,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
         }
         else
         {
-            var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, Path.GetDirectoryName(missionPath)!);
+            var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, Path.GetDirectoryName(missionPath)!, cancellationToken);
             if (built is not { } server) return;
             var app = server.App;
             await app.StartAsync(cancellationToken);
@@ -812,7 +812,7 @@ static bool IsOnPath(string binary) =>
 // Shared by `forge serve` (blocking RunAsync) and `forge claude` (background StartAsync).
 // Returns null after reporting the error (Die) — callers just return.
 static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?> TryBuildMissionServerAsync(
-    IOptions<WebSearchOptions> webSearchOptions, IHttpClientFactory clients, ILogger logger, AgentConfig config, string agentDir)
+    IOptions<WebSearchOptions> webSearchOptions, IHttpClientFactory clients, ILogger logger, AgentConfig config, string agentDir, CancellationToken cancellationToken)
 {
     var missionPath = Path.GetFullPath(Path.Combine(agentDir, config.Mission));
     var lockPath    = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
@@ -820,7 +820,7 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
     if (!File.Exists(missionPath)) { Die($"Mission file not found: {missionPath}"); return null; }
     if (!File.Exists(lockPath))    { Die("MCL007 Mission not initialised — run 'forge init' first."); return null; }
 
-    var source = await TryReadFile(missionPath, CancellationToken.None);
+    var source = await TryReadFile(missionPath, cancellationToken);
     if (source is null) return null;
 
     var ast = TryParse(source, missionPath);

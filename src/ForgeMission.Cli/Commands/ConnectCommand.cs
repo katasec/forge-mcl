@@ -20,7 +20,7 @@ internal static class ConnectCommand
     internal static Command Build(
         Func<string?, (string MissionPath, string MissionName)?> resolveTarget,
         Func<string, CancellationToken, Task<bool>> ensureInitialized,
-        Func<AgentConfig, string, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
+        Func<AgentConfig, string, CancellationToken, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
         Action<string> die)
     {
         var connectCmd = new Command("connect", "Wire an editor's Claude Code extension to a forge mission");
@@ -31,7 +31,7 @@ internal static class ConnectCommand
     static Command BuildVsCodeCommand(
         Func<string?, (string MissionPath, string MissionName)?> resolveTarget,
         Func<string, CancellationToken, Task<bool>> ensureInitialized,
-        Func<AgentConfig, string, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
+        Func<AgentConfig, string, CancellationToken, Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?>> buildMissionServer,
         Action<string> die)
     {
         var targetArg = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
@@ -54,7 +54,7 @@ internal static class ConnectCommand
             if (!TryWriteVsCodeSettings(Directory.GetCurrentDirectory(), baseUrl, die)) return;
 
             var config = new AgentConfig { Mission = missionPath, Port = port, Id = missionName, Wire = "anthropic" };
-            var built  = await buildMissionServer(config, Path.GetDirectoryName(missionPath)!);
+            var built  = await buildMissionServer(config, Path.GetDirectoryName(missionPath)!, cancellationToken);
             if (built is not { } server) return;
             var app = server.App;
 
