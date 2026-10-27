@@ -119,7 +119,7 @@ public sealed class ForgeChatTests
             var theme = EndsTurn.DeclaringType!.Assembly.GetType("ForgeMission.Cli.Tui.ForgeTheme")!
                 .GetProperty("Dark", BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
             var failure = await Assert.ThrowsAnyAsync<Exception>(() => (Task<int>)chat.Invoke(null,
-                [app, ModeFor.Invoke(null, [hands]), projectFile, theme, null, new ConcurrentQueue<string>()])!);
+                [app, ModeFor.Invoke(null, [hands]), projectFile, theme, null, new ConcurrentQueue<string>(), CancellationToken.None])!);
             Assert.Equal("ChatStoppedException", failure.GetType().Name);
             Assert.Contains("does not match this chat mode", failure.Message, StringComparison.Ordinal);
             Assert.Equal(["/api/ListMissionConversations", "/api/GetConversation"], host.Requests);

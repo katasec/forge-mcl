@@ -101,7 +101,7 @@ public static class ForgeChat
 
         try
         {
-            return await RunApplicationAsync(clients, ModeFor(hands), projectFile, theme, fonts);
+            return await RunApplicationAsync(clients, ModeFor(hands), projectFile, theme, fonts, cancellationToken);
         }
         catch (ChatStoppedException stopped)
         {
@@ -124,7 +124,7 @@ public static class ForgeChat
     /// <summary>Owns the client application's joined lifetime and delivers its final notices
     /// after disposal, while preserving the original chat failure.</summary>
     private static async Task<int> RunApplicationAsync(IHttpClientFactory clients, ChatMode mode, string projectFile,
-        ForgeTheme theme, TextFonts? fonts)
+        ForgeTheme theme, TextFonts? fonts, CancellationToken cancellationToken)
     {
         var notices = new ConcurrentQueue<string>();
         var app = ApplicationComposition.Create(clients,
@@ -139,7 +139,7 @@ public static class ForgeChat
         ExceptionDispatchInfo? chatFailure = null;
         ExceptionDispatchInfo? cleanupFailure = null;
         var exitCode = 0;
-        try { exitCode = await ChatInProjectAsync(app, mode, projectFile, theme, fonts, notices); }
+        try { exitCode = await ChatInProjectAsync(app, mode, projectFile, theme, fonts, notices, cancellationToken); }
         catch (Exception failure) { chatFailure = ExceptionDispatchInfo.Capture(failure); }
         try { await app.DisposeAsync(); }
         catch (Exception failure) { cleanupFailure = ExceptionDispatchInfo.Capture(failure); }
@@ -177,7 +177,7 @@ public static class ForgeChat
     /// <summary>Opens the portable Project, reconnects to its hosted mission, asks fresh hands
     /// consent and presents its complete history in the TUI or line mode.</summary>
     private static async Task<int> ChatInProjectAsync(ApplicationComposition app, ChatMode mode, string projectFile,
-        ForgeTheme theme, TextFonts? tuiFonts, ConcurrentQueue<string> notices)
+        ForgeTheme theme, TextFonts? tuiFonts, ConcurrentQueue<string> notices, CancellationToken cancellationToken)
     {
         var session = await OpenProjectAsync(app.Projects, projectFile, mode.MissionName);
         var reconnected = await app.MissionConversations.ReconnectAsync(
@@ -197,7 +197,8 @@ public static class ForgeChat
 
         var header = new ChatHeader(session.Project.Title, conversation.MissionName, conversation.Approval.VersionNumber,
             conversation.ProviderProfile, Environment.UserName);
-        if (await ChatTui.RunAsync(app.MissionConversations, conversation.ConversationId, header, theme, tuiFonts, hands, notices) == TuiExit.Quit)
+        if (await ChatTui.RunAsync(app.MissionConversations, conversation.ConversationId, header, theme, tuiFonts, hands, notices,
+            cancellationToken) == TuiExit.Quit)
             return 0;
         Console.Error.WriteLine(NeedsImagesMessage);
         return 1;
