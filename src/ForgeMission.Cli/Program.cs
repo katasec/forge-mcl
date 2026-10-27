@@ -152,7 +152,7 @@ static async Task RunInitAsync(FileInfo mission, bool refresh, CancellationToken
 
     await PullOciExpertsAsync(manifest, refresh, lockFile, cancellationToken);
 
-    var lockPath = Path.Combine(missionDir, "mcl.lock");
+    var lockPath = MclLockPath(missionDir);
     LockFileIO.Write(lockPath, lockFile);
 
     var total = lockFile.Experts.Count;
@@ -233,7 +233,7 @@ static Command BuildValidateCommand()
     {
         var mission    = result.GetValue(missionArg)!;
         var missionDir = mission.DirectoryName!;
-        var lockPath   = Path.Combine(missionDir, "mcl.lock");
+        var lockPath   = MclLockPath(missionDir);
 
         var source = await TryReadFile(mission.FullName, cancellationToken);
         if (source is null) return;
@@ -679,7 +679,7 @@ static (string MissionPath, string MissionName)? ResolveClaudeTarget(string? tar
 // Missing mcl.lock ⇒ run `forge init` silently (local experts resolve without network).
 static async Task<bool> EnsureInitializedAsync(string missionPath, CancellationToken cancellationToken)
 {
-    var lockPath = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
+    var lockPath = MclLockPath(Path.GetDirectoryName(missionPath)!);
     if (File.Exists(lockPath)) return true;
 
     Console.Error.WriteLine("↳ initialising mission (forge init)…");
@@ -819,7 +819,7 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
     IOptions<WebSearchOptions> webSearchOptions, IHttpClientFactory clients, ILogger logger, AgentConfig config, string agentDir, CancellationToken cancellationToken)
 {
     var missionPath = Path.GetFullPath(Path.Combine(agentDir, config.Mission));
-    var lockPath    = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
+    var lockPath    = MclLockPath(Path.GetDirectoryName(missionPath)!);
 
     if (!File.Exists(missionPath)) { Die($"Mission file not found: {missionPath}"); return null; }
     if (!File.Exists(lockPath))    { Die("MCL007 Mission not initialised — run 'forge init' first."); return null; }
@@ -1078,6 +1078,9 @@ static string ExpertTemplate(string name) => $"""
 static string? GetContextString(Dictionary<string, object> ctx, string key)
     => ctx.TryGetValue(key, out var v) && v is string s && s.Length > 0 ? s : null;
 
+// The lock file lives beside the mission; one place builds its path.
+static string MclLockPath(string missionDir) => Path.Combine(missionDir, "mcl.lock");
+
 static void Die(string message)
 {
     Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");
@@ -1170,7 +1173,7 @@ static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory 
     {
         var mission    = result.GetValue(missionArg)!;
         var missionDir = mission.DirectoryName!;
-        var lockPath   = Path.Combine(missionDir, "mcl.lock");
+        var lockPath   = MclLockPath(missionDir);
 
         if (!File.Exists(lockPath)) { Die("MCL007 Mission not initialised — run 'forge init' first."); return; }
 
