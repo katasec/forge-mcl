@@ -17,9 +17,11 @@ using ForgeMission.Docker;
 using ForgeMission.MissionRegistry;
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MclProgram = ForgeMission.Parser.Program;
 
 // No @file response-file expansion — @handles (forge claude @websearch) are arguments.
@@ -59,11 +61,17 @@ static IHost BuildHost()
     var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
     builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
+    builder.Configuration.AddJsonFile(ForgeSettings.DefaultPath, optional: true);
+    builder.Services.AddOptions<ForgeSettings>()
+        .Bind(builder.Configuration)
+        .PostConfigure(ForgeSettings.NormalizeEndpoint);
     return builder.Build();
 }
 
 static RootCommand BuildRootCommand(IServiceProvider services)
 {
+    var settings = services.GetRequiredService<IOptions<ForgeSettings>>().Value;
+    ForgeExec.ApiEndpoint = settings.Api.Endpoint; // row-2 bridge; row 4 hands IOptions<ForgeSettings> to each endpoint reader
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(BuildInitCommand());
     rootCommand.Add(BuildRunCommand());
@@ -75,7 +83,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(BuildWhoamiCommand());
     rootCommand.Add(BuildLogoutCommand());
     rootCommand.Add(BuildExecCommand());
-    rootCommand.Add(ForgeChat.BuildCommand()); // forge chat (53.2; --hands, Phase 55)
+    rootCommand.Add(ForgeChat.BuildCommand(settings)); // forge chat (53.2; --hands, Phase 55)
     rootCommand.Add(ForgeProject.BuildCommand());
     rootCommand.Add(BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());

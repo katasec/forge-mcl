@@ -58,6 +58,11 @@ public sealed class ForgeCliHarness : IAsyncDisposable
 
     public void WriteConfig(string json) => WriteForgeFile("config.json", json);
 
+    /// <summary>Saves a test platform login (key <c>fg_test_key</c>) for <paramref name="endpoint"/>.</summary>
+    public void SignIn(string endpoint) =>
+        WriteForgeFile("credentials.json",
+            $$$"""{"platform":{"key":"fg_test_key","user":"harness@test","endpoint":"{{{endpoint}}}"}}""");
+
     /// <summary>Writes <c>~/.forge/{fileName}</c> in the isolated HOME.</summary>
     public void WriteForgeFile(string fileName, string contents) =>
         File.WriteAllText(Path.Combine(Home, ".forge", fileName), contents);

@@ -17,7 +17,8 @@ public static class ForgeExec
     internal const long MaxInputDownloadBytes = 100L * 1024L * 1024L;
     private static readonly TimeSpan InputDownloadTimeout = TimeSpan.FromSeconds(30);
 
-    internal static string ApiEndpoint => ForgeConfig.ReadApiEndpoint(ForgeConfig.DefaultPath);
+    // The bound ~/.forge/config.json api.endpoint, set once by the CLI host at startup.
+    internal static string ApiEndpoint { get; set; } = ForgeApiSettings.DefaultEndpoint;
 
     private static HttpClient Http => CliHttpClients.Create(CliHttpClients.Exec);
 

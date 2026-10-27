@@ -5,7 +5,7 @@ namespace ForgeMission.Cli.Tui;
 
 // forge chat TUI (53.6): a theme is data — purpose-named colour tokens and shape values.
 // This file is the only place a colour literal appears; ForgeStyles builds every component style
-// from a ForgeTheme. A new theme is one more instance here plus its name in ForgeConfig.
+// from a ForgeTheme. A new theme is one more instance here plus its name in ForgeSettings.
 // Light is sampled from docs/design/forge_tui_light_mockup.png; Dark is the 53.5 mockup's palette.
 // Shapes (Phase 56: cards, code blocks, user messages, pills, composer) come from
 // docs/design/forge_tui_finish_line_mockup.html (:root and [data-theme="dark"]): lengths in mockup

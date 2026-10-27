@@ -11,7 +11,7 @@ public sealed class ForgeCliHarnessTests
     public async Task A_public_host_reaches_only_the_non_forwarding_proxy(string endpoint, string method, string target)
     {
         await using var harness = ForgeCliHarness.Start();
-        SignIn(harness, endpoint);
+        harness.SignIn(endpoint);
 
         var result = await harness.RunAsync("whoami");
 
@@ -26,7 +26,7 @@ public sealed class ForgeCliHarnessTests
         await using var harness = ForgeCliHarness.Start();
         var stub = await harness.StartStubAsync(_ =>
             new StubResponse(200, """{"email":"harness@test","balanceMicroUsd":0}"""));
-        SignIn(harness, stub.Address.ToString());
+        harness.SignIn(stub.Address.ToString());
 
         var result = await harness.RunAsync("whoami");
 
@@ -53,8 +53,4 @@ public sealed class ForgeCliHarnessTests
         Assert.Equal(harness.Home, environment["HOME"]);
         Assert.Equal(harness.Proxy.Address.ToString(), environment["https_proxy"]);
     }
-
-    private static void SignIn(ForgeCliHarness harness, string endpoint) =>
-        harness.WriteForgeFile("credentials.json",
-            $$$"""{"platform":{"key":"fg_test_key","user":"harness@test","endpoint":"{{{endpoint}}}"}}""");
 }

@@ -25,7 +25,7 @@ public static class ForgeChat
         "(not inside tmux). Open forge chat again from one of those.";
 
     /// <summary>The <c>forge chat</c> command and its flags.</summary>
-    internal static Command BuildCommand()
+    internal static Command BuildCommand(ForgeSettings settings)
     {
         var cmd = new Command("chat", "Chat with a hosted mission in the current Forge project");
         cmd.Add(new Option<bool>(HandsFlag)
@@ -37,7 +37,7 @@ public static class ForgeChat
             Description = "Path to a project file (default: ./forge.project.json)",
         });
         cmd.SetAction(async result => await MacChatWindow.RunCommandAsync(
-            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag)),
+            () => RunAsync(Hands(result), result.GetValue<string?>(ProjectFlag), settings),
             MacChatWindow.ChildMarker(OperatingSystem.IsMacOS(),
                 UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected),
                 Environment.GetEnvironmentVariable(MacChatWindow.Marker)),
@@ -47,7 +47,7 @@ public static class ForgeChat
         return cmd;
     }
 
-    public static async Task<int> RunAsync(bool hands, string? projectPath)
+    internal static async Task<int> RunAsync(bool hands, string? projectPath, ForgeSettings settings)
     {
         var projectFile = Path.GetFullPath(projectPath
             ?? Path.Combine(Directory.GetCurrentDirectory(), "forge.project.json"));
@@ -66,7 +66,7 @@ public static class ForgeChat
 
         // Configuration and terminal prerequisites still precede login/network work.
         ForgeTheme theme;
-        try { theme = ForgeConfig.ReadTheme(ForgeConfig.DefaultPath); }
+        try { theme = settings.SelectedTheme(); }
         catch (ForgeConfigException bad)
         {
             Console.Error.WriteLine($"forge chat: {bad.Message}");
@@ -419,7 +419,7 @@ public static class ForgeChat
     private static bool Hands(ParseResult result) => result.GetValue<bool>(HandsFlag);
 
     /// <summary>Whether <paramref name="args"/> (after <c>chat</c>) ask for hands.</summary>
-    internal static bool ParseHands(string[] args) => Hands(BuildCommand().Parse(args));
+    internal static bool ParseHands(string[] args) => Hands(BuildCommand(new ForgeSettings()).Parse(args));
 
     internal static ChatMode ModeFor(bool hands) => hands ? ChatMode.Hands : ChatMode.Plain;
 
