@@ -380,7 +380,7 @@ static Command BuildRegistryLoginCommand()
 static Command BuildLoginCommand(IOptions<PlatformLoginOptions> login, IHttpClientFactory clients)
 {
     var cmd = new Command("login", "Sign in to Forge (browser) and store a platform key");
-    cmd.SetCancellableAction((_, _) => PlatformLogin.RunAsync(login, clients));
+    cmd.SetCancellableAction((_, cancellationToken) => PlatformLogin.RunAsync(login, clients, cancellationToken));
     return cmd;
 }
 

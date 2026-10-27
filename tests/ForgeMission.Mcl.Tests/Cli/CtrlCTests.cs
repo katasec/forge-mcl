@@ -27,7 +27,7 @@ public sealed class CtrlCTests
             "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
 
         CliResult result;
-        try { result = await harness.InterruptWhileAsync(() => UntilAsync(() => stub.Requests.Count > 0), args); }
+        try { result = await harness.InterruptWhileAsync(_ => UntilAsync(() => stub.Requests.Count > 0), args); }
         finally { release.SetResult(); }
 
         Assert.Equal(130, result.ExitCode);

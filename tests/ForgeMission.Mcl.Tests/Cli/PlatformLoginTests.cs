@@ -72,6 +72,20 @@ public sealed class PlatformLoginTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
+    // Ctrl+C while login waits for the browser's callback exits 130 and prints nothing more.
+    [SkippableFact]
+    public async Task Ctrl_C_while_waiting_for_the_browser_exits_130()
+    {
+        Skip.If(OperatingSystem.IsWindows(), "SIGINT is POSIX.");
+        await using var harness = ForgeCliHarness.Start();
+
+        var result = await harness.InterruptWhileAsync(ReadAuthorizeUrlAsync, "login");
+
+        Assert.Equal((130, "", ""), (result.ExitCode, result.StandardOutput, result.StandardError));
+        Assert.False(File.Exists(CredentialsPath(harness)));
+        Assert.Empty(harness.Proxy.Attempts);
+    }
+
     // Runs `forge login`, reads the authorize URL it prints, and answers its loopback callback with
     // the query `callback` builds from the URL's state.
     private static async Task<(CliResult Result, Uri Authorize)> LoginAsync(ForgeCliHarness harness, Func<string, string> callback)

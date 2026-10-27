@@ -17,7 +17,8 @@ namespace ForgeMission.Cli;
 // Produces Entra tokens proving identity; task 4 exchanges the access token for a platform key.
 public static class PlatformLogin
 {
-    internal static async Task<int> RunAsync(IOptions<PlatformLoginOptions> options, IHttpClientFactory clients)
+    internal static async Task<int> RunAsync(IOptions<PlatformLoginOptions> options, IHttpClientFactory clients,
+        CancellationToken cancellationToken)
     {
         var settings = options.Value;
         var http = clients.CreateClient(CliHttpClients.Login);
@@ -31,7 +32,7 @@ public static class PlatformLogin
         Console.WriteLine($"(if it doesn't open, visit: {authorizeUrl})");
         OpenBrowser(authorizeUrl);
 
-        var code = await WaitForCallbackAsync(listener, state);
+        var code = await WaitForCallbackAsync(listener, state, cancellationToken);
         if (code is null) return 1;
 
         var tokens = await ExchangeCodeAsync(http, settings, code, verifier, redirectUri);
@@ -170,19 +171,23 @@ public static class PlatformLogin
         return ((IPEndPoint)probe.LocalEndpoint).Port;
     }
 
-    private static async Task<string?> WaitForCallbackAsync(HttpListener listener, string expectedState)
+    // The sign-in deadline is one CTS linked to the caller's token: the deadline reports the timeout,
+    // the caller's own cancellation (Ctrl+C) propagates.
+    private static async Task<string?> WaitForCallbackAsync(HttpListener listener, string expectedState,
+        CancellationToken cancellationToken)
     {
-        var timeout = Task.Delay(TimeSpan.FromMinutes(5));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMinutes(5));
         while (true)
         {
-            var getContext = listener.GetContextAsync();
-            if (await Task.WhenAny(getContext, timeout) == timeout)
+            HttpListenerContext ctx;
+            try { ctx = await listener.GetContextAsync().WaitAsync(deadline.Token); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 Console.Error.WriteLine("Timed out waiting for the browser sign-in (5 minutes).");
                 return null;
             }
 
-            var ctx = await getContext;
             var query = ctx.Request.QueryString;
             var code = query["code"];
             var error = query["error"];
