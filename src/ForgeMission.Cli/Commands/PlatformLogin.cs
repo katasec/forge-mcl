@@ -37,10 +37,9 @@ public static class PlatformLogin
         Environment.GetEnvironmentVariable("FORGE_PLATFORM_ENDPOINT")?.TrimEnd('/')
         ?? "https://forge.katasec.com";
 
-    private static HttpClient Http => CliHttpClients.Create(CliHttpClients.Login);
-
-    public static async Task<int> RunAsync()
+    internal static async Task<int> RunAsync(IHttpClientFactory clients)
     {
+        var http = clients.CreateClient(CliHttpClients.Login);
         var (verifier, challenge) = CreatePkcePair();
         var state = RandomUrlSafe(16);
 
@@ -54,11 +53,11 @@ public static class PlatformLogin
         var code = await WaitForCallbackAsync(listener, state);
         if (code is null) return 1;
 
-        var tokens = await ExchangeCodeAsync(code, verifier, redirectUri);
+        var tokens = await ExchangeCodeAsync(http, code, verifier, redirectUri);
         if (tokens is null || string.IsNullOrEmpty(tokens.AccessToken)) return 1;
 
         // Exchange the Entra access token for a platform key (issuance endpoint on the control plane).
-        var issued = await IssuePlatformKeyAsync(tokens.AccessToken);
+        var issued = await IssuePlatformKeyAsync(http, tokens.AccessToken);
         if (issued is null) return 1;
 
         var user = issued.Email ?? ReadUserLabel(tokens.IdToken);
@@ -77,7 +76,7 @@ public static class PlatformLogin
     // --- forge whoami / forge logout (T5) -------------------------------------------------------
 
     // Show the signed-in user + live balance (reads the stored key, calls /me on its endpoint).
-    public static async Task<int> WhoAmIAsync()
+    internal static async Task<int> WhoAmIAsync(IHttpClientFactory clients)
     {
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
@@ -86,7 +85,7 @@ public static class PlatformLogin
             return 1;
         }
 
-        var me = await FetchMeAsync(platform.Endpoint, platform.Key);
+        var me = await FetchMeAsync(clients.CreateClient(CliHttpClients.Login), platform.Endpoint, platform.Key);
         if (me is null) return 1;
 
         Console.WriteLine($"Signed in as {me.Email ?? platform.User}");
@@ -108,13 +107,13 @@ public static class PlatformLogin
         return 0;
     }
 
-    private static async Task<MeResponse?> FetchMeAsync(string endpoint, string key)
+    private static async Task<MeResponse?> FetchMeAsync(HttpClient http, string endpoint, string key)
     {
         var baseUrl = endpoint.TrimEnd('/');
         using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/me");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
-        using var resp = await Http.SendAsync(req);
+        using var resp = await http.SendAsync(req);
         if (resp.StatusCode == HttpStatusCode.Unauthorized)
         {
             Console.Error.WriteLine("Your platform key is no longer valid (expired or revoked). Run `forge login`.");
@@ -133,12 +132,12 @@ public static class PlatformLogin
     }
 
     // Exchange the validated Entra access token for a long-lived platform key (fg_live_…).
-    private static async Task<IssueKeyResponse?> IssuePlatformKeyAsync(string accessToken)
+    private static async Task<IssueKeyResponse?> IssuePlatformKeyAsync(HttpClient http, string accessToken)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{PlatformEndpoint}/platform/keys");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-        using var resp = await Http.SendAsync(req);
+        using var resp = await http.SendAsync(req);
         var json = await resp.Content.ReadAsStringAsync();
 
         if (!resp.IsSuccessStatusCode)
@@ -248,7 +247,7 @@ public static class PlatformLogin
         $"&state={state}" +
         $"&code_challenge={challenge}&code_challenge_method=S256";
 
-    private static async Task<TokenResponse?> ExchangeCodeAsync(string code, string verifier, string redirectUri)
+    private static async Task<TokenResponse?> ExchangeCodeAsync(HttpClient http, string code, string verifier, string redirectUri)
     {
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -260,7 +259,7 @@ public static class PlatformLogin
             ["scope"] = Scope,
         });
 
-        using var resp = await Http.PostAsync($"{Authority}/oauth2/v2.0/token", form);
+        using var resp = await http.PostAsync($"{Authority}/oauth2/v2.0/token", form);
         var json = await resp.Content.ReadAsStringAsync();
 
         TokenResponse? tokens = null;

@@ -64,6 +64,7 @@ static IHost BuildHost()
     builder.Configuration.AddJsonFile(ForgeSettings.DefaultPath, optional: true);
     builder.Services.AddOptions<ForgeSettings>().Bind(builder.Configuration);
     builder.Services.AddSingleton<IValidateOptions<ForgeSettings>, ForgeSettingsValidator>();
+    builder.Services.AddCliHttpClients();
     builder.Services.AddOptions<ForgeApiSettings>()
         .Bind(builder.Configuration.GetSection(ForgeApiSettings.Section))
         .PostConfigure(ForgeApiSettings.NormalizeEndpoint);
@@ -73,24 +74,26 @@ static IHost BuildHost()
 static RootCommand BuildRootCommand(IServiceProvider services)
 {
     var api = services.GetRequiredService<IOptions<ForgeApiSettings>>();
+    var clients = services.GetRequiredService<IHttpClientFactory>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(BuildInitCommand());
-    rootCommand.Add(BuildRunCommand(api));
+    rootCommand.Add(BuildRunCommand(api, clients));
     rootCommand.Add(BuildValidateCommand());
     rootCommand.Add(BuildListCommand());
     rootCommand.Add(BuildExpertCommand());
     rootCommand.Add(BuildRegistryCommand());
-    rootCommand.Add(BuildLoginCommand());
-    rootCommand.Add(BuildWhoamiCommand());
+    rootCommand.Add(BuildLoginCommand(clients));
+    rootCommand.Add(BuildWhoamiCommand(clients));
     rootCommand.Add(BuildLogoutCommand());
-    rootCommand.Add(BuildExecCommand(api));
+    rootCommand.Add(BuildExecCommand(api, clients));
     rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>(), api)); // forge chat (53.2; --hands, Phase 55)
     rootCommand.Add(ForgeProject.BuildCommand(api));
     rootCommand.Add(BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());
-    rootCommand.Add(BuildServeCommand());
-    rootCommand.Add(BuildClaudeCommand());
-    rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync, TryBuildMissionServerAsync, Die));
+    rootCommand.Add(BuildServeCommand(clients));
+    rootCommand.Add(BuildClaudeCommand(clients));
+    rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync,
+        (config, agentDir) => TryBuildMissionServerAsync(clients, config, agentDir), Die));
     rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
     rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
     rootCommand.Add(BuildProviderCommand());
@@ -194,14 +197,14 @@ static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, L
 // ---------------------------------------------------------------------------
 // fms run
 
-static Command BuildRunCommand(IOptions<ForgeApiSettings> api)
+static Command BuildRunCommand(IOptions<ForgeApiSettings> api, IHttpClientFactory clients)
 {
     var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla" };
     var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
     var cmd = new Command("run", "Run a hosted mission and print the answer");
     cmd.Add(missionArg);
     cmd.Add(promptArg);
-    cmd.SetAction(async result => await ForgeExec.RunAsync(api,
+    cmd.SetAction(async result => await ForgeExec.RunAsync(api, clients,
         result.GetValue(missionArg)!, result.GetValue(promptArg)));
     return cmd;
 }
@@ -359,17 +362,17 @@ static Command BuildRegistryLoginCommand()
 
 // forge login = platform sign-in (loopback + PKCE → platform key).
 // OCI-registry credentials live under `forge registry login`.
-static Command BuildLoginCommand()
+static Command BuildLoginCommand(IHttpClientFactory clients)
 {
     var cmd = new Command("login", "Sign in to Forge (browser) and store a platform key");
-    cmd.SetAction(async _ => await PlatformLogin.RunAsync());
+    cmd.SetAction(async _ => await PlatformLogin.RunAsync(clients));
     return cmd;
 }
 
-static Command BuildWhoamiCommand()
+static Command BuildWhoamiCommand(IHttpClientFactory clients)
 {
     var cmd = new Command("whoami", "Show the signed-in Forge user and credit balance");
-    cmd.SetAction(async _ => await PlatformLogin.WhoAmIAsync());
+    cmd.SetAction(async _ => await PlatformLogin.WhoAmIAsync(clients));
     return cmd;
 }
 
@@ -386,7 +389,7 @@ static Command BuildLogoutCommand()
 // ("Required argument missing", not a forge bug — confirmed 2026-07-19: `@websearch` fails in pwsh,
 // `"@websearch"` or bare `websearch` both work). Documented as the plain form so pwsh users aren't
 // steered into the gotcha; bash/zsh users can still type `@handle` fine.
-static Command BuildExecCommand(IOptions<ForgeApiSettings> api)
+static Command BuildExecCommand(IOptions<ForgeApiSettings> api, IHttpClientFactory clients)
 {
     var targetArg = new Argument<string>("target") { Description = "Mission handle, e.g. websearch (an optional leading @ is also accepted, but quote it in pwsh: \"@websearch\")" };
     var promptArg = new Argument<string?>("prompt") { Description = "The mission's free-text input", Arity = ArgumentArity.ZeroOrOne };
@@ -402,7 +405,7 @@ static Command BuildExecCommand(IOptions<ForgeApiSettings> api)
     cmd.Add(outOpt);
 
     cmd.SetAction(async result =>
-        await ForgeExec.RunAsync(api,
+        await ForgeExec.RunAsync(api, clients,
             result.GetValue(targetArg)!,
             result.GetValue(promptArg),
             result.GetValue(inputOpt),
@@ -468,7 +471,7 @@ static Command BuildPublishCommand()
 // ---------------------------------------------------------------------------
 // forge serve
 
-static Command BuildServeCommand()
+static Command BuildServeCommand(IHttpClientFactory clients)
 {
     var agentArg = new Argument<FileInfo?>("agent") { Description = "Path to agent.yaml (default: agent.yaml)", Arity = ArgumentArity.ZeroOrOne };
 
@@ -486,7 +489,7 @@ static Command BuildServeCommand()
         try { config = AgentConfigLoader.Load(agentFile.FullName); }
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return; }
 
-        var built = await TryBuildMissionServerAsync(config, agentFile.DirectoryName!);
+        var built = await TryBuildMissionServerAsync(clients, config, agentFile.DirectoryName!);
         if (built is not { } server) return;
         var (app, missionPath, anthropicDoor, openAiDoor) = server;
 
@@ -523,7 +526,7 @@ static Command BuildServeCommand()
 // wired to it + tear down on exit (Phase 42.2). In-process by default for speed;
 // --container runs the same image the cloud runs for exact parity.
 
-static Command BuildClaudeCommand()
+static Command BuildClaudeCommand(IHttpClientFactory clients)
 {
     var targetArg    = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
     var containerOpt = new Option<bool>("--container")   { Description = "Run the mission as a Docker container (cloud parity) instead of in-process" };
@@ -574,7 +577,7 @@ static Command BuildClaudeCommand()
         }
         else
         {
-            var built = await TryBuildMissionServerAsync(config, Path.GetDirectoryName(missionPath)!);
+            var built = await TryBuildMissionServerAsync(clients, config, Path.GetDirectoryName(missionPath)!);
             if (built is not { } server) return;
             var app = server.App;
             await app.StartAsync();
@@ -792,7 +795,7 @@ static bool IsOnPath(string binary) =>
 // Shared by `forge serve` (blocking RunAsync) and `forge claude` (background StartAsync).
 // Returns null after reporting the error (Die) — callers just return.
 static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?> TryBuildMissionServerAsync(
-    AgentConfig config, string agentDir)
+    IHttpClientFactory clients, AgentConfig config, string agentDir)
 {
     var missionPath = Path.GetFullPath(Path.Combine(agentDir, config.Mission));
     var lockPath    = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
@@ -846,7 +849,7 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
 
     // kind:search backend (41.2) — same seam as `forge run` and the cloud runner; null when
     // XAI_API_KEY is unset, so missions without kind:search are unaffected.
-    var webSearch = ProviderClientBuilder.BuildWebSearch();
+    var webSearch = ProviderClientBuilder.BuildWebSearch(clients);
 
     var (anthropicDoor, openAiDoor) = MissionServerFactory.BuildDoors(
         ast, expertDefs, defaultRunner, anthropicEnabled, openAiEnabled, webSearch);
@@ -1174,7 +1177,8 @@ static Command BuildMcpCommand(IServiceProvider services)
         var firstMission = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault();
         if (firstMission is null) { Die("No mission declaration found in mission file."); return; }
 
-        await McpCommand.ServeAsync(services.GetRequiredService<ILoggerFactory>(), firstMission, ast, expertDefs, manifest, mission.FullName,
+        await McpCommand.ServeAsync(services.GetRequiredService<ILoggerFactory>(),
+            services.GetRequiredService<IHttpClientFactory>(), firstMission, ast, expertDefs, manifest, mission.FullName,
             callSeedContext => BuildRunners(manifest, callSeedContext));
     });
 

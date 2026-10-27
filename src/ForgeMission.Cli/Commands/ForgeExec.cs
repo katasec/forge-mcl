@@ -18,11 +18,10 @@ public static class ForgeExec
     internal const long MaxInputDownloadBytes = 100L * 1024L * 1024L;
     private static readonly TimeSpan InputDownloadTimeout = TimeSpan.FromSeconds(30);
 
-    private static HttpClient Http => CliHttpClients.Create(CliHttpClients.Exec);
-
     // Every hosted call goes to the configured api.endpoint (ForgeApiSettings).
     internal static async Task<int> RunAsync(
         IOptions<ForgeApiSettings> api,
+        IHttpClientFactory clients,
         string target,
         string? prompt,
         string? inputPath = null,
@@ -37,11 +36,12 @@ public static class ForgeExec
         }
 
         var endpoint = api.Value.Endpoint;
+        var http = clients.CreateClient(CliHttpClients.Exec);
         var mission = target.StartsWith('@') ? target[1..] : target;
         var inputArtifacts = new List<MissionArtifactDto>();
         if (!string.IsNullOrWhiteSpace(inputPath))
         {
-            var upload = await UploadInputAsync(inputPath, endpoint, platform.Key);
+            var upload = await UploadInputAsync(http, inputPath, endpoint, platform.Key);
             if (upload is null) return 1;
             inputArtifacts.Add(upload);
         }
@@ -72,7 +72,7 @@ public static class ForgeExec
         HttpResponseMessage resp;
         try
         {
-            resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
@@ -131,7 +131,7 @@ public static class ForgeExec
 
         if (result.Artifacts is { Count: > 0 })
         {
-            if (!await DownloadArtifactsAsync(result.Artifacts, endpoint, platform.Key, inputPath, mode, outPath))
+            if (!await DownloadArtifactsAsync(http, result.Artifacts, endpoint, platform.Key, inputPath, mode, outPath))
                 return 1;
         }
         else
@@ -148,16 +148,17 @@ public static class ForgeExec
             ? null
             : new Dictionary<string, string>(StringComparer.Ordinal) { ["mode"] = mode };
 
-    private static async Task<MissionArtifactDto?> UploadInputAsync(string path, string endpoint, string platformKey)
+    private static async Task<MissionArtifactDto?> UploadInputAsync(HttpClient http, string path, string endpoint, string platformKey)
     {
         if (IsHttpUrl(path, out var uri))
         {
-            var download = await DownloadUrlInputAsync(uri);
+            var download = await DownloadUrlInputAsync(http, uri);
             if (download is null) return null;
 
             try
             {
                 return await UploadLocalInputAsync(
+                    http,
                     download.Path,
                     download.FileName,
                     download.ContentTypeHint,
@@ -177,16 +178,16 @@ public static class ForgeExec
         }
 
         var fullPath = Path.GetFullPath(path);
-        return await UploadLocalInputAsync(fullPath, Path.GetFileName(fullPath), contentTypeHint: null, endpoint, platformKey);
+        return await UploadLocalInputAsync(http, fullPath, Path.GetFileName(fullPath), contentTypeHint: null, endpoint, platformKey);
     }
 
-    private static async Task<DownloadedInput?> DownloadUrlInputAsync(Uri uri)
+    private static async Task<DownloadedInput?> DownloadUrlInputAsync(HttpClient http, Uri uri)
     {
         using var cts = new CancellationTokenSource(InputDownloadTimeout);
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
             if (!resp.IsSuccessStatusCode)
             {
                 Console.Error.WriteLine($"input download failed ({(int)resp.StatusCode}): {uri}");
@@ -258,6 +259,7 @@ public static class ForgeExec
     }
 
     private static async Task<MissionArtifactDto?> UploadLocalInputAsync(
+        HttpClient http,
         string fullPath,
         string artifactName,
         string? contentTypeHint,
@@ -279,7 +281,7 @@ public static class ForgeExec
         req.Headers.Add("X-Forge-Artifact-Sha256", sha256);
         req.Headers.Add("X-Forge-Artifact-Client-Token", Guid.NewGuid().ToString("N"));
 
-        using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         if (!resp.IsSuccessStatusCode)
         {
             Console.Error.WriteLine($"upload failed ({(int)resp.StatusCode}): {await resp.Content.ReadAsStringAsync()}");
@@ -298,6 +300,7 @@ public static class ForgeExec
     }
 
     private static async Task<bool> DownloadArtifactsAsync(
+        HttpClient http,
         List<MissionArtifactDto> artifacts,
         string endpoint,
         string platformKey,
@@ -314,7 +317,7 @@ public static class ForgeExec
                     ? InferOutputPath(inputPath!, mode, artifact)
                     : artifact.Name;
 
-            if (!await DownloadArtifactAsync(artifact.Id, targetPath, endpoint, platformKey))
+            if (!await DownloadArtifactAsync(http, artifact.Id, targetPath, endpoint, platformKey))
                 return false;
             Console.WriteLine($"Created: {targetPath}");
         }
@@ -323,7 +326,7 @@ public static class ForgeExec
         return true;
     }
 
-    private static async Task<bool> DownloadArtifactAsync(string artifactId, string path, string endpoint, string platformKey)
+    private static async Task<bool> DownloadArtifactAsync(HttpClient http, string artifactId, string path, string endpoint, string platformKey)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/api/GetArtifact")
         {
@@ -333,7 +336,7 @@ public static class ForgeExec
         };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", platformKey);
 
-        using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
         if (!resp.IsSuccessStatusCode)
         {
             Console.Error.WriteLine($"download failed ({(int)resp.StatusCode}): {await resp.Content.ReadAsStringAsync()}");

@@ -4,7 +4,8 @@ using ForgeMission.Tests.Cli.Harness;
 namespace ForgeMission.Tests.Cli;
 
 // forge mcp serves one mission over stdio: stdout carries only JSON-RPC, stderr only the banner,
-// and closing stdin ends the server with exit 0. No tool is called, so no provider is reached.
+// and closing stdin ends the server with exit 0. No provider is called; the one tool call (a
+// kind:search step) reaches only the harness's non-forwarding proxy.
 public sealed class McpCommandTests
 {
     [Fact]
@@ -28,6 +29,60 @@ public sealed class McpCommandTests
         Assert.Equal("", result.StandardOutput);
         Assert.Equal("Noop", Assert.Single(tools.EnumerateArray()).GetProperty("name").GetString());
         Assert.Empty(harness.Proxy.Attempts);
+    }
+
+    // A kind:search step uses the web-search client only when an xAI key is set; with one it calls
+    // xAI (here it reaches only the non-forwarding proxy), without one the step fails clearly.
+    [Theory]
+    [InlineData("xai-test-key", "")]
+    [InlineData(null, "kind: search requires a configured IWebSearch")]
+    public async Task A_search_step_uses_the_web_search_client_only_with_an_xai_key(string? key, string error)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.WorkingDirectory = WriteSearchMission(harness.Home);
+        Assert.Equal(0, (await harness.RunAsync("init")).ExitCode);
+        harness.Variables["XAI_API_KEY"] = key;
+        JsonElement call = default;
+
+        await harness.ConverseAsync(async (stdin, stdout) =>
+        {
+            await RequestAsync(stdin, stdout, 1, "initialize",
+                """{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"pin","version":"1"}}""");
+            await stdin.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+            call = await RequestAsync(stdin, stdout, 2, "tools/call", """{"name":"Search","arguments":{"goal":"q"}}""");
+        }, "mcp");
+
+        Assert.True(call.GetProperty("isError").GetBoolean());
+        Assert.Contains(error, call.GetProperty("content")[0].GetProperty("text").GetString());
+        Assert.Equal(key is not null, harness.Proxy.Attempts.Contains(new ProxyAttempt("CONNECT", "api.x.ai:443")));
+    }
+
+    private static string WriteSearchMission(string home)
+    {
+        var dir = Path.Combine(home, "search");
+        Directory.CreateDirectory(Path.Combine(dir, "experts", "WebSearch"));
+        File.WriteAllText(Path.Combine(dir, "mission.mcl"), """
+            let provider = env("MCL_PROVIDER", "openai")
+            let apiKey   = env("MCL_API_KEY", "stub")
+            let model    = env("MCL_MODEL", "gpt-4o-mini")
+
+            mission Search(goal) = {
+                WebSearch(query: goal)
+            }
+
+            output(Search)
+            """);
+        File.WriteAllText(Path.Combine(dir, "experts", "WebSearch", "expert.md"), """
+            ---
+            name: WebSearch
+            version: 0.1.0
+            kind: search
+            description: Live web search
+            input: query
+            output: results
+            ---
+            """);
+        return dir;
     }
 
     // Sends one request; the next stdout line must be its JSON-RPC response. Returns its result.

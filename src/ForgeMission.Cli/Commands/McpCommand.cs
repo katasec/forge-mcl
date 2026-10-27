@@ -22,6 +22,7 @@ internal static class McpCommand
     // server logs through the CLI host's logger factory (stderr only; stdout is the protocol).
     internal static async Task ServeAsync(
         ILoggerFactory loggerFactory,
+        IHttpClientFactory clients,
         ForgeMission.Parser.MissionDeclaration firstMission,
         MclProgram ast,
         Dictionary<string, ExpertDefinition> expertDefs,
@@ -86,7 +87,7 @@ internal static class McpCommand
                 var runOptions = new PipelineRunOptions(toolName, callVars);
 
                 MissionResult missionResult;
-                try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch()).RunAsync(ast, expertDefs, runOptions); }
+                try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(clients)).RunAsync(ast, expertDefs, runOptions); }
                 catch (Exception ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
 
                 if (missionResult.Status == MissionStatus.Fail)
