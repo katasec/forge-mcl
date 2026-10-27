@@ -52,19 +52,19 @@ public sealed class ChatScreenLiveMotionTests
                     var cell = Cell(19, 42);
                     var tiles = Type("ForgeMission.Cli.Tui.ScreenTiles").GetMethod("Create")!.Invoke(null, [styles, cell]);
                     ScreenType.GetMethod("UseImages")!.Invoke(screen, [tiles, ChatScreenTileTests.TextImagesFor(styles, cell)]);
-                    Show(screen, You("hi"), Card(null, false));
+                    TextInteractionTests.Show(screen, You("hi"), Card(null, false));
                     step = 1;
                     deltaAt = now + Ms(200);
                     break;
                 case 1 when now >= deltaAt:
-                    Show(screen, You("hi"), Card("Hello world", true));
+                    TextInteractionTests.Show(screen, You("hi"), Card("Hello world", true));
                     deltaAt = now;
                     step = 2;
                     break;
                 case 2 when now >= deltaAt + Ms(300):
                     textAt300 = recorder.Foreground("Hello world");
                     spinnerWhileStreaming = recorder.HasSpinner();
-                    Show(screen, You("hi"), Card("Hello world", false));
+                    TextInteractionTests.Show(screen, You("hi"), Card("Hello world", false));
                     endAt = now;
                     step = 3;
                     break;
@@ -83,13 +83,6 @@ public sealed class ChatScreenLiveMotionTests
         Assert.False(spinnerAfterEnd, "the spinner should be gone once the turn ended");
         Assert.DoesNotContain("replying", afterEnd);
         Assert.Contains("Hello world", afterEnd);
-    }
-
-    private static void Show(object screen, params object[] blocks)
-    {
-        var array = Array.CreateInstance(Type("ForgeMission.Cli.Tui.TranscriptBlock"), blocks.Length);
-        for (var i = 0; i < blocks.Length; i++) array.SetValue(blocks[i], i);
-        ScreenType.GetMethod("Show")!.Invoke(screen, [array]);
     }
 
     private static object Card(string? text, bool streaming) =>
