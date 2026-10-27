@@ -227,9 +227,7 @@ public sealed class ChatScreenMotionTests
 
         public Screen Show(params object[] blocks)
         {
-            var array = Array.CreateInstance(Type("ForgeMission.Cli.Tui.TranscriptBlock"), blocks.Length);
-            for (var i = 0; i < blocks.Length; i++) array.SetValue(blocks[i], i);
-            ScreenType.GetMethod("Show")!.Invoke(_screen, [array]);
+            TextInteractionTests.Show(_screen, blocks);
             return this;
         }
 
