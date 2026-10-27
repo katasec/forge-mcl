@@ -135,7 +135,7 @@ static async Task RunInitAsync(FileInfo? missionArg, bool refresh, CancellationT
     var mission    = ResolveMission(missionArg);
     var missionDir = mission.DirectoryName!;
 
-    var source = await TryReadFile(mission.FullName);
+    var source = await TryReadFile(mission.FullName, cancellationToken);
     if (source is null) return;
 
     var ast = TryParse(source, mission.FullName);
@@ -230,13 +230,13 @@ static Command BuildValidateCommand()
     var cmd = new Command("validate", "Validate a mission file and its expert references");
     cmd.Add(missionArg);
 
-    cmd.SetCancellableAction(async (result, _) =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var mission    = ResolveMission(result.GetValue(missionArg));
         var missionDir = mission.DirectoryName!;
         var lockPath   = Path.Combine(missionDir, "mcl.lock");
 
-        var source = await TryReadFile(mission.FullName);
+        var source = await TryReadFile(mission.FullName, cancellationToken);
         if (source is null) return;
 
         var ast = TryParse(source, mission.FullName);
@@ -820,7 +820,7 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
     if (!File.Exists(missionPath)) { Die($"Mission file not found: {missionPath}"); return null; }
     if (!File.Exists(lockPath))    { Die("MCL007 Mission not initialised — run 'forge init' first."); return null; }
 
-    var source = await TryReadFile(missionPath);
+    var source = await TryReadFile(missionPath, CancellationToken.None);
     if (source is null) return null;
 
     var ast = TryParse(source, missionPath);
@@ -894,10 +894,10 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
 // ---------------------------------------------------------------------------
 // Helpers
 
-static async Task<string?> TryReadFile(string path)
+static async Task<string?> TryReadFile(string path, CancellationToken cancellationToken)
 {
-    try { return await File.ReadAllTextAsync(path); }
-    catch (Exception ex) { Die($"Cannot read file '{path}': {ex.Message}"); return null; }
+    try { return await File.ReadAllTextAsync(path, cancellationToken); }
+    catch (Exception ex) when (ex is not OperationCanceledException) { Die($"Cannot read file '{path}': {ex.Message}"); return null; }
 }
 
 static MclProgram? TryParse(string source, string filePath)
@@ -1173,7 +1173,7 @@ static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory 
 
         if (!File.Exists(lockPath)) { Die("MCL007 Mission not initialised — run 'forge init' first."); return; }
 
-        var source = await TryReadFile(mission.FullName);
+        var source = await TryReadFile(mission.FullName, ct);
         if (source is null) return;
 
         var ast = TryParse(source, mission.FullName);
