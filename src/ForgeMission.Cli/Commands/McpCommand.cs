@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
@@ -14,7 +16,7 @@ namespace ForgeMission.Cli;
 // Owns the forge mcp protocol surface: it turns an already-loaded mission into a stdio MCP server
 // exposing that mission as a single tool. Mission resolution, validation and runner construction
 // stay with the shared CLI helpers in Program and reach this surface through ServeAsync's inputs
-// and runner factory. The JSON schema is hand-built (AOT-safe, no STJ reflection).
+// and runner factory. The input schema is written with Utf8JsonWriter (AOT-safe, no STJ reflection).
 internal static class McpCommand
 {
     // Serves one validated mission over stdio until the transport closes or cancellationToken
@@ -33,13 +35,8 @@ internal static class McpCommand
         Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>?> buildRunners,
         CancellationToken cancellationToken)
     {
-        // Build the JSON schema for this mission's parameters
-        var toolName   = firstMission.Name;
-        var properties = new Dictionary<string, JsonSchemaProperty>(StringComparer.Ordinal);
-        foreach (var param in firstMission.Params)
-            properties[param] = new JsonSchemaProperty("string", $"Value for {param}");
-
-        var inputSchema = new JsonSchema(properties, firstMission.Params);
+        var toolName    = firstMission.Name;
+        var inputSchema = BuildInputSchema(firstMission.Params);
 
         Console.Error.WriteLine($"forge mcp — serving mission '{toolName}' over stdio");
         Console.Error.WriteLine($"  mission: {missionPath}");
@@ -53,7 +50,7 @@ internal static class McpCommand
                 {
                     Name        = toolName,
                     Description = $"Run the '{toolName}' MCL mission",
-                    InputSchema = inputSchema.ToJsonElement()
+                    InputSchema = inputSchema
                 }
             ]
         });
@@ -99,37 +96,33 @@ internal static class McpCommand
         await using var server = McpServer.Create(new StdioServerTransport("forge", loggerFactory), options, loggerFactory);
         await server.RunAsync(cancellationToken);
     }
-}
 
-// Minimal JSON schema helpers for MCP tool registration (AOT-safe, no STJ reflection)
-file sealed class JsonSchemaProperty(string type, string description)
-{
-    public string Type        { get; } = type;
-    public string Description { get; } = description;
-}
-
-file sealed class JsonSchema(Dictionary<string, JsonSchemaProperty> properties, IReadOnlyList<string> required)
-{
-    public System.Text.Json.JsonElement ToJsonElement()
+    // The tool's input schema: an object with one string property per distinct mission param, in
+    // declaration order, and every param (as declared) required. Utf8JsonWriter does the escaping.
+    private static JsonElement BuildInputSchema(IReadOnlyList<string> parameters)
     {
-        var sb = new System.Text.StringBuilder();
-        sb.Append("{\"type\":\"object\",\"properties\":{");
-        var first = true;
-        foreach (var (name, prop) in properties)
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
         {
-            if (!first) sb.Append(',');
-            sb.Append($"\"{EscapeJson(name)}\":{{\"type\":\"{EscapeJson(prop.Type)}\",\"description\":\"{EscapeJson(prop.Description)}\"}}");
-            first = false;
+            writer.WriteStartObject();
+            writer.WriteString("type", "object");
+            writer.WriteStartObject("properties");
+            foreach (var param in parameters.Distinct(StringComparer.Ordinal))
+            {
+                writer.WriteStartObject(param);
+                writer.WriteString("type", "string");
+                writer.WriteString("description", $"Value for {param}");
+                writer.WriteEndObject();
+            }
+            writer.WriteEndObject();
+            writer.WriteStartArray("required");
+            foreach (var param in parameters)
+                writer.WriteStringValue(param);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
         }
-        sb.Append("},\"required\":[");
-        for (var i = 0; i < required.Count; i++)
-        {
-            if (i > 0) sb.Append(',');
-            sb.Append($"\"{EscapeJson(required[i])}\"");
-        }
-        sb.Append("]}");
-        return System.Text.Json.JsonDocument.Parse(sb.ToString()).RootElement;
-    }
 
-    private static string EscapeJson(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        using var doc = JsonDocument.Parse(buffer.WrittenMemory);
+        return doc.RootElement.Clone();
+    }
 }

@@ -31,6 +31,28 @@ public sealed class McpCommandTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
+    // tools/list advertises each mission param once, in declaration order, as a required string.
+    [Fact]
+    public async Task Lists_each_mission_param_once_in_order_as_a_required_string()
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.WorkingDirectory = WriteSearchMission(harness.Home, "goal, topic, goal");
+        Assert.Equal(0, (await harness.RunAsync("init")).ExitCode);
+        JsonElement tools = default;
+
+        await harness.ConverseAsync(async (stdin, stdout) =>
+        {
+            await RequestAsync(stdin, stdout, 1, "initialize",
+                """{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"pin","version":"1"}}""");
+            await stdin.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+            tools = (await RequestAsync(stdin, stdout, 2, "tools/list", "{}")).GetProperty("tools");
+        }, "mcp");
+
+        Assert.Equal(
+            """{"type":"object","properties":{"goal":{"type":"string","description":"Value for goal"},"topic":{"type":"string","description":"Value for topic"}},"required":["goal","topic","goal"]}""",
+            Assert.Single(tools.EnumerateArray()).GetProperty("inputSchema").GetRawText());
+    }
+
     // A kind:search step uses the web-search client only when an xAI key is set (XAI_API_KEY, else
     // GROK_API_KEY); with one it calls xAI (here it reaches only the non-forwarding proxy), without
     // one — or with a blank one — the step fails clearly.
@@ -60,16 +82,16 @@ public sealed class McpCommandTests
         Assert.Equal(!string.IsNullOrWhiteSpace(key), harness.Proxy.Attempts.Contains(new ProxyAttempt("CONNECT", "api.x.ai:443")));
     }
 
-    private static string WriteSearchMission(string home)
+    private static string WriteSearchMission(string home, string parameters = "goal")
     {
         var dir = Path.Combine(home, "search");
         Directory.CreateDirectory(Path.Combine(dir, "experts", "WebSearch"));
-        File.WriteAllText(Path.Combine(dir, "mission.mcl"), """
+        File.WriteAllText(Path.Combine(dir, "mission.mcl"), $$"""
             let provider = env("MCL_PROVIDER", "openai")
             let apiKey   = env("MCL_API_KEY", "stub")
             let model    = env("MCL_MODEL", "gpt-4o-mini")
 
-            mission Search(goal) = {
+            mission Search({{parameters}}) = {
                 WebSearch(query: goal)
             }
 
