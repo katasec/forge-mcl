@@ -494,7 +494,7 @@ static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClie
     var cmd = new Command("serve", "Serve a mission as an OpenAI-compatible endpoint");
     cmd.Add(agentArg);
 
-    cmd.SetCancellableAction(async (result, _) =>
+    cmd.SetCancellableAction(async (result, cancellationToken) =>
     {
         var agentFile = result.GetValue(agentArg)
             ?? new FileInfo(Path.GetFullPath("agent.yaml"));
@@ -523,9 +523,10 @@ static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClie
         }
         Console.Error.WriteLine($"    GET  /health");
 
+        // The command's Ctrl+C/SIGTERM token stops the server (IHost.RunAsync(token)).
         try
         {
-            await app.RunAsync();
+            await app.RunAsync(cancellationToken);
         }
         catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
                                   || ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.AddressAlreadyInUse })

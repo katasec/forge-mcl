@@ -34,6 +34,25 @@ public sealed class ForgeServeTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
+    // Ctrl+C stops a serving command cleanly: exit 0, its banner on stderr, nothing on stdout.
+    [SkippableTheory]
+    [InlineData("forge serve — agent 'pin' listening on http://0.0.0.0:{port}", "serve")]
+    [InlineData("✓ endpoint  /v1/messages    http://127.0.0.1:{port}", "connect", "vscode", "mission.mcl", "--port")]
+    public async Task Ctrl_C_stops_a_serving_command_with_exit_0(string banner, params string[] args)
+    {
+        Skip.If(OperatingSystem.IsWindows(), "SIGINT is POSIX.");
+        await using var harness = ForgeCliHarness.Start();
+        var port = FreePort();
+        harness.WorkingDirectory = WriteAgent(harness.Home, port);
+        string[] command = args[^1] == "--port" ? [.. args, port.ToString()] : args;
+
+        var result = await harness.InterruptWhileAsync(async _ => Assert.True(await WaitUntilHealthyAsync(port)), command);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("", result.StandardOutput);
+        Assert.Contains(banner.Replace("{port}", port.ToString()), result.StandardError);
+    }
+
     private static string WriteAgent(string home, int port)
     {
         var dir = Path.Combine(home, "agent");

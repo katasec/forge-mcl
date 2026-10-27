@@ -1,6 +1,7 @@
 using System.CommandLine;
 using ForgeMission.Core.Resolution;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 
 namespace ForgeMission.Cli;
@@ -63,7 +64,8 @@ internal static class ConnectCommand
             Console.Error.WriteLine($"↳ open VS Code / VSCodium in this folder — the Claude Code extension now talks to the mission.");
             Console.Error.WriteLine($"  Serving until Ctrl-C (settings persist; rerun this command to reconnect).");
 
-            try { await app.RunAsync(); }
+            // The command's Ctrl+C/SIGTERM token stops the server (IHost.RunAsync(token)).
+            try { await app.RunAsync(cancellationToken); }
             catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
                                       || ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.AddressAlreadyInUse })
             {
