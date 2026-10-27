@@ -620,7 +620,8 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
                 Console.WriteLine($"export ANTHROPIC_BASE_URL={baseUrl}");
                 Console.WriteLine("export ANTHROPIC_API_KEY=forge-local");
                 Console.Error.WriteLine("↳ serving until Ctrl-C…");
-                await WaitForCtrlCAsync();
+                // Ctrl-C/SIGTERM cancels the action's token: stop waiting and fall through to teardown.
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
                 return;
             }
 
@@ -797,13 +798,6 @@ static async Task<int> RunWiredClaudeAsync(string baseUrl, string? prompt, IRead
     }
 
     static void Survive(object? _, ConsoleCancelEventArgs e) => e.Cancel = true;
-}
-
-static async Task WaitForCtrlCAsync()
-{
-    var stopped = new TaskCompletionSource();
-    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stopped.TrySetResult(); };
-    await stopped.Task;
 }
 
 static int FindFreePort()

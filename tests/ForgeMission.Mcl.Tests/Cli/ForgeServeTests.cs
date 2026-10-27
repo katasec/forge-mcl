@@ -54,7 +54,7 @@ public sealed class ForgeServeTests
     }
 
     // forge claude --print-env waits for its in-process endpoint to answer, then prints the wiring on
-    // stdout and keeps serving until Ctrl+C. Needs no claude CLI.
+    // stdout and keeps serving until Ctrl+C, which stops it cleanly with exit 0. Needs no claude CLI.
     [SkippableFact]
     public async Task Claude_print_env_prints_the_wiring_once_the_endpoint_is_healthy()
     {
@@ -70,6 +70,7 @@ public sealed class ForgeServeTests
             printed.Add((await stdout.ReadLineAsync())!);
         }, "claude", "--print-env", "--port", port.ToString());
 
+        Assert.Equal(0, result.ExitCode);
         Assert.Equal([$"export ANTHROPIC_BASE_URL=http://127.0.0.1:{port}", "export ANTHROPIC_API_KEY=forge-local"], printed);
         Assert.Equal("", result.StandardOutput);
         Assert.Contains($"✓ endpoint  /v1/messages    http://127.0.0.1:{port}   (in-process)", result.StandardError);
