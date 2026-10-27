@@ -21,7 +21,9 @@ internal static class CliHttpClients
     {
         services.AddHttpClient(Exec, client => client.Timeout = Timeout.InfiniteTimeSpan); // streams a long-running mission run
         services.AddHttpClient(Login, client => client.Timeout = TimeSpan.FromSeconds(30));
-        services.AddHttpClient(WebSearch, client => client.Timeout = TimeSpan.FromMinutes(3)); // live-retrieval backend
+        services.AddHttpClient(WebSearch, client => client.Timeout = TimeSpan.FromMinutes(3)) // live-retrieval backend
+            .UseSocketsHttpHandler((handler, _) => handler.PooledConnectionLifetime = TimeSpan.FromMinutes(2))
+            .SetHandlerLifetime(Timeout.InfiniteTimeSpan); // held for a whole mission run: rotate connections, not handlers
         services.AddHttpClient(ConversationHost, (provider, client) =>
         {
             client.BaseAddress = new Uri(provider.GetRequiredService<IOptions<ForgeApiSettings>>().Value.Endpoint + "/");
