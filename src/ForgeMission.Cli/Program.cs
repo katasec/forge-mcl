@@ -386,7 +386,7 @@ static Command BuildLoginCommand(IOptions<PlatformLoginOptions> login, IHttpClie
 static Command BuildWhoamiCommand(IHttpClientFactory clients)
 {
     var cmd = new Command("whoami", "Show the signed-in Forge user and credit balance");
-    cmd.SetCancellableAction((_, _) => PlatformLogin.WhoAmIAsync(clients));
+    cmd.SetCancellableAction((_, cancellationToken) => PlatformLogin.WhoAmIAsync(clients, cancellationToken));
     return cmd;
 }
 

@@ -11,6 +11,7 @@ public sealed class CtrlCTests
     [InlineData("^$", "exec", "Noop", "hello")]
     [InlineData("^$", "project", "create")]
     [InlineData("^Project: .*/{home}\n$", "chat")]
+    [InlineData("^$", "whoami")]
     public async Task Ctrl_C_during_a_hosted_call_exits_130(string stdout, params string[] args)
     {
         Skip.If(OperatingSystem.IsWindows(), "SIGINT is POSIX.");
@@ -21,7 +22,7 @@ public sealed class CtrlCTests
             release.Task.Wait();
             return new StubResponse(500, "released");
         });
-        harness.SignIn("https://example.invalid");
+        harness.SignIn(stub.Address.ToString());
         harness.WriteConfig($$"""{ "api": { "endpoint": "{{stub.Address}}" } }""");
         File.WriteAllText(Path.Combine(harness.WorkingDirectory, "forge.project.json"),
             "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");

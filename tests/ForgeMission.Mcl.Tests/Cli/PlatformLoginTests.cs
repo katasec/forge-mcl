@@ -16,6 +16,7 @@ public sealed class PlatformLoginTests
     private const string DefaultClientId = "33595d97-0296-4868-9217-dfab35faa314";
     private const string DefaultScope = "api://4f8a95d6-2d41-416c-a1b9-9177ddec1227/cli.login openid profile email offline_access";
     private const string AuthorizePath = "/oauth2/v2.0/authorize";
+    private const string BrowserCallback = "browser callback";
 
     [Fact]
     public async Task By_default_login_signs_in_against_the_dev_tenant_client_and_scope()
@@ -72,32 +73,59 @@ public sealed class PlatformLoginTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
-    // Ctrl+C while login waits for the browser's callback exits 130 and prints nothing more.
-    [SkippableFact]
-    public async Task Ctrl_C_while_waiting_for_the_browser_exits_130()
+    // Ctrl+C while login waits (for the browser's callback, the token exchange or the key issuance)
+    // exits 130, prints nothing more and stores no key.
+    [SkippableTheory]
+    [InlineData(BrowserCallback)]
+    [InlineData("/tenant/oauth2/v2.0/token")]
+    [InlineData("/platform/keys")]
+    public async Task Ctrl_C_while_login_waits_exits_130(string waitingFor)
     {
         Skip.If(OperatingSystem.IsWindows(), "SIGINT is POSIX.");
         await using var harness = ForgeCliHarness.Start();
+        var (reached, release) = (new TaskCompletionSource(), new TaskCompletionSource());
+        var stub = await harness.StartStubAsync(request =>
+        {
+            if (request.PathAndQuery != waitingFor) return SignInResponses(request);
+            reached.TrySetResult();
+            release.Task.Wait();
+            return new StubResponse(500, "released");
+        });
+        var platform = stub.Address.ToString().TrimEnd('/');
+        harness.Variables["FORGE_AUTH_AUTHORITY"] = platform + "/tenant";
+        harness.Variables["FORGE_PLATFORM_ENDPOINT"] = platform;
 
-        var result = await harness.InterruptWhileAsync(ReadAuthorizeUrlAsync, "login");
+        CliResult result;
+        try
+        {
+            result = await harness.InterruptWhileAsync(waitingFor == BrowserCallback
+                ? ReadAuthorizeUrlAsync
+                : async stdout => { await SignInInBrowserAsync(stdout, state => $"code=test-code&state={state}"); await reached.Task; },
+                "login");
+        }
+        finally { release.TrySetResult(); }
 
         Assert.Equal((130, "", ""), (result.ExitCode, result.StandardOutput, result.StandardError));
         Assert.False(File.Exists(CredentialsPath(harness)));
         Assert.Empty(harness.Proxy.Attempts);
     }
 
-    // Runs `forge login`, reads the authorize URL it prints, and answers its loopback callback with
-    // the query `callback` builds from the URL's state.
+    // Runs `forge login` and signs in through its browser callback (SignInInBrowserAsync).
     private static async Task<(CliResult Result, Uri Authorize)> LoginAsync(ForgeCliHarness harness, Func<string, string> callback)
     {
         Uri? authorize = null;
-        var result = await harness.ConverseAsync(async (_, stdout) =>
-        {
-            authorize = await ReadAuthorizeUrlAsync(stdout);
-            var query = HttpUtility.ParseQueryString(authorize.Query);
-            await AnswerCallbackAsync(query["redirect_uri"]!, callback(query["state"]!));
-        }, "login");
+        var result = await harness.ConverseAsync(async (_, stdout) => authorize = await SignInInBrowserAsync(stdout, callback), "login");
         return (result, authorize!);
+    }
+
+    // Reads the authorize URL forge login prints and answers its loopback callback with the query
+    // `callback` builds from the URL's state.
+    private static async Task<Uri> SignInInBrowserAsync(StreamReader stdout, Func<string, string> callback)
+    {
+        var authorize = await ReadAuthorizeUrlAsync(stdout);
+        var query = HttpUtility.ParseQueryString(authorize.Query);
+        await AnswerCallbackAsync(query["redirect_uri"]!, callback(query["state"]!));
+        return authorize;
     }
 
     private static async Task<Uri> ReadAuthorizeUrlAsync(StreamReader stdout)
