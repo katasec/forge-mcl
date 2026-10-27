@@ -103,15 +103,18 @@ public sealed class FileEditorTests : IDisposable
         Assert.True(Get<bool>(file, "IsNew"));
     }
 
+    // A save writes the text as UTF-8 without a BOM, newlines as given, and leaves no other file.
     [Fact]
     public void The_first_save_creates_the_file_and_later_saves_overwrite()
     {
         var file = Open("d.txt");
-        Assert.Equal("saved", Save(file, "one"));
-        Assert.Equal("one", File.ReadAllText(Path.Combine(_dir, "d.txt")));
+        var path = Path.Combine(_dir, "d.txt");
+        Assert.Equal("saved", Save(file, "one é\n"));
+        Assert.Equal("one é\n"u8.ToArray(), File.ReadAllBytes(path));
         Assert.Equal("d.txt", Get<string>(file, "Header"));
-        Assert.Equal("saved", Save(file, "two"));
-        Assert.Equal("two", File.ReadAllText(Path.Combine(_dir, "d.txt")));
+        Assert.Equal("saved", Save(file, "two\r\n"));
+        Assert.Equal("two\r\n"u8.ToArray(), File.ReadAllBytes(path));
+        Assert.Equal([path], Directory.GetFileSystemEntries(_dir));
     }
 
     // ── Esc ─────────────────────────────────────────────────────────────────────────────────

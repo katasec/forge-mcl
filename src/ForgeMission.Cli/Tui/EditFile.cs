@@ -76,14 +76,14 @@ internal sealed class EditFile
     }
 
     /// <summary>Writes <paramref name="text"/> to the file and returns the message to show. A
-    /// missing folder is not created.</summary>
+    /// missing folder is not created; a failed write leaves the file as it was.</summary>
     public string Save(string text)
     {
         var folder = Path.GetDirectoryName(FullPath);
         if (folder is not null && !Directory.Exists(folder)) return $"cannot save: folder {folder} does not exist";
         try
         {
-            File.WriteAllText(FullPath, text);
+            Replace(folder ?? "", text);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
@@ -93,6 +93,19 @@ internal sealed class EditFile
         IsNew = false;
         _warned = false;
         return Saved;
+    }
+
+    // Writes beside the file (same volume) and renames over it, so a failed write leaves the
+    // file intact and no temp file behind.
+    private void Replace(string folder, string text)
+    {
+        var tempPath = Path.Combine(folder, Path.GetRandomFileName());
+        try
+        {
+            File.WriteAllText(tempPath, text);
+            File.Move(tempPath, FullPath, overwrite: true);
+        }
+        catch { File.Delete(tempPath); throw; }
     }
 
     /// <summary>Esc with <paramref name="text"/> in the editor: close when it matches the last
