@@ -14,8 +14,10 @@ public static class ChatClients
     public static IExpertRunner Build(ProviderProfile profile) =>
         new DirectExpertRunner(BuildChatClient(profile));
 
-    public static IChatClient BuildChatClient(ProviderProfile profile) =>
-        profile.Provider.ToLowerInvariant() switch
+    public static IChatClient BuildChatClient(ProviderProfile profile)
+    {
+        ProviderKeyGuard.EnsureKeyMatchesProvider(profile);
+        return profile.Provider.ToLowerInvariant() switch
         {
             "openai"            => BuildOpenAiClient(profile),
             "azure"             => BuildAzureClient(profile),
@@ -24,6 +26,7 @@ public static class ChatClients
             "xai"               => BuildXaiClient(profile),
             _ => throw new InvalidOperationException($"Unknown provider '{profile.Provider}'")
         };
+    }
 
     private static IChatClient BuildOpenAiClient(ProviderProfile profile)
     {
