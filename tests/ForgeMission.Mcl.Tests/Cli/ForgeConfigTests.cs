@@ -1,5 +1,6 @@
 using System.Reflection;
 using ForgeMission.Tests.Cli.Harness;
+using static ForgeMission.Tests.Cli.ForgeText;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -9,7 +10,6 @@ namespace ForgeMission.Tests.Cli;
 // are pinned through the process with the shared harness.
 public sealed class ForgeConfigTests
 {
-    private static readonly Assembly Forge = LoadForge();
     private static readonly Type SettingsType = Forge.GetType("ForgeMission.Cli.Services.ForgeSettings", throwOnError: true)!;
     private static readonly Type ThemeType = Forge.GetType("ForgeMission.Cli.Tui.ForgeTheme", throwOnError: true)!;
 
@@ -171,21 +171,5 @@ public sealed class ForgeConfigTests
         var settings = Activator.CreateInstance(SettingsType)!;
         SettingsType.GetProperty("Theme")!.SetValue(settings, theme);
         return settings;
-    }
-
-    private static object Theme(string name) =>
-        ThemeType.GetProperty(name, BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
-
-    private static Assembly LoadForge()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "src", "ForgeMission.Cli", "bin", "Debug", "net10.0", "forge.dll");
-            if (File.Exists(candidate)) return Assembly.LoadFrom(candidate);
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate built forge.dll for CLI reflection tests.");
     }
 }
