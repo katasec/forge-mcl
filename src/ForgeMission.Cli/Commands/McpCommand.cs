@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using ForgeMission.Core.Adapters;
@@ -23,6 +24,7 @@ internal static class McpCommand
     internal static async Task ServeAsync(
         ILoggerFactory loggerFactory,
         IHttpClientFactory clients,
+        IOptions<WebSearchOptions> webSearch,
         ForgeMission.Parser.MissionDeclaration firstMission,
         MclProgram ast,
         Dictionary<string, ExpertDefinition> expertDefs,
@@ -87,7 +89,7 @@ internal static class McpCommand
                 var runOptions = new PipelineRunOptions(toolName, callVars);
 
                 MissionResult missionResult;
-                try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(clients)).RunAsync(ast, expertDefs, runOptions); }
+                try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions); }
                 catch (Exception ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
 
                 if (missionResult.Status == MissionStatus.Fail)

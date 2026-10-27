@@ -71,6 +71,9 @@ static IHost BuildHost()
     builder.Services.AddOptions<PlatformLoginOptions>()
         .Bind(builder.Configuration)
         .PostConfigure(PlatformLoginOptions.TrimPlatformEndpoint);
+    builder.Services.AddOptions<WebSearchOptions>()
+        .Configure<IConfiguration>((options, configuration) =>
+            options.ApiKey = configuration["XAI_API_KEY"] ?? configuration["GROK_API_KEY"]);
     return builder.Build();
 }
 
@@ -78,6 +81,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
 {
     var api = services.GetRequiredService<IOptions<ForgeApiSettings>>();
     var clients = services.GetRequiredService<IHttpClientFactory>();
+    var webSearch = services.GetRequiredService<IOptions<WebSearchOptions>>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(BuildInitCommand());
     rootCommand.Add(BuildRunCommand(api, clients));
@@ -93,10 +97,10 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(ForgeProject.BuildCommand(clients));
     rootCommand.Add(BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());
-    rootCommand.Add(BuildServeCommand(clients));
-    rootCommand.Add(BuildClaudeCommand(clients));
+    rootCommand.Add(BuildServeCommand(webSearch, clients));
+    rootCommand.Add(BuildClaudeCommand(webSearch, clients));
     rootCommand.Add(ConnectCommand.Build(ResolveClaudeTarget, EnsureInitializedAsync,
-        (config, agentDir) => TryBuildMissionServerAsync(clients, config, agentDir), Die));
+        (config, agentDir) => TryBuildMissionServerAsync(webSearch, clients, config, agentDir), Die));
     rootCommand.Add(AgentCommand.Build(Die, RunAndPrintPrereqs, BuildEnvArray, FindGitRoot));
     rootCommand.Add(WebuiCommand.Build(Die, RunAndPrintPrereqs));
     rootCommand.Add(BuildProviderCommand());
@@ -474,7 +478,7 @@ static Command BuildPublishCommand()
 // ---------------------------------------------------------------------------
 // forge serve
 
-static Command BuildServeCommand(IHttpClientFactory clients)
+static Command BuildServeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients)
 {
     var agentArg = new Argument<FileInfo?>("agent") { Description = "Path to agent.yaml (default: agent.yaml)", Arity = ArgumentArity.ZeroOrOne };
 
@@ -492,7 +496,7 @@ static Command BuildServeCommand(IHttpClientFactory clients)
         try { config = AgentConfigLoader.Load(agentFile.FullName); }
         catch (Exception ex) { Die($"Cannot read agent.yaml: {ex.Message}"); return; }
 
-        var built = await TryBuildMissionServerAsync(clients, config, agentFile.DirectoryName!);
+        var built = await TryBuildMissionServerAsync(webSearch, clients, config, agentFile.DirectoryName!);
         if (built is not { } server) return;
         var (app, missionPath, anthropicDoor, openAiDoor) = server;
 
@@ -529,7 +533,7 @@ static Command BuildServeCommand(IHttpClientFactory clients)
 // wired to it + tear down on exit (Phase 42.2). In-process by default for speed;
 // --container runs the same image the cloud runs for exact parity.
 
-static Command BuildClaudeCommand(IHttpClientFactory clients)
+static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpClientFactory clients)
 {
     var targetArg    = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
     var containerOpt = new Option<bool>("--container")   { Description = "Run the mission as a Docker container (cloud parity) instead of in-process" };
@@ -580,7 +584,7 @@ static Command BuildClaudeCommand(IHttpClientFactory clients)
         }
         else
         {
-            var built = await TryBuildMissionServerAsync(clients, config, Path.GetDirectoryName(missionPath)!);
+            var built = await TryBuildMissionServerAsync(webSearch, clients, config, Path.GetDirectoryName(missionPath)!);
             if (built is not { } server) return;
             var app = server.App;
             await app.StartAsync();
@@ -798,7 +802,7 @@ static bool IsOnPath(string binary) =>
 // Shared by `forge serve` (blocking RunAsync) and `forge claude` (background StartAsync).
 // Returns null after reporting the error (Die) — callers just return.
 static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, bool OpenAiDoor)?> TryBuildMissionServerAsync(
-    IHttpClientFactory clients, AgentConfig config, string agentDir)
+    IOptions<WebSearchOptions> webSearchOptions, IHttpClientFactory clients, AgentConfig config, string agentDir)
 {
     var missionPath = Path.GetFullPath(Path.Combine(agentDir, config.Mission));
     var lockPath    = Path.Combine(Path.GetDirectoryName(missionPath)!, "mcl.lock");
@@ -852,7 +856,7 @@ static async Task<(WebApplication App, string MissionPath, bool AnthropicDoor, b
 
     // kind:search backend (41.2) — same seam as `forge run` and the cloud runner; null when
     // XAI_API_KEY is unset, so missions without kind:search are unaffected.
-    var webSearch = ProviderClientBuilder.BuildWebSearch(clients);
+    var webSearch = ProviderClientBuilder.BuildWebSearch(webSearchOptions, clients);
 
     var (anthropicDoor, openAiDoor) = MissionServerFactory.BuildDoors(
         ast, expertDefs, defaultRunner, anthropicEnabled, openAiEnabled, webSearch);
@@ -1181,7 +1185,7 @@ static Command BuildMcpCommand(IServiceProvider services)
         if (firstMission is null) { Die("No mission declaration found in mission file."); return; }
 
         await McpCommand.ServeAsync(services.GetRequiredService<ILoggerFactory>(),
-            services.GetRequiredService<IHttpClientFactory>(), firstMission, ast, expertDefs, manifest, mission.FullName,
+            services.GetRequiredService<IHttpClientFactory>(), services.GetRequiredService<IOptions<WebSearchOptions>>(), firstMission, ast, expertDefs, manifest, mission.FullName,
             callSeedContext => BuildRunners(manifest, callSeedContext));
     });
 

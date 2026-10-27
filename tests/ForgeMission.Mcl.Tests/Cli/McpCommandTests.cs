@@ -31,17 +31,20 @@ public sealed class McpCommandTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
-    // A kind:search step uses the web-search client only when an xAI key is set; with one it calls
-    // xAI (here it reaches only the non-forwarding proxy), without one the step fails clearly.
+    // A kind:search step uses the web-search client only when an xAI key is set (XAI_API_KEY, else
+    // GROK_API_KEY); with one it calls xAI (here it reaches only the non-forwarding proxy), without
+    // one — or with a blank one — the step fails clearly.
     [Theory]
-    [InlineData("xai-test-key", "")]
-    [InlineData(null, "kind: search requires a configured IWebSearch")]
-    public async Task A_search_step_uses_the_web_search_client_only_with_an_xai_key(string? key, string error)
+    [InlineData("XAI_API_KEY", "xai-test-key", "")]
+    [InlineData("GROK_API_KEY", "grok-test-key", "")]
+    [InlineData("XAI_API_KEY", " ", "kind: search requires a configured IWebSearch")]
+    [InlineData("XAI_API_KEY", null, "kind: search requires a configured IWebSearch")]
+    public async Task A_search_step_uses_the_web_search_client_only_with_an_xai_key(string variable, string? key, string error)
     {
         await using var harness = ForgeCliHarness.Start();
         harness.WorkingDirectory = WriteSearchMission(harness.Home);
         Assert.Equal(0, (await harness.RunAsync("init")).ExitCode);
-        harness.Variables["XAI_API_KEY"] = key;
+        harness.Variables[variable] = key;
         JsonElement call = default;
 
         await harness.ConverseAsync(async (stdin, stdout) =>
@@ -54,7 +57,7 @@ public sealed class McpCommandTests
 
         Assert.True(call.GetProperty("isError").GetBoolean());
         Assert.Contains(error, call.GetProperty("content")[0].GetProperty("text").GetString());
-        Assert.Equal(key is not null, harness.Proxy.Attempts.Contains(new ProxyAttempt("CONNECT", "api.x.ai:443")));
+        Assert.Equal(!string.IsNullOrWhiteSpace(key), harness.Proxy.Attempts.Contains(new ProxyAttempt("CONNECT", "api.x.ai:443")));
     }
 
     private static string WriteSearchMission(string home)
