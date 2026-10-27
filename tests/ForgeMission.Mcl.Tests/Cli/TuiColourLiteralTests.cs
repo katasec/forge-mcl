@@ -113,13 +113,7 @@ public sealed partial class TuiColourLiteralTests
     [Fact]
     public void Only_XenoCells_uses_UnsafeAccessor()
     {
-        var users = Directory.EnumerateFiles(CliSource(), "*.cs", SearchOption.AllDirectories)
-            .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                && !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-            .Where(file => File.ReadLines(file).Any(line => line.Split("//")[0].Contains("UnsafeAccessor", StringComparison.Ordinal)))
-            .Select(file => Path.GetRelativePath(CliSource(), file)).ToList();
-
-        Assert.Equal([Path.Combine("Tui", "XenoCells.cs")], users);
+        Assert.Equal([Path.Combine("Tui", "XenoCells.cs")], CodeUsers("UnsafeAccessor"));
     }
 
     private static List<string> CodeUsers(string name) =>
