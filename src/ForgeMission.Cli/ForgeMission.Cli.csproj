@@ -36,9 +36,6 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <AssemblyName>forge</AssemblyName>
     <PublishAot>true</PublishAot>
     <!-- Ships as a Native AOT payload via scripts/build.ps1, never as a NuGet package. -->

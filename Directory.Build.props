@@ -2,5 +2,9 @@
   <PropertyGroup>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <DebugType>embedded</DebugType>
+    <!-- Shared across every project in the repo; a project may still override locally. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 </Project>
