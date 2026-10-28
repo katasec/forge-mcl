@@ -5,9 +5,9 @@ namespace ForgeMission.Docker;
 
 public static class DockerPrereqChecker
 {
-    public static async Task<PrereqCheck> CheckDockerAsync()
+    public static async Task<PrereqCheck> CheckDockerAsync(CancellationToken cancellationToken = default)
     {
-        var (ok, detail) = await DockerCli.GetVersionAsync();
+        var (ok, detail) = await DockerCli.GetVersionAsync(cancellationToken);
         return ok
             ? new PrereqCheck("Docker", PrereqStatus.Pass, detail)
             : new PrereqCheck("Docker", PrereqStatus.Fail, detail);
