@@ -360,7 +360,7 @@ static Command BuildRegistryCommand()
 static Command BuildRegistryLoginCommand()
 {
     var registryArg = new Argument<string>("registry") { Description = "Registry host (e.g. ghcr.io)" };
-    var tokenOpt    = new Option<string>("--token") { Description = "Credential token (e.g. GitHub PAT)" };
+    var tokenOpt    = new Option<string>("--token") { Description = "Credential token (e.g. GitHub PAT)", Required = true };
 
     var cmd = new Command("login", "Save registry credentials to ~/.forge/credentials.json");
     cmd.Add(registryArg);
