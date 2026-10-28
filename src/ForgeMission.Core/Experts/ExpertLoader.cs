@@ -9,11 +9,13 @@ namespace ForgeMission.Core.Experts;
 
 public class ExpertLoader(string expertsDirectory)
 {
+    private static readonly IDeserializer Yaml = BuildYaml();
+
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ExpertFrontmatter))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(List<string>))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(Dictionary<string, string>))]
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Type preserved via DynamicDependency")]
-    private static readonly IDeserializer Yaml = new DeserializerBuilder()
+    private static IDeserializer BuildYaml() => new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
         .Build();

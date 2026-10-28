@@ -16,9 +16,11 @@ public class AgentConfig
 
 public static class AgentConfigLoader
 {
+    private static readonly IDeserializer Yaml = BuildYaml();
+
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(AgentConfig))]
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Type preserved via DynamicDependency")]
-    private static readonly IDeserializer Yaml = new DeserializerBuilder()
+    private static IDeserializer BuildYaml() => new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
         .Build();

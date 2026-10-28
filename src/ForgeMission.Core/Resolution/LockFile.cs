@@ -23,17 +23,21 @@ public static class LockFileIO
     // LockFile/LockFileExpert are public POCOs directly instantiated here, so the trimmer
     // preserves them. The IL3050 on DeserializerBuilder is conservative — reflection works
     // in AOT for preserved types.
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFile))]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFileExpert))]
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Types preserved via DynamicDependency")]
-    private static readonly ISerializer Serializer = new SerializerBuilder()
-        .WithNamingConvention(CamelCaseNamingConvention.Instance)
-        .Build();
+    private static readonly ISerializer Serializer = BuildSerializer();
 
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFile))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFileExpert))]
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Types preserved via DynamicDependency")]
-    private static readonly IDeserializer Deserializer = new DeserializerBuilder()
+    private static ISerializer BuildSerializer() => new SerializerBuilder()
+        .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .Build();
+
+    private static readonly IDeserializer Deserializer = BuildDeserializer();
+
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFile))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFileExpert))]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Types preserved via DynamicDependency")]
+    private static IDeserializer BuildDeserializer() => new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
         .Build();
