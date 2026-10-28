@@ -1107,6 +1107,13 @@ static Command BuildProviderScaffoldCommand()
 {
     var nameArg  = new Argument<string>("name") { Description = "Provider name (openai, anthropic, azure, ollama)" };
     nameArg.CompletionSources.Add([.. ForgeMission.ChatClients.ProviderCatalog.Entries.Select(e => e.Name)]);
+    // Reject an unknown provider at parse time (case-insensitive, matching the action's lookup).
+    nameArg.Validators.Add(result =>
+    {
+        var name = result.GetValueOrDefault<string>();
+        if (!string.IsNullOrEmpty(name) && ForgeMission.ChatClients.ProviderCatalog.Find(name.ToLowerInvariant()) is null)
+            result.AddError($"Unknown provider '{name}'. Run 'forge provider list' to see known providers.");
+    });
     var writeOpt = new Option<bool>("--write") { Description = "Append the block to forge.toml instead of printing it" };
 
     var cmd = new Command("scaffold", "Generate a ready-to-paste forge.toml provider block");
