@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ForgeMission.Serve;
@@ -45,6 +46,16 @@ public static class ForgeServe
 
         builder.WebHost.UseSetting("urls", $"http://0.0.0.0:{port}");
 
+        // The CLI drives shutdown itself: it passes System.CommandLine's command cancellation
+        // token to app.RunAsync(token), and System.CommandLine already cancels that token on
+        // SIGINT/SIGTERM. The generic host's default ConsoleLifetime would install its OWN
+        // POSIX signal handlers — a redundant second listener for the same signals. Replace it
+        // with a no-op IHostLifetime so shutdown has a single source (the external token →
+        // RunAsync returns → StopAsync). Graceful shutdown is unchanged; only the duplicate
+        // signal listener is removed. (AddSingleton wins over ConsoleLifetime's own AddSingleton,
+        // since the host resolves the last-registered IHostLifetime.)
+        builder.Services.AddSingleton<IHostLifetime, TokenDrivenHostLifetime>();
+
         var app = builder.Build();
         MapWires(app, agentId, anthropicDoor, openAiDoor, auxClient, sessionStore);
         MapHealth(app);
@@ -65,6 +76,16 @@ public static class ForgeServe
 
         if (openAiDoor is not null)
             new OaiServer(openAiDoor, sessionStore ?? new LocalFileSessionStore(), agentId).Map(app);
+    }
+
+    // No-op host lifetime: does not install the ConsoleLifetime SIGINT/SIGTERM handlers, so the
+    // externally supplied cancellation token (passed to RunAsync by the CLI) is the sole shutdown
+    // source. StopAsync still runs on that token's cancellation, so graceful shutdown is intact.
+    private sealed class TokenDrivenHostLifetime : IHostLifetime
+    {
+        public Task WaitForStartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     // Same probe shape the cloud runner serves — keeps local Docker ≡ ACA scheduling honest.
