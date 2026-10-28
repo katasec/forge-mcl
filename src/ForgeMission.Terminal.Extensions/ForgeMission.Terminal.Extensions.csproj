@@ -19,7 +19,7 @@
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE.md" Pack="true" PackagePath="/" Link="LICENSE.md" />
-    <PackageReference Include="XenoAtom.Terminal.UI" Version="[3.10.0]" />
-    <PackageReference Include="XenoAtom.Terminal" Version="[2.2.0]" />
+    <PackageReference Include="XenoAtom.Terminal.UI" VersionOverride="[3.10.0]" />
+    <PackageReference Include="XenoAtom.Terminal" VersionOverride="[2.2.0]" />
   </ItemGroup>
 </Project>

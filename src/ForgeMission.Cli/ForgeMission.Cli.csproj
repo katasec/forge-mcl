@@ -11,20 +11,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
-    <PackageReference Include="System.CommandLine" Version="2.0.9" />
-    <PackageReference Include="Katasec.OciClient" Version="0.5.0" />
-    <PackageReference Include="Spectre.Console" Version="0.49.1" />
-    <PackageReference Include="Katasec.Forge.Client" Version="0.9.3" />
-    <PackageReference Include="Katasec.Forge.Hands" Version="0.1.0" />
-    <PackageReference Include="Katasec.Forge.Client.Contracts" Version="0.2.1" />
-    <PackageReference Include="XenoAtom.Terminal.UI" Version="3.10.0" />
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Katasec.OciClient" />
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Katasec.Forge.Client" />
+    <PackageReference Include="Katasec.Forge.Hands" />
+    <PackageReference Include="Katasec.Forge.Client.Contracts" />
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
     <!-- Phase 56 G2: proportional text in forge chat; referenced only by Tui/Graphics/GlyphText.cs. -->
-    <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
+    <PackageReference Include="StbTrueTypeSharp" />
     <!-- Phase 56 G12: syntax colours in code blocks (brings TextMateSharp, its grammars and libonigwrap);
          TextMateSharp is referenced only by Tui/Graphics/CodeColours.cs. -->
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" Version="3.10.0" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" />
   </ItemGroup>
 
   <!-- Phase 56 G4: Inter 4.1 subset (eng/fonts/inter-subset.sh) and its OFL licence, embedded. -->

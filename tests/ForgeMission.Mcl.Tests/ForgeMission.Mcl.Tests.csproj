@@ -5,22 +5,22 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="*" />
-    <PackageReference Include="Katasec.AnthropicServer" Version="0.1.7" />
-    <PackageReference Include="Katasec.OaiServer" Version="0.1.7" />
+    <PackageReference Include="GitHub.Copilot.SDK" />
+    <PackageReference Include="Katasec.AnthropicServer" />
+    <PackageReference Include="Katasec.OaiServer" />
     <!-- The event type the forge chat transcript mapping reads (same version forge resolves). -->
-    <PackageReference Include="Katasec.Forge.Conversations.Contracts" Version="0.7.0" />
-    <PackageReference Include="Katasec.Forge.Client.Contracts" Version="0.2.1" />
+    <PackageReference Include="Katasec.Forge.Conversations.Contracts" />
+    <PackageReference Include="Katasec.Forge.Client.Contracts" />
     <!-- Style types the forge chat TUI style tests compare (same versions forge uses). -->
-    <PackageReference Include="XenoAtom.Terminal.UI" Version="3.10.0" />
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
     <!-- The CLI's CodeColours (G12) needs TextMateSharp and libonigwrap resolvable from the test output. -->
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" Version="3.10.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
-    <PackageReference Include="Xunit.SkippableFact" Version="1.5.61" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Xunit.SkippableFact" />
   </ItemGroup>
 
   <ItemGroup>

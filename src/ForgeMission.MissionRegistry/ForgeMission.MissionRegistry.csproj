@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Katasec.OciClient" Version="0.5.0" />
+    <PackageReference Include="Katasec.OciClient" />
   </ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="ForgeMission.Mcl.Tests" /></ItemGroup>
 </Project>
