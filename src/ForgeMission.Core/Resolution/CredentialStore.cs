@@ -121,6 +121,10 @@ public static class CredentialStore
         var dir = Path.GetDirectoryName(CredentialsPath)!;
         Directory.CreateDirectory(dir);
 
+        // The credentials directory holds secrets — keep it owner-only on Unix.
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
         ForgeCredentials existing;
         try
         {
@@ -131,7 +135,35 @@ public static class CredentialStore
         catch { existing = new(); }
 
         change(existing);
-        File.WriteAllText(CredentialsPath,
+        WriteSecretAtomic(CredentialsPath,
             JsonSerializer.Serialize(existing, CredentialsJsonContext.Default.ForgeCredentials));
+    }
+
+    // Atomic owner-only write: stage into a temp file in the SAME directory, set
+    // owner read/write permissions before it reaches the destination (so the secret
+    // is never briefly readable by others), then atomically replace/move into place.
+    private static void WriteSecretAtomic(string destination, string contents)
+    {
+        var dir = Path.GetDirectoryName(destination)!;
+        var temp = Path.Combine(dir, $".{Path.GetFileName(destination)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temp, contents);
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+            if (File.Exists(destination))
+                File.Replace(temp, destination, null);
+            else
+                File.Move(temp, destination);
+        }
+        catch
+        {
+            if (File.Exists(temp))
+            {
+                try { File.Delete(temp); } catch { /* best effort cleanup */ }
+            }
+            throw;
+        }
     }
 }

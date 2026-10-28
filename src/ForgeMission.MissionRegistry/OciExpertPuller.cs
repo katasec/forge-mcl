@@ -25,7 +25,27 @@ public static class OciExpertPuller
                 throw new InvalidDataException("Expert cache differs from verified content.");
             return (cachePath, "verified");
         }
-        await File.WriteAllTextAsync(cachePath, pulled.Content, cancellationToken);
+        // Atomic write: stage into a temp file in the SAME cache directory, then
+        // replace/move into place so a crash or concurrent read never sees a
+        // truncated cache entry.
+        var cacheDir = Path.GetDirectoryName(cachePath)!;
+        var temp = Path.Combine(cacheDir, $".{Path.GetFileName(cachePath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllTextAsync(temp, pulled.Content, cancellationToken);
+            if (File.Exists(cachePath))
+                File.Replace(temp, cachePath, null);
+            else
+                File.Move(temp, cachePath);
+        }
+        catch
+        {
+            if (File.Exists(temp))
+            {
+                try { File.Delete(temp); } catch { /* best effort cleanup */ }
+            }
+            throw;
+        }
         return (cachePath, "pulled");
     }
 
