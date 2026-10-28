@@ -160,7 +160,7 @@ public sealed partial class TuiColourLiteralTests
 
     private static IEnumerable<string> TuiSources() =>
         Directory.EnumerateFiles(Path.Combine(CliSource(), "Tui"), "*.cs", SearchOption.AllDirectories)
-            .Append(Path.Combine(CliSource(), "ForgeConfig.cs"));
+            .Append(Path.Combine(CliSource(), "Services", "ForgeSettings.cs"));
 
     private static string CliSource()
     {
