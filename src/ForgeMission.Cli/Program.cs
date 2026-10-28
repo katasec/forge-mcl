@@ -256,6 +256,8 @@ static Command BuildValidateCommand()
             if (expertDefs is null) return;
             if (TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
                 Console.WriteLine("OK — mission is valid.");
+            else
+                throw new ForgeExitException(1);
         }
         else
         {
@@ -265,6 +267,8 @@ static Command BuildValidateCommand()
             catch (ExpertLoadException ex) { ReportExpertDiagnostic(ex); return; }
             if (TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
                 Console.WriteLine("OK — mission is valid.");
+            else
+                throw new ForgeExitException(1);
         }
     });
 
