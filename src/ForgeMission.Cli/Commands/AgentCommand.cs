@@ -30,21 +30,14 @@ internal static class AgentCommand
         Func<string[], string[]> buildEnvArray,
         Func<string, string?> findGitRoot)
     {
-        var agentFileOpt = new Option<string>("--agent-file") { Description = "Path to agent.yaml", DefaultValueFactory = _ => "./agent.yaml" };
+        var agentFileOpt = new Option<FileInfo>("--agent-file") { Description = "Path to agent.yaml", DefaultValueFactory = _ => new FileInfo("./agent.yaml") }.AcceptExistingOnly();
 
         var cmd = new Command("start", "Start forge serve inside a Docker container");
         cmd.Add(agentFileOpt);
 
         cmd.SetCancellableAction(async (result, _) =>
         {
-            var agentFile = result.GetValue(agentFileOpt)!;
-            var agentFileFull = Path.GetFullPath(agentFile);
-
-            if (!File.Exists(agentFileFull))
-            {
-                die($"Agent config not found: {agentFileFull}");
-                return;
-            }
+            var agentFileFull = result.GetValue(agentFileOpt)!.FullName;
 
             AgentConfig config;
             try { config = AgentConfigLoader.Load(agentFileFull); }
@@ -105,21 +98,14 @@ internal static class AgentCommand
 
     static Command BuildStopCommand(Action<string> die)
     {
-        var agentFileOpt = new Option<string>("--agent-file") { Description = "Path to agent.yaml", DefaultValueFactory = _ => "./agent.yaml" };
+        var agentFileOpt = new Option<FileInfo>("--agent-file") { Description = "Path to agent.yaml", DefaultValueFactory = _ => new FileInfo("./agent.yaml") }.AcceptExistingOnly();
 
         var cmd = new Command("stop", "Stop and remove the forge agent container");
         cmd.Add(agentFileOpt);
 
         cmd.SetCancellableAction(async (result, _) =>
         {
-            var agentFile = result.GetValue(agentFileOpt)!;
-            var agentFileFull = Path.GetFullPath(agentFile);
-
-            if (!File.Exists(agentFileFull))
-            {
-                die($"Agent config not found: {agentFileFull}");
-                return;
-            }
+            var agentFileFull = result.GetValue(agentFileOpt)!.FullName;
 
             AgentConfig config;
             try { config = AgentConfigLoader.Load(agentFileFull); }
