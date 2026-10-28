@@ -2,6 +2,7 @@ using System.CommandLine;
 using ForgeMission.Core.Resolution;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;
+using System.Text;
 using System.Text.Json;
 
 namespace ForgeMission.Cli.Commands;
@@ -135,21 +136,20 @@ internal static class ConnectCommand
         return true;
     }
 
-    // Cheap comment detection outside string literals — good enough to protect user JSONC.
+    // Comment detection via the JSON reader itself. A file that is malformed before any comment
+    // throws here; we treat that as "no comment to preserve" and let the caller's JsonNode.Parse
+    // report the parse error (the die path), rather than mis-scanning raw characters.
     static bool HasJsoncComments(string raw)
     {
-        var inString = false;
-        for (var i = 0; i < raw.Length - 1; i++)
+        var reader = new Utf8JsonReader(
+            Encoding.UTF8.GetBytes(raw),
+            new JsonReaderOptions { CommentHandling = JsonCommentHandling.Allow, AllowTrailingCommas = true });
+        try
         {
-            var c = raw[i];
-            if (inString)
-            {
-                if (c == '\\') i++;
-                else if (c == '"') inString = false;
-            }
-            else if (c == '"') inString = true;
-            else if (c == '/' && (raw[i + 1] == '/' || raw[i + 1] == '*')) return true;
+            while (reader.Read())
+                if (reader.TokenType == JsonTokenType.Comment) return true;
         }
+        catch (JsonException) { /* malformed — caller's Parse surfaces it */ }
         return false;
     }
 }
