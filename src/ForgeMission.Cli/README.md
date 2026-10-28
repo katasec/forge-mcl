@@ -45,7 +45,6 @@ behavior in forge-client.
 | Piece | Responsibility |
 |---|---|
 | [Program](Program.cs) | Executable entry point, command registration, and command handlers. |
-| [ForgeRun](Services/ForgeRun.cs) | Local mission composition: one file-scoped Hands lifetime and Core tool pause/resume loop. |
 | [ForgeExec](Commands/ForgeExec.cs) | One-shot hosted mission execution, artifact input/output, and ForgeAPI endpoint selection. |
 | [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
 | [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |

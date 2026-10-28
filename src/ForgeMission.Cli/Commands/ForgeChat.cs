@@ -244,7 +244,7 @@ public static class ForgeChat
     }
 
     /// <summary>Acknowledges the authenticated hosted pin after this launch's scoped approval.</summary>
-    private static async Task<ChatHandsAttachment> AttachHandsAsync(IMissionHandsConversationService hands, string sessionId,
+    internal static async Task<ChatHandsAttachment> AttachHandsAsync(IMissionHandsConversationService hands, string sessionId,
         Guid conversationId, MissionAccessApproval mission, CancellationToken cancellationToken)
     {
         var acknowledged = await hands.AcknowledgeAsync(new AcknowledgeMissionHandsRequest(sessionId, conversationId,
