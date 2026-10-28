@@ -18,13 +18,16 @@ internal static class HostedMissionCommands
 
     internal static Command BuildRunCommand(IOptions<ForgeApiSettings> api, IHttpClientFactory clients)
     {
-        var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla" };
+        var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla; with --project, a .mcl path or OCI reference" };
         var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
+        var projectOpt = new Option<string?>("--project") { Description = "Keep the run as a cloud conversation in this project file" };
         var cmd = new Command("run", "Run a hosted mission and print the answer");
         cmd.Add(missionArg);
         cmd.Add(promptArg);
-        cmd.SetCancellableAction((result, cancellationToken) => ForgeExec.RunAsync(api, clients,
-            result.GetValue(missionArg)!, result.GetValue(promptArg), cancellationToken: cancellationToken));
+        cmd.Add(projectOpt);
+        cmd.SetCancellableAction((result, cancellationToken) => result.GetValue(projectOpt) is { } project
+            ? ForgeDurableRun.RunAsync(clients, project, result.GetValue(missionArg)!, result.GetValue(promptArg)!, cancellationToken)
+            : ForgeExec.RunAsync(api, clients, result.GetValue(missionArg)!, result.GetValue(promptArg), cancellationToken: cancellationToken));
         return cmd;
     }
 

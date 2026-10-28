@@ -20,7 +20,7 @@ public sealed class ForgeProjectTests
         try
         {
             var application = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(RunCore.DeclaringType!.Assembly.Location)!, "ForgeMission.Application.dll"));
-            Assert.Equal(new Version(0, 9, 3, 0), application.GetName().Version);
+            Assert.Equal(new Version(0, 10, 1, 0), application.GetName().Version);
             var composition = application.GetType("ForgeMission.Application.ApplicationComposition", true)!;
             await using var app = (IAsyncDisposable)composition.GetMethod("Create")!.Invoke(null,
                 [host, null, new CapabilityAuthorizationPolicy([], null), (Action<ApplicationEvent>)(_ => { }), CancellationToken.None])!;
