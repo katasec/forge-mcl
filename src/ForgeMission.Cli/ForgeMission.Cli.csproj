@@ -44,9 +44,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Runs the code-style rules .editorconfig raises to warnings (IDE0130: namespace matches folder) on build. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <!-- IL3050 x4: ForgeMission.Core's YamlDotNet builders in static initializers (its field-level suppressions miss the .cctor ILC reports).
-         IL2104/IL3053: summaries of YamlDotNet 18.0.0's reflection-based trim/AOT warnings. -->
-    <NoWarn>$(NoWarn);IL3050;IL2104;IL3053</NoWarn>
+    <!-- IL2104/IL3053: summaries of YamlDotNet 18.0.0's reflection-based trim/AOT warnings
+         (need a source-gen static context to resolve; out of scope here).
+         IL3050 is no longer masked: ForgeMission.Core's YamlDotNet builders now carry the
+         suppression on the build method that makes the reflection .Build() call, so ILC sees it. -->
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
   </PropertyGroup>
 
   <!-- macOS Native AOT links the runtime's OpenSSL and brotli as system libraries (brew install openssl@3 brotli). -->
