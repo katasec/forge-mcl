@@ -114,6 +114,16 @@ public static class ForgeChat
             Console.Error.WriteLine($"chat failed: {failure.Message}");
             return 1;
         }
+        // R10: the conversation host returned a body the client could not read as a mission reply
+        // (e.g. a non-JSON 500). The Application layer reports this as ConversationHostProtocolException,
+        // which is internal to ForgeMission.Application — a `catch (ConversationHostProtocolException)`
+        // will not compile (CS0122), and its only public base is the too-broad InvalidOperationException,
+        // so it is matched by exact type name to stay narrow without swallowing unrelated failures.
+        catch (Exception failure) when (failure.GetType().Name == "ConversationHostProtocolException")
+        {
+            Console.Error.WriteLine($"chat failed: {failure.Message}");
+            return 1;
+        }
         // S2b: the line mode does not reconnect, so a lost stream stops it. A turn's own Ctrl-C ends in
         // ChatAsync; the caller's own cancellation propagates rather than reading as a lost connection.
         catch (Exception failure) when (IsTransportFailure(failure, cancellationToken))
