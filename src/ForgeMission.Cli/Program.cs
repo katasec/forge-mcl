@@ -321,9 +321,9 @@ static Command BuildExpertCommand()
         var experts    = result.GetValue(expertsOpt);
         var expertsDir = experts?.FullName ?? "experts";
 
-        if (!char.IsUpper(name[0]))
+        if (string.IsNullOrEmpty(name) || !char.IsUpper(name[0]))
         {
-            Die($"Expert name must be PascalCase, got '{name}'.");
+            Die($"Expert name must be PascalCase (got '{name}').");
             return;
         }
 
