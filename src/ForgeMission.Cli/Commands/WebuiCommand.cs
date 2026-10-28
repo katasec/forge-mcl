@@ -28,6 +28,7 @@ internal static class WebuiCommand
     {
         var agentFileOpt = new Option<string>("--agent-file") { Description = "Path to agent.yaml", DefaultValueFactory = _ => "./agent.yaml" };
         var portOpt = new Option<int>("--port") { Description = "Host port for Open WebUI", DefaultValueFactory = _ => 3000 };
+        Services.PortOption.RejectOutOfRange(portOpt);
 
         var cmd = new Command("start", "Start Open WebUI pre-configured to connect to the forge agent");
         cmd.Add(agentFileOpt);

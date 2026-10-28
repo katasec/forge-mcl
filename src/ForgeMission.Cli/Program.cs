@@ -545,6 +545,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
     var targetArg    = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
     var containerOpt = new Option<bool>("--container")   { Description = "Run the mission as a Docker container (cloud parity) instead of in-process" };
     var portOpt      = new Option<int?>("--port")        { Description = "Pin the port instead of picking an ephemeral one" };
+    PortOption.RejectOutOfRange(portOpt);
     var printEnvOpt  = new Option<bool>("--print-env")   { Description = "Print the export lines and keep serving (wire other tools by hand); Ctrl-C stops" };
     var promptOpt    = new Option<string?>("-p", "--prompt") { Description = "One-shot prompt passed straight through to claude" };
 
