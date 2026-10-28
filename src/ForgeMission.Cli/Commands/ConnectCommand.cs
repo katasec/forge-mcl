@@ -35,7 +35,7 @@ internal static class ConnectCommand
         Action<string> die)
     {
         var targetArg = new Argument<string?>("target") { Description = "Mission: a .mcl path, or empty (agent.yaml / lone .mcl in cwd)", Arity = ArgumentArity.ZeroOrOne };
-        var portOpt   = new Option<int>("--port") { Description = "Port to serve on and write into the settings (default 8787)", DefaultValueFactory = _ => 8787 };
+        var portOpt   = new Option<int>("--port") { Description = "Port to serve on and write into the settings", DefaultValueFactory = _ => 8787 };
 
         var cmd = new Command("vscode", "Write .vscode/settings.json and serve the mission (also covers VSCodium)");
         cmd.Add(targetArg);
