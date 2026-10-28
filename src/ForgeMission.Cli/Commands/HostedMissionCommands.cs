@@ -20,15 +20,26 @@ internal static class HostedMissionCommands
     {
         var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla; with --project, a .mcl path or OCI reference" };
         var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
-        var projectOpt = new Option<string?>("--project") { Description = "Keep the run as a cloud conversation in this project file" };
+        var projectOpt = new Option<string?>("--project") { Description = "Keep the run as a cloud conversation in this project file (default ./forge.project.json)" };
         var cmd = new Command("run", "Run a hosted mission and print the answer");
         cmd.Add(missionArg);
         cmd.Add(promptArg);
         cmd.Add(projectOpt);
-        cmd.SetCancellableAction((result, cancellationToken) => result.GetValue(projectOpt) is { } project
+        cmd.SetCancellableAction((result, cancellationToken) => RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory()) is { } project
             ? ForgeDurableRun.RunAsync(clients, project, result.GetValue(missionArg)!, result.GetValue(promptArg)!, cancellationToken)
             : ForgeExec.RunAsync(api, clients, result.GetValue(missionArg)!, result.GetValue(promptArg), cancellationToken: cancellationToken));
         return cmd;
+    }
+
+    private const string DefaultProjectFile = "forge.project.json";
+
+    /// <summary>The run's project file: --project when given, else forge.project.json in
+    /// <paramref name="directory"/> when it exists. Without either, the run is the one-shot hosted handle.</summary>
+    internal static string? RunProject(string? option, string directory)
+    {
+        if (option is not null) return option;
+        var file = Path.Combine(directory, DefaultProjectFile);
+        return File.Exists(file) ? file : null;
     }
 
     // forge exec — the one-shot hosted-mission command (42.6 task 8). The `@` prefix on a handle is

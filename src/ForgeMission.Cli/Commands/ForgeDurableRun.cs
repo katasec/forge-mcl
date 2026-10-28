@@ -1,14 +1,14 @@
 using ForgeMission.Application;
+using ForgeMission.Application.Transport;
 using ForgeMission.Conversations.Contracts;
 using ForgeMission.Core.Resolution;
-using ForgeMission.Core.Tools;
 
 namespace ForgeMission.Cli.Commands;
 
 // forge run --project: the same one-shot run, kept as a cloud conversation in the project. The
 // Conversation Host owns the history; this surface prepares the package, admits it as a new
-// conversation, submits one turn and prints the final reply. Hands are not attached yet, so the
-// run is admitted with no workspace roots (NoHands).
+// conversation, submits one turn and prints the final reply. Hands are on by default: the run is
+// admitted ProjectWorkspace rooted at the project folder, and Hands decides each file request.
 internal static class ForgeDurableRun
 {
     private const string OciBase = "ghcr.io/katasec";
@@ -23,7 +23,7 @@ internal static class ForgeDurableRun
             return 1;
         }
 
-        await using var app = ApplicationComposition.Create(clients, null, new CapabilityAuthorizationPolicy([], null), _ => { }, ct);
+        await using var app = ApplicationComposition.Create(clients, null, ForgeChat.PolicyFor(hands: true), _ => { }, ct);
         try
         {
             return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ct);
@@ -39,21 +39,32 @@ internal static class ForgeDurableRun
     private static async Task<int> RunTurnAsync(ApplicationComposition app, string projectFile, string selector,
         string prompt, CancellationToken ct)
     {
-        var (projectId, _) = app.Projects.ReadRunProject(projectFile);
         var package = await app.MissionConversations.PrepareSelectedPackageAsync(
             selector, Directory.GetCurrentDirectory(), OciBase, ct);
 
-        var noHands = new MissionWorkspaceDescription([]);
+        var opened = await app.Projects.OpenChatAsync(new ProjectOpenRequest(projectFile, Mission: package.RootMissionName), ct);
+        // A run pins version 1, so an undeclared mission is fixed by declaring exactly that.
+        var session = opened.Session ?? throw new InvalidOperationException(opened.Error?.Code == ProjectOperationErrorCode.UnknownMission
+            ? $"{opened.Error.Message} Declare {package.RootMissionName}@1 in {projectFile}."
+            : opened.Error?.Message ?? "The project could not be opened.");
+
+        var workspace = new MissionWorkspaceDescription([session.Project.Home]);
         var created = await app.MissionConversations.CreateSelectedAsync(
-            projectId, Guid.NewGuid(), Guid.NewGuid(), package, noHands, ct);
+            session.Project.ProjectId, Guid.NewGuid(), Guid.NewGuid(), package, workspace, ct);
+        var launch = created.Launch;
+        await using var hands = await ForgeChat.AttachHandsAsync(app.MissionHands, session.SessionId, created.ConversationId,
+            new MissionAccessApproval(launch.MissionVersionId, launch.VersionNumber, launch.DefinitionHash, launch.Profile), ct);
+        hands.Begin(message => Console.Error.WriteLine($"error: {message}"));
+
         var inputs = new MissionNamedInputs(new() { [package.RootInputName] = prompt }, []);
-        // The edge admits a turn only without a workspace body; a NoHands conversation needs none.
+        // The edge admits a turn only without a workspace body; Hands carries the files instead.
         var turn = await app.MissionConversations.SubmitAsync(created.ConversationId, Guid.NewGuid(), inputs, null!, ct);
 
         string? reply = null;
         await ForgeChat.FollowTurnAsync(app.MissionConversations, created.ConversationId, created.AcceptedSequence,
             turn.TurnAttemptId, includeDeltas: false, item =>
             {
+                hands.OnEvent(item);
                 if (item.Kind == ConversationEventKind.ParticipantMessage) reply = item.Text;
                 if (item.Kind == ConversationEventKind.Error) Console.Error.WriteLine($"error: {item.Reason ?? item.Text}");
             }, ct);
