@@ -6,33 +6,24 @@ namespace ForgeMission.Tests.Cli;
 // Controlled CLI boundaries only: no Ghostty, LaunchServices application launch or OS input.
 public sealed class MacChatWindowTests
 {
-    private static readonly Func<string, string?, string> Encode = Method("EncodeContext").CreateDelegate<Func<string, string?, string>>();
-    private static readonly Func<string, (string WorkingDirectory, string? ApiEndpoint)> Decode =
-        Method("DecodeContext").CreateDelegate<Func<string, (string WorkingDirectory, string? ApiEndpoint)>>();
+    private static readonly Func<string, string> Encode = Method("EncodeContext").CreateDelegate<Func<string, string>>();
+    private static readonly Func<string, string> Decode = Method("DecodeContext").CreateDelegate<Func<string, string>>();
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("https://example.invalid/雪/'\"\\$`  ")]
-    public void Context_preserves_original_directory_and_absent_empty_or_exact_endpoint(string? endpoint)
+    [Fact]
+    public void Context_preserves_original_directory()
     {
         var cwd = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "雪 'quotes\" \\ $`  "));
-        var marker = Encode(cwd, endpoint);
 
-        Assert.Equal((cwd, endpoint), Decode(marker));
-        Assert.Equal(endpoint is null ? "-" : Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(endpoint)), marker.Split(':')[1]);
+        Assert.Equal(cwd, Decode(Encode(cwd)));
     }
 
     [Theory]
     [InlineData("")]
     [InlineData("abc")]
-    [InlineData("abc:-:extra")]
-    [InlineData("?:-")]
-    [InlineData("/w==:-")]
+    [InlineData("?")]
+    [InlineData("/w==")]
+    [InlineData("cmVsYXRpdmU=")]
     [InlineData(":-")]
-    [InlineData("cmVsYXRpdmU=:-")]
-    [InlineData("L3RtcA==:?")]
-    [InlineData("L3RtcA==:/w==")]
     public void Malformed_context_is_rejected_without_echoing_the_marker(string marker)
     {
         var error = Assert.Throws<FormatException>(() => Decode(marker));
@@ -50,11 +41,8 @@ public sealed class MacChatWindowTests
         Assert.Equal(isMac && interactive ? marker : null, childMarker(isMac, interactive, marker));
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("https://example.invalid/雪  ")]
-    public async Task Child_restores_context_before_same_chat_callback_and_success_never_waits(string? endpoint)
+    [Fact]
+    public async Task Child_restores_context_before_same_chat_callback_and_success_never_waits()
     {
         var cwd = Path.GetFullPath(Path.GetTempPath());
         var events = new List<string>();
@@ -63,13 +51,12 @@ public sealed class MacChatWindowTests
         {
             events.Add("chat");
             return Task.FromResult(0);
-        }, Encode(cwd, endpoint), context => Restore(context,
-            value => { Assert.Equal(cwd, value); events.Add("cwd"); },
-            (name, value) => { Assert.Equal("FORGE_API_ENDPOINT", name); Assert.Equal(endpoint, value); events.Add("endpoint"); }),
+        }, Encode(cwd), context => Restore(context,
+            value => { Assert.Equal(cwd, value); events.Add("cwd"); }),
             () => events.Add("dismiss"), error);
 
         Assert.Equal(0, code);
-        Assert.Equal(["cwd", "endpoint", "chat"], events);
+        Assert.Equal(["cwd", "chat"], events);
         Assert.Equal("", error.ToString());
     }
 
@@ -80,10 +67,10 @@ public sealed class MacChatWindowTests
     {
         var events = new List<string>();
         var error = new StringWriter();
-        var marker = inaccessible ? Encode(Path.GetFullPath(Path.GetTempPath()), null) : "invalid";
+        var marker = inaccessible ? Encode(Path.GetFullPath(Path.GetTempPath())) : "invalid";
         var code = await RunCommand(() => { events.Add("chat"); return Task.FromResult(0); }, marker,
-            context => Restore(context, value => throw new DirectoryNotFoundException("Directory is inaccessible."),
-                (name, value) => events.Add("endpoint")), () => events.Add("dismiss"), error);
+            context => Restore(context, value => throw new DirectoryNotFoundException("Directory is inaccessible.")),
+            () => events.Add("dismiss"), error);
 
         Assert.Equal(1, code);
         Assert.Equal(["dismiss"], events);
@@ -108,7 +95,7 @@ public sealed class MacChatWindowTests
                 return 7;
             }
             finally { events.Add("cleanup"); }
-        }, Encode(Path.GetFullPath(Path.GetTempPath()), null), context => events.Add("restore"),
+        }, Encode(Path.GetFullPath(Path.GetTempPath())), context => events.Add("restore"),
             () => events.Add("dismiss"), error);
 
         Assert.Equal(1, code);
@@ -135,7 +122,7 @@ public sealed class MacChatWindowTests
     {
         var cwd = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "original '雪\" \\ $`  "));
         var projectFile = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "other project", "forge.project.json"));
-        var start = Build("/exact/native forge", hands, projectFile, cwd, "https://example.invalid/  ");
+        var start = Build("/exact/native forge", hands, projectFile, cwd);
         var initial = start.ArgumentList.Single(arg => arg.StartsWith("--initial-command=", StringComparison.Ordinal));
         var command = start.ArgumentList.Single(arg => arg.StartsWith("--command=", StringComparison.Ordinal));
 
@@ -145,7 +132,7 @@ public sealed class MacChatWindowTests
         Assert.True(start.RedirectStandardError);
         Assert.Equal(["-n", "-b", "com.mitchellh.ghostty", "--args", "--config-file=", initial, command,
             "--keybind=cmd+a=text:\\x01", "--working-directory=\"" + cwd + "\"",
-            "--env=FORGE_CHAT_WINDOW=" + Encode(cwd, "https://example.invalid/  "), "--input=",
+            "--env=FORGE_CHAT_WINDOW=" + Encode(cwd), "--input=",
             "--shell-integration=none", "--initial-window=true", "--wait-after-command=false",
             "--quit-after-last-window-closed=true"], start.ArgumentList);
         Assert.Equal(initial["--initial-command=".Length..], command["--command=".Length..]);
@@ -166,7 +153,7 @@ public sealed class MacChatWindowTests
         var output = new StringWriter();
         var error = new StringWriter();
         var calls = 0;
-        var code = await Launch(executable, false, Path.GetTempPath(), Path.GetTempPath(), null, output, error, start =>
+        var code = await Launch(executable, false, Path.GetTempPath(), Path.GetTempPath(), output, error, start =>
         {
             calls++;
             Assert.Equal("/usr/bin/open", start.FileName);
@@ -188,7 +175,7 @@ public sealed class MacChatWindowTests
     public async Task Missing_native_executable_does_not_start_a_process(string? executable)
     {
         var error = new StringWriter();
-        Assert.Equal(1, await Launch(executable, false, Path.GetTempPath(), Path.GetTempPath(), null, new StringWriter(), error,
+        Assert.Equal(1, await Launch(executable, false, Path.GetTempPath(), Path.GetTempPath(), new StringWriter(), error,
             start => throw new InvalidOperationException("Must not start.")));
         Assert.Contains("could not find its native executable", error.ToString());
     }
@@ -202,7 +189,7 @@ public sealed class MacChatWindowTests
         {
             await File.WriteAllTextAsync(executable, "controlled non-executable fixture");
             var error = new StringWriter();
-            Assert.Equal(1, await Launch(executable, true, home, home, null, new StringWriter(), error,
+            Assert.Equal(1, await Launch(executable, true, home, home, new StringWriter(), error,
                 start => throw new InvalidOperationException("Must not start.")));
             Assert.Contains("installed native forge executable, not dotnet", error.ToString());
         }
@@ -237,7 +224,7 @@ public sealed class MacChatWindowTests
             await File.WriteAllTextAsync(executable, "#!/bin/sh\nprintf '%s\\0' \"$0\" \"$@\"\n");
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            var start = Build(executable, hands, project, home, null);
+            var start = Build(executable, hands, project, home);
             var expected = new List<string> { executable, "chat" };
             if (hands) expected.Add("--hands");
             expected.AddRange(["--project", project]);
@@ -262,26 +249,24 @@ public sealed class MacChatWindowTests
     }
 
     private static Task<int> RunCommand(Func<Task<int>> run, string? marker,
-        Action<(string WorkingDirectory, string? ApiEndpoint)> restore, Action dismiss, TextWriter error) =>
+        Action<string> restore, Action dismiss, TextWriter error) =>
         Method("RunCommandAsync").CreateDelegate<Func<Func<Task<int>>, string?,
-            Action<(string WorkingDirectory, string? ApiEndpoint)>, Action, TextWriter, CancellationToken, Task<int>>>()
+            Action<string>, Action, TextWriter, CancellationToken, Task<int>>>()
                 (run, marker, restore, dismiss, error, CancellationToken.None);
 
-    private static void Restore((string WorkingDirectory, string? ApiEndpoint) context,
-        Action<string> directory, Action<string, string?> environment) =>
-        Method("RestoreContext").CreateDelegate<Action<(string WorkingDirectory, string? ApiEndpoint),
-            Action<string>, Action<string, string?>>>()(context, directory, environment);
+    private static void Restore(string context, Action<string> directory) =>
+        Method("RestoreContext").CreateDelegate<Action<string, Action<string>>>()(context, directory);
 
-    private static ProcessStartInfo Build(string executable, bool hands, string project, string cwd, string? endpoint) =>
-        Method("BuildOpenStartInfo").CreateDelegate<Func<string, bool, string, string, string?, ProcessStartInfo>>()
-            (executable, hands, project, cwd, endpoint);
+    private static ProcessStartInfo Build(string executable, bool hands, string project, string cwd) =>
+        Method("BuildOpenStartInfo").CreateDelegate<Func<string, bool, string, string, ProcessStartInfo>>()
+            (executable, hands, project, cwd);
 
-    private static Task<int> Launch(string? executable, bool hands, string project, string cwd, string? endpoint,
+    private static Task<int> Launch(string? executable, bool hands, string project, string cwd,
         TextWriter output, TextWriter error, Func<ProcessStartInfo, Task<(int ExitCode, string StandardOutput, string StandardError)>> start) =>
-        Method("LaunchAsync").CreateDelegate<Func<string?, bool, string, string, string?, TextWriter, TextWriter,
+        Method("LaunchAsync").CreateDelegate<Func<string?, bool, string, string, TextWriter, TextWriter,
             Func<ProcessStartInfo, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>,
             CancellationToken, Task<int>>>()
-                (executable, hands, project, cwd, endpoint, output, error, (info, _) => start(info), CancellationToken.None);
+                (executable, hands, project, cwd, output, error, (info, _) => start(info), CancellationToken.None);
 
     private static Task<(int ExitCode, string StandardOutput, string StandardError)> StartProcess(ProcessStartInfo start) =>
         Method("StartProcessAsync").CreateDelegate<Func<ProcessStartInfo, CancellationToken,

@@ -41,8 +41,7 @@ public static class ForgeChat
             MacChatWindow.ChildMarker(OperatingSystem.IsMacOS(),
                 UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected),
                 Environment.GetEnvironmentVariable(MacChatWindow.Marker)),
-            context => MacChatWindow.RestoreContext(context, Directory.SetCurrentDirectory,
-                (name, value) => Environment.SetEnvironmentVariable(name, value)),
+            context => MacChatWindow.RestoreContext(context, Directory.SetCurrentDirectory),
             () => { Console.ReadKey(intercept: true); }, Console.Error, cancellationToken));
         return cmd;
     }
@@ -97,8 +96,7 @@ public static class ForgeChat
         if (MacChatWindow.ShouldLaunch(OperatingSystem.IsMacOS(), interactive,
             Environment.GetEnvironmentVariable(MacChatWindow.Marker)))
             return await MacChatWindow.LaunchAsync(Environment.ProcessPath, hands, projectFile,
-                Directory.GetCurrentDirectory(), Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT"),
-                Console.Out, Console.Error, cancellationToken: cancellationToken);
+                Directory.GetCurrentDirectory(), Console.Out, Console.Error, cancellationToken: cancellationToken);
 
         try
         {
