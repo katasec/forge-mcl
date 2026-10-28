@@ -567,14 +567,14 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
         if (!printEnv && !IsOnPath("claude"))
         {
             Die("claude CLI not found on PATH.\nInstall it first: npm install -g @anthropic-ai/claude-code  (https://claude.com/claude-code)");
-            return;
+            return 0;
         }
 
         var resolved = ResolveClaudeTarget(result.GetValue(targetArg));
-        if (resolved is not { } target) return;
+        if (resolved is not { } target) return 0;
         var (missionPath, missionName) = target;
 
-        if (!await EnsureInitializedAsync(missionPath, cancellationToken)) return;
+        if (!await EnsureInitializedAsync(missionPath, cancellationToken)) return 0;
 
         var port = result.GetValue(portOpt) ?? FreePort.Find();
         var config = new AgentConfig
@@ -590,14 +590,14 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
         if (result.GetValue(containerOpt))
         {
             var started = await StartMissionContainerAsync(config, missionPath, hostPort: port);
-            if (started is null) return;
+            if (started is null) return 0;
             teardown = started;
             mode     = "container";
         }
         else
         {
             var built = await TryBuildMissionServerAsync(webSearch, clients, logger, config, Path.GetDirectoryName(missionPath)!, cancellationToken);
-            if (built is not { } server) return;
+            if (built is not { } server) return 0;
             var app = server.App;
             await app.StartAsync(cancellationToken);
             teardown = async () => { await app.StopAsync(); await app.DisposeAsync(); };
@@ -610,7 +610,7 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
             if (!await WaitUntilHealthyAsync(clients, baseUrl, timeoutMs: 60_000, cancellationToken))
             {
                 Die($"Mission endpoint did not become healthy at {baseUrl}.");
-                return;
+                return 0;
             }
 
             Console.Error.WriteLine($"✓ mission   {missionName,-15} {missionPath}");
@@ -624,11 +624,11 @@ static Command BuildClaudeCommand(IOptions<WebSearchOptions> webSearch, IHttpCli
                 Console.Error.WriteLine("↳ serving until Ctrl-C…");
                 // Ctrl-C/SIGTERM cancels the action's token: stop waiting and fall through to teardown.
                 await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-                return;
+                return 0;
             }
 
             Console.Error.WriteLine("↳ launching claude…");
-            Environment.ExitCode = await RunWiredClaudeAsync(
+            return await RunWiredClaudeAsync(
                 baseUrl, result.GetValue(promptOpt), result.UnmatchedTokens);
         }
         finally
