@@ -11,8 +11,8 @@ public sealed class DefaultPathTests
     [InlineData("Cannot read file '", "mission.mcl", "init")]
     [InlineData("Cannot read file '", "mission.mcl", "validate")]
     [InlineData("Agent config not found: ", "agent.yaml", "serve")]
-    [InlineData("Agent config not found: ", "agent.yaml", "agent", "start")]
-    [InlineData("Agent config not found: ", "agent.yaml", "agent", "stop")]
+    [InlineData("Cannot read agent.yaml: Could not find file '", "agent.yaml", "agent", "start")]
+    [InlineData("Cannot read agent.yaml: Could not find file '", "agent.yaml", "agent", "stop")]
     [InlineData("Agent config not found: ", "agent.yaml", "webui", "start")]
     [InlineData("No mission.mcl in ", "", "publish", "registry.test/pin/noop:1")]
     public async Task No_path_resolves_to_the_default_file_in_the_current_directory(string error, string file, params string[] command)

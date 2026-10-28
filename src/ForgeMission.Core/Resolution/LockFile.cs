@@ -23,23 +23,48 @@ public static class LockFileIO
     // LockFile/LockFileExpert are public POCOs directly instantiated here, so the trimmer
     // preserves them. The IL3050 on DeserializerBuilder is conservative — reflection works
     // in AOT for preserved types.
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFile))]
-    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFileExpert))]
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Types preserved via DynamicDependency")]
-    private static readonly ISerializer Serializer = new SerializerBuilder()
-        .WithNamingConvention(CamelCaseNamingConvention.Instance)
-        .Build();
+    private static readonly ISerializer Serializer = BuildSerializer();
 
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFile))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFileExpert))]
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Types preserved via DynamicDependency")]
-    private static readonly IDeserializer Deserializer = new DeserializerBuilder()
+    private static ISerializer BuildSerializer() => new SerializerBuilder()
+        .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .Build();
+
+    private static readonly IDeserializer Deserializer = BuildDeserializer();
+
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFile))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LockFileExpert))]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Types preserved via DynamicDependency")]
+    private static IDeserializer BuildDeserializer() => new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
         .Build();
 
     public static void Write(string path, LockFile lockFile)
-        => File.WriteAllText(path, Serializer.Serialize(lockFile));
+    {
+        // Atomic write: stage into a temp file in the SAME directory, then replace/move
+        // into place so a crash or concurrent read never sees a truncated lock file.
+        var dir = Path.GetDirectoryName(path)!;
+        var temp = Path.Combine(dir, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temp, Serializer.Serialize(lockFile));
+            if (File.Exists(path))
+                File.Replace(temp, path, null);
+            else
+                File.Move(temp, path);
+        }
+        catch
+        {
+            if (File.Exists(temp))
+            {
+                try { File.Delete(temp); } catch { /* best effort cleanup */ }
+            }
+            throw;
+        }
+    }
 
     public static LockFile Read(string path)
         => Deserializer.Deserialize<LockFile>(File.ReadAllText(path));

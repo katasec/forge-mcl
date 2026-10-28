@@ -8,11 +8,10 @@ namespace ForgeMission.Cli.Services;
 internal static class MacChatWindow
 {
     internal const string Marker = "FORGE_CHAT_WINDOW";
-    private const string Endpoint = "FORGE_API_ENDPOINT";
     private static readonly UTF8Encoding ContextEncoding = new(false, throwOnInvalidBytes: true);
 
     internal static async Task<int> RunCommandAsync(Func<Task<int>> runChat, string? marker,
-        Action<(string WorkingDirectory, string? ApiEndpoint)> restoreContext,
+        Action<string> restoreContext,
         Action dismissError, TextWriter error, CancellationToken cancellationToken)
     {
         if (marker is null)
@@ -37,7 +36,7 @@ internal static class MacChatWindow
     }
 
     internal static async Task<int> LaunchAsync(string? executable, bool hands, string projectFile,
-        string originalCwd, string? apiEndpoint, TextWriter output, TextWriter error,
+        string originalCwd, TextWriter output, TextWriter error,
         Func<ProcessStartInfo, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? start = null,
         CancellationToken cancellationToken = default)
     {
@@ -55,7 +54,7 @@ internal static class MacChatWindow
         try
         {
             var result = await (start ?? StartProcessAsync)(BuildOpenStartInfo(executable, hands,
-                projectFile, originalCwd, apiEndpoint), cancellationToken);
+                projectFile, originalCwd), cancellationToken);
             if (result.ExitCode != 0)
             {
                 error.WriteLine($"forge chat: could not open its window (open exited {result.ExitCode}).");
@@ -78,30 +77,20 @@ internal static class MacChatWindow
     internal static string? ChildMarker(bool isMac, bool interactive, string? marker) =>
         isMac && interactive ? marker : null;
 
-    internal static void RestoreContext((string WorkingDirectory, string? ApiEndpoint) context,
-        Action<string> changeDirectory, Action<string, string?> setEnvironment)
+    internal static void RestoreContext(string workingDirectory, Action<string> changeDirectory) =>
+        changeDirectory(workingDirectory);
+
+    internal static string EncodeContext(string workingDirectory) =>
+        Convert.ToBase64String(ContextEncoding.GetBytes(workingDirectory));
+
+    internal static string DecodeContext(string marker)
     {
-        changeDirectory(context.WorkingDirectory);
-        setEnvironment(Endpoint, context.ApiEndpoint);
-    }
-
-    internal static string EncodeContext(string workingDirectory, string? apiEndpoint) =>
-        Convert.ToBase64String(ContextEncoding.GetBytes(workingDirectory)) + ":" +
-        (apiEndpoint is null ? "-" : Convert.ToBase64String(ContextEncoding.GetBytes(apiEndpoint)));
-
-    internal static (string WorkingDirectory, string? ApiEndpoint) DecodeContext(string marker)
-    {
-        var fields = marker.Split(':');
-        if (fields.Length != 2)
-            throw new FormatException("Invalid Forge chat window context.");
-
         try
         {
-            var cwd = ContextEncoding.GetString(Convert.FromBase64String(fields[0]));
-            var endpoint = fields[1] == "-" ? null : ContextEncoding.GetString(Convert.FromBase64String(fields[1]));
+            var cwd = ContextEncoding.GetString(Convert.FromBase64String(marker));
             if (string.IsNullOrEmpty(cwd) || !Path.IsPathFullyQualified(cwd))
                 throw new FormatException("Invalid Forge chat window working directory.");
-            return (cwd, endpoint);
+            return cwd;
         }
         catch (Exception failure) when (failure is FormatException or DecoderFallbackException)
         {
@@ -110,7 +99,7 @@ internal static class MacChatWindow
     }
 
     internal static ProcessStartInfo BuildOpenStartInfo(string executable, bool hands, string projectFile,
-        string originalCwd, string? apiEndpoint)
+        string originalCwd)
     {
         var argv = new List<string> { executable, "chat" };
         if (hands)
@@ -128,7 +117,7 @@ internal static class MacChatWindow
             "-n", "-b", "com.mitchellh.ghostty", "--args", "--config-file=",
             "--initial-command=" + command, "--command=" + command, "--keybind=cmd+a=text:\\x01",
             "--working-directory=\"" + originalCwd + "\"",
-            "--env=" + Marker + "=" + EncodeContext(originalCwd, apiEndpoint),
+            "--env=" + Marker + "=" + EncodeContext(originalCwd),
             "--input=", "--shell-integration=none", "--initial-window=true",
             "--wait-after-command=false", "--quit-after-last-window-closed=true",
         })

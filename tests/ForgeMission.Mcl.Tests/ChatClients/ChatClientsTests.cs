@@ -90,6 +90,47 @@ public sealed class ChatClientsTests
         Assert.False(request.TryGetProperty("input", out _));
     }
 
+    // R16: a mission naming no provider resolved to "openai" and sent the Anthropic credential in
+    // MCL_API_KEY to the OpenAI API. A key whose prefix names another issuer must never leave the process.
+    [Theory]
+    [InlineData(null,        "sk-ant-oat01-fixture")]
+    [InlineData("openai",    "sk-ant-api03-fixture")]
+    [InlineData("azure",     "sk-ant-api03-fixture")]
+    [InlineData("xai",       "sk-ant-api03-fixture")]
+    [InlineData("anthropic", "sk-proj-fixture")]
+    [InlineData("openai",    "xai-fixture")]
+    public async Task ForeignProviderKey_FailsFastWithoutSendingIt(string? provider, string apiKey)
+    {
+        var port = FreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        var request = listener.GetContextAsync();
+
+        var context = new Dictionary<string, string?> { ["apiKey"] = apiKey, ["model"] = "test-model", ["provider"] = provider,
+            ["endpoint"] = $"http://127.0.0.1:{port}/" };
+        var profile = ProviderProfileResolver.ResolveDefault(null, key => context[key]);
+
+        var error = Assert.Throws<InvalidOperationException>(() => ForgeChatClients.BuildChatClient(profile));
+        Assert.StartsWith("Refusing to send", error.Message);
+        Assert.DoesNotContain(apiKey, error.Message);
+        await Task.Delay(200);
+        Assert.False(request.IsCompleted, "the foreign key reached the endpoint");
+    }
+
+    [Theory]
+    [InlineData("anthropic", "sk-ant-api03-fixture", null)]
+    [InlineData("openai",    "sk-proj-fixture",      null)]
+    [InlineData("xai",       "xai-fixture",          null)]
+    [InlineData("azure",     "0123456789abcdef",     null)]
+    [InlineData("openai",    "sk-ant-api03-fixture", "https://api.anthropic.com/v1/")]
+    public void IssuerKey_BuildsClient(string provider, string apiKey, string? endpoint)
+    {
+        using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
+        { Provider = provider, Model = "test-model", ApiKey = apiKey, Endpoint = endpoint ?? "http://127.0.0.1:9/" });
+        Assert.NotNull(client);
+    }
+
     [Fact]
     public async Task OpenAi_ToolFreeStep_UsesClosedStructuredSchema()
     {

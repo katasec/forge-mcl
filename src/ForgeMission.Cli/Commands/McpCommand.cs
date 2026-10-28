@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.CommandLine;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -7,6 +8,7 @@ using ModelContextProtocol.Server;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
+using ForgeMission.Core.Resolution;
 using ForgeMission.Core.Runtime;
 using ForgeMission.Cli.Services;
 using MclProgram = ForgeMission.Parser.Program;
@@ -20,6 +22,60 @@ namespace ForgeMission.Cli.Commands;
 // and runner factory. The input schema is written with Utf8JsonWriter (AOT-safe, no STJ reflection).
 internal static class McpCommand
 {
+    // Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared
+    // mission to ServeAsync, which owns the stdio MCP server. Runners are built lazily per tool call;
+    // the server runs until stdin closes or the command's Ctrl+C/SIGTERM token is cancelled.
+    internal static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory clients, IOptions<WebSearchOptions> webSearch)
+    {
+        var missionArg = new Argument<FileInfo>("mission")
+        {
+            Description = "Path to the .mcl mission file",
+            Arity = ArgumentArity.ZeroOrOne,
+            DefaultValueFactory = _ => new FileInfo("mission.mcl")
+        };
+
+        var cmd = new Command("mcp", "Expose a mission as a stdio MCP server (for Claude Desktop and MCP-aware tools)");
+        cmd.Add(missionArg);
+
+        cmd.SetCancellableAction(async (result, ct) =>
+        {
+            var mission    = result.GetValue(missionArg)!;
+            var missionDir = mission.DirectoryName!;
+            var lockPath   = CliHelpers.MclLockPath(missionDir);
+
+            if (!File.Exists(lockPath)) { CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first."); return; }
+
+            var source = await CliHelpers.TryReadFile(mission.FullName, ct);
+            if (source is null) return;
+
+            var ast = CliHelpers.TryParse(source, mission.FullName);
+            if (ast is null) return;
+
+            ForgeManifest? manifest = null;
+            try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
+            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); return; }
+
+            LockFile lockFile;
+            try { lockFile = LockFileIO.Read(lockPath); }
+            catch (Exception ex) { CliDiagnostics.Die($"Cannot read mcl.lock: {ex.Message}"); return; }
+
+            Dictionary<string, ExpertDefinition> expertDefs;
+            try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose: null, warnings: Console.Error); }
+            catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
+            catch (ExpertLoadException ex)           { CliDiagnostics.ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
+
+            if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
+
+            var firstMission = ast.Declarations.OfType<ForgeMission.Parser.MissionDeclaration>().FirstOrDefault();
+            if (firstMission is null) { CliDiagnostics.Die("No mission declaration found in mission file."); return; }
+
+            await ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName,
+                callSeedContext => MissionServerBuilder.BuildRunners(manifest, callSeedContext), ct);
+        });
+
+        return cmd;
+    }
+
     // Serves one validated mission over stdio until the transport closes or cancellationToken
     // (the command's Ctrl+C/SIGTERM token) is cancelled. Runners are built lazily through
     // buildRunners at each tool call so startup never needs the provider API key. The server logs

@@ -11,20 +11,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
-    <PackageReference Include="System.CommandLine" Version="2.0.9" />
-    <PackageReference Include="Katasec.OciClient" Version="0.5.0" />
-    <PackageReference Include="Spectre.Console" Version="0.49.1" />
-    <PackageReference Include="Katasec.Forge.Client" Version="0.9.3" />
-    <PackageReference Include="Katasec.Forge.Hands" Version="0.1.0" />
-    <PackageReference Include="Katasec.Forge.Client.Contracts" Version="0.2.1" />
-    <PackageReference Include="XenoAtom.Terminal.UI" Version="3.10.0" />
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.10.0" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Katasec.OciClient" />
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Katasec.Forge.Client" />
+    <PackageReference Include="Katasec.Forge.Hands" />
+    <PackageReference Include="Katasec.Forge.Client.Contracts" />
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
     <!-- Phase 56 G2: proportional text in forge chat; referenced only by Tui/Graphics/GlyphText.cs. -->
-    <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
+    <PackageReference Include="StbTrueTypeSharp" />
     <!-- Phase 56 G12: syntax colours in code blocks (brings TextMateSharp, its grammars and libonigwrap);
          TextMateSharp is referenced only by Tui/Graphics/CodeColours.cs. -->
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" Version="3.10.0" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" />
   </ItemGroup>
 
   <!-- Phase 56 G4: Inter 4.1 subset (eng/fonts/inter-subset.sh) and its OFL licence, embedded. -->
@@ -36,9 +36,6 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <AssemblyName>forge</AssemblyName>
     <PublishAot>true</PublishAot>
     <!-- Ships as a Native AOT payload via scripts/build.ps1, never as a NuGet package. -->
@@ -47,9 +44,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Runs the code-style rules .editorconfig raises to warnings (IDE0130: namespace matches folder) on build. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <!-- IL3050 x4: ForgeMission.Core's YamlDotNet builders in static initializers (its field-level suppressions miss the .cctor ILC reports).
-         IL2104/IL3053: summaries of YamlDotNet 18.0.0's reflection-based trim/AOT warnings. -->
-    <NoWarn>$(NoWarn);IL3050;IL2104;IL3053</NoWarn>
+    <!-- IL2104/IL3053: summaries of YamlDotNet 18.0.0's reflection-based trim/AOT warnings
+         (need a source-gen static context to resolve; out of scope here).
+         IL3050 is no longer masked: ForgeMission.Core's YamlDotNet builders now carry the
+         suppression on the build method that makes the reflection .Build() call, so ILC sees it. -->
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
   </PropertyGroup>
 
   <!-- macOS Native AOT links the runtime's OpenSSL and brotli as system libraries (brew install openssl@3 brotli). -->

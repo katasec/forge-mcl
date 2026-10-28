@@ -1,8 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>true</IsPackable>
     <PackageId>Katasec.Forge.Mcl.MissionRegistry</PackageId>
@@ -27,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Katasec.OciClient" Version="0.5.0" />
+    <PackageReference Include="Katasec.OciClient" />
   </ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="ForgeMission.Mcl.Tests" /></ItemGroup>
 </Project>

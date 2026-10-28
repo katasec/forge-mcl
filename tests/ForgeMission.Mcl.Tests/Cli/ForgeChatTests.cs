@@ -130,6 +130,85 @@ public sealed class ForgeChatTests
 
     private static void IgnoreEvents<T>(T item) { }
 
+    // R10: a non-JSON host 500 on the reconnect path surfaces as ConversationHostProtocolException
+    // (internal to ForgeMission.Application, base InvalidOperationException). ForgeChat.RunAsync's
+    // catch matches it by exact type name; this guards that the type it matches is the one thrown.
+    [Fact]
+    public async Task A_non_json_host_error_on_reconnect_raises_the_protocol_exception_run_async_catches()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "forge-chat-host500-" + Guid.NewGuid().ToString("N"));
+        var projectId = Guid.NewGuid();
+        Directory.CreateDirectory(home);
+        try
+        {
+            var projectFile = Path.Combine(home, "forge1.project.json");
+            await File.WriteAllTextAsync(projectFile,
+                "{\"projectId\":\"" + projectId + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
+            using var host = new NonJsonErrorHost(projectId, "Chat", MissionHandsProfile.NoHands);
+            var chat = LoadForgeChatMethod("ChatInProjectAsync");
+            var appType = chat.GetParameters()[0].ParameterType;
+            var create = appType.GetMethod("Create")!;
+            var publishType = create.GetParameters()[3].ParameterType;
+            var publish = typeof(ForgeChatTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
+                .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
+            await using var app = (IAsyncDisposable)create.Invoke(null,
+                [host, null, PolicyFor.Invoke(null, [false]), publish, CancellationToken.None])!;
+            var theme = ForgeText.Theme("Dark");
+            var failure = await Assert.ThrowsAnyAsync<Exception>(() => (Task<int>)chat.Invoke(null,
+                [app, ModeFor.Invoke(null, [false]), projectFile, theme, null, new ConcurrentQueue<string>(), CancellationToken.None])!);
+            // The exact type ForgeChat.RunAsync's `when (failure.GetType().Name == …)` guard depends on.
+            Assert.Equal("ConversationHostProtocolException", failure.GetType().Name);
+            Assert.IsAssignableFrom<InvalidOperationException>(failure);
+        }
+        finally { Directory.Delete(home, recursive: true); }
+    }
+
+    // Lists the project's conversation, then answers the reconnect's GetConversation with a non-JSON 500.
+    private sealed class NonJsonErrorHost : HttpMessageHandler, IHttpClientFactory
+    {
+        private readonly Guid _projectId;
+        private readonly Guid _conversationId = Guid.NewGuid();
+        private readonly DurableMissionLaunch _launch;
+        public List<string> Requests { get; } = [];
+
+        public NonJsonErrorHost(Guid projectId, string mission, MissionHandsProfile profile)
+        {
+            _projectId = projectId;
+            var definition = $"mission {mission}(message) = {{\n    Assistant using anthropic\n}}\n";
+            _launch = new DurableMissionLaunch(Guid.NewGuid(), 1, "sha256:test", definition, profile,
+                new DurableMissionPackage(1, "sha256:package", definition, mission, "message", []));
+        }
+
+        public HttpClient CreateClient(string name) => new(this, disposeHandler: false)
+        {
+            BaseAddress = new Uri("https://controlled-host.invalid/"),
+        };
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var route = request.RequestUri!.AbsolutePath;
+            Requests.Add(route);
+            if (route == "/api/ListMissionConversations")
+            {
+                var snapshot = new ConversationSnapshot(_conversationId, null, null, 0, ConversationRunStatus.Completed,
+                    null, DateTimeOffset.UtcNow, Purpose: ConversationPurpose.MissionConversation, ProjectId: _projectId, PinnedLaunch: _launch);
+                var json = JsonSerializer.Serialize(new ListMissionConversationsResponse(
+                    [new MissionConversationSummary(_conversationId, _projectId, _launch, snapshot.Status, 0, snapshot.UpdatedAtUtc)]),
+                    ConversationContractsJsonContext.Default.ListMissionConversationsResponse);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                });
+            }
+
+            // The conversation host hands back an HTML/plain 500 instead of a mission reply.
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("<html><body>500 Internal Server Error</body></html>", Encoding.UTF8, "text/html"),
+            });
+        }
+    }
+
     // Controlled Host replies: every request after authenticated pin resolution is a failure.
     private sealed class PinnedHost : HttpMessageHandler, IHttpClientFactory
     {

@@ -107,14 +107,14 @@ public static class DockerCli
 
     // ── Prereq helper ──────────────────────────────────────────────────────
 
-    internal static async Task<(bool Ok, string Detail)> GetVersionAsync()
+    internal static async Task<(bool Ok, string Detail)> GetVersionAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var resp = await Http.GetAsync("/v1.47/version");
+            var resp = await Http.GetAsync("/v1.47/version", cancellationToken);
             if (!resp.IsSuccessStatusCode)
                 return (false, $"not running (socket: {SocketPath})");
-            var json = await resp.Content.ReadAsStringAsync();
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
             var v = JsonSerializer.Deserialize(json, DockerJsonContext.Default.DockerVersionResponse);
             return (true, $"Docker Engine {v?.Version} ({v?.Os}/{v?.Arch})");
         }
@@ -126,13 +126,13 @@ public static class DockerCli
 
     // ── Image operations ───────────────────────────────────────────────────
 
-    public static async Task<bool> IsImagePresentAsync(string image)
+    public static async Task<bool> IsImagePresentAsync(string image, CancellationToken cancellationToken = default)
     {
-        var resp = await Http.GetAsync($"/v1.47/images/{Uri.EscapeDataString(image)}/json");
+        var resp = await Http.GetAsync($"/v1.47/images/{Uri.EscapeDataString(image)}/json", cancellationToken);
         return resp.StatusCode == HttpStatusCode.OK;
     }
 
-    public static async Task PullImageAsync(string image)
+    public static async Task PullImageAsync(string image, CancellationToken cancellationToken = default)
     {
         var colonIdx = image.LastIndexOf(':');
         var fromImage = colonIdx >= 0 ? image[..colonIdx] : image;
@@ -140,19 +140,20 @@ public static class DockerCli
 
         var resp = await Http.PostAsync(
             $"/v1.47/images/create?fromImage={Uri.EscapeDataString(fromImage)}&tag={Uri.EscapeDataString(tag)}",
-            null);
+            null,
+            cancellationToken);
 
         if (!resp.IsSuccessStatusCode)
         {
-            var err = await resp.Content.ReadAsStringAsync();
+            var err = await resp.Content.ReadAsStringAsync(cancellationToken);
             throw new InvalidOperationException($"docker pull failed: {err}");
         }
 
         // Docker streams NDJSON progress events — drain and print status lines
-        using var stream = await resp.Content.ReadAsStreamAsync();
+        using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
         string? line;
-        while ((line = await reader.ReadLineAsync()) is not null)
+        while ((line = await reader.ReadLineAsync(cancellationToken)) is not null)
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             var evt = JsonSerializer.Deserialize(line, DockerJsonContext.Default.DockerProgressEvent);
@@ -165,43 +166,44 @@ public static class DockerCli
 
     // ── Network operations ─────────────────────────────────────────────────
 
-    public static async Task<bool> NetworkExistsAsync(string name)
+    public static async Task<bool> NetworkExistsAsync(string name, CancellationToken cancellationToken = default)
     {
-        var resp = await Http.GetAsync($"/v1.47/networks/{name}");
+        var resp = await Http.GetAsync($"/v1.47/networks/{name}", cancellationToken);
         return resp.StatusCode == HttpStatusCode.OK;
     }
 
-    public static async Task EnsureNetworkAsync(string name)
+    public static async Task EnsureNetworkAsync(string name, CancellationToken cancellationToken = default)
     {
-        if (await NetworkExistsAsync(name)) return;
+        if (await NetworkExistsAsync(name, cancellationToken)) return;
         var body = JsonSerializer.Serialize(
             new DockerCreateNetworkRequest { Name = name, Driver = "bridge" },
             DockerJsonContext.Default.DockerCreateNetworkRequest);
         var resp = await Http.PostAsync("/v1.47/networks/create",
-            new StringContent(body, Encoding.UTF8, "application/json"));
+            new StringContent(body, Encoding.UTF8, "application/json"),
+            cancellationToken);
         resp.EnsureSuccessStatusCode();
     }
 
     // ── Container operations ───────────────────────────────────────────────
 
-    public static async Task<bool> IsContainerRunningAsync(string name)
+    public static async Task<bool> IsContainerRunningAsync(string name, CancellationToken cancellationToken = default)
     {
         var f = Uri.EscapeDataString($"{{\"name\":[\"^/{name}$\"],\"status\":[\"running\"]}}");
-        var resp = await Http.GetAsync($"/v1.47/containers/json?filters={f}");
+        var resp = await Http.GetAsync($"/v1.47/containers/json?filters={f}", cancellationToken);
         if (!resp.IsSuccessStatusCode) return false;
         var containers = JsonSerializer.Deserialize(
-            await resp.Content.ReadAsStringAsync(),
+            await resp.Content.ReadAsStringAsync(cancellationToken),
             DockerJsonContext.Default.DockerContainerArray);
         return containers?.Length > 0;
     }
 
-    public static async Task<bool> ContainerExistsAsync(string name)
+    public static async Task<bool> ContainerExistsAsync(string name, CancellationToken cancellationToken = default)
     {
         var f = Uri.EscapeDataString($"{{\"name\":[\"^/{name}$\"]}}");
-        var resp = await Http.GetAsync($"/v1.47/containers/json?all=true&filters={f}");
+        var resp = await Http.GetAsync($"/v1.47/containers/json?all=true&filters={f}", cancellationToken);
         if (!resp.IsSuccessStatusCode) return false;
         var containers = JsonSerializer.Deserialize(
-            await resp.Content.ReadAsStringAsync(),
+            await resp.Content.ReadAsStringAsync(cancellationToken),
             DockerJsonContext.Default.DockerContainerArray);
         return containers?.Length > 0;
     }
@@ -215,24 +217,26 @@ public static class DockerCli
         int hostPort,
         int containerPort,
         string network,
-        string? hostIp = null)
+        string? hostIp = null,
+        CancellationToken cancellationToken = default)
     {
         var request = CreateContainerRequest(image, cmd, env, binds, hostPort, containerPort, network, hostIp);
         var body = JsonSerializer.Serialize(request, DockerJsonContext.Default.DockerCreateContainerRequest);
         var createResp = await Http.PostAsync(
             $"/v1.47/containers/create?name={name}",
-            new StringContent(body, Encoding.UTF8, "application/json"));
+            new StringContent(body, Encoding.UTF8, "application/json"),
+            cancellationToken);
 
         if (!createResp.IsSuccessStatusCode)
         {
-            var err = await createResp.Content.ReadAsStringAsync();
+            var err = await createResp.Content.ReadAsStringAsync(cancellationToken);
             throw new InvalidOperationException($"Failed to create container '{name}': {err}");
         }
 
-        var startResp = await Http.PostAsync($"/v1.47/containers/{Uri.EscapeDataString(name)}/start", null);
+        var startResp = await Http.PostAsync($"/v1.47/containers/{Uri.EscapeDataString(name)}/start", null, cancellationToken);
         if (!startResp.IsSuccessStatusCode)
         {
-            var err = await startResp.Content.ReadAsStringAsync();
+            var err = await startResp.Content.ReadAsStringAsync(cancellationToken);
             throw new InvalidOperationException($"Failed to start container '{name}': {err}");
         }
     }
@@ -266,18 +270,18 @@ public static class DockerCli
         };
     }
 
-    public static async Task StopAndRemoveAsync(string name)
+    public static async Task StopAndRemoveAsync(string name, CancellationToken cancellationToken = default)
     {
         var f = Uri.EscapeDataString($"{{\"name\":[\"^/{name}$\"]}}");
-        var resp = await Http.GetAsync($"/v1.47/containers/json?all=true&filters={f}");
+        var resp = await Http.GetAsync($"/v1.47/containers/json?all=true&filters={f}", cancellationToken);
         if (!resp.IsSuccessStatusCode) return;
         var containers = JsonSerializer.Deserialize(
-            await resp.Content.ReadAsStringAsync(),
+            await resp.Content.ReadAsStringAsync(cancellationToken),
             DockerJsonContext.Default.DockerContainerArray);
         if (containers is null || containers.Length == 0) return;
 
         var id = containers[0].Id;
-        await Http.PostAsync($"/v1.47/containers/{id}/stop", null);
-        await Http.DeleteAsync($"/v1.47/containers/{id}");
+        await Http.PostAsync($"/v1.47/containers/{id}/stop", null, cancellationToken);
+        await Http.DeleteAsync($"/v1.47/containers/{id}", cancellationToken);
     }
 }

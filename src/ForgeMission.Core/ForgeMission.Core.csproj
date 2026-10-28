@@ -1,9 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <NoWarn>$(NoWarn);3021</NoWarn>
     <IsPackable>true</IsPackable>
@@ -34,10 +31,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Katasec.AITools" Version="0.1.8" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
-    <PackageReference Include="YamlDotNet" Version="18.0.0" />
+    <PackageReference Include="Katasec.AITools" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
 </Project>

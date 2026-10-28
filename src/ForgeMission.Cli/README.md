@@ -45,14 +45,14 @@ behavior in forge-client.
 | Piece | Responsibility |
 |---|---|
 | [Program](Program.cs) | Executable entry point, command registration, and command handlers. |
-| [ForgeRun](ForgeRun.cs) | Local mission composition: one file-scoped Hands lifetime and Core tool pause/resume loop. |
-| [ForgeExec](ForgeExec.cs) | One-shot hosted mission execution, artifact input/output, and ForgeAPI endpoint selection. |
-| [PlatformLogin](PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
-| [ProviderClientBuilder](ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
-| [ForgeProject](ForgeProject.cs) | Explicit portable Project creation and hosted Chat setup through the shared Client. |
-| [ForgeChat](ForgeChat.cs) | Portable Project opening, hosted conversation reconnection, fresh hands approval/attachment, and terminal/line-mode selection. |
-| [MacChatWindow](MacChatWindow.cs) | Interactive Mac launch into a dedicated Ghostty instance, exact child context and visible request/child failures. |
-| [ChatHandsAttachment](ChatHandsAttachment.cs) | Executes file requests for an acknowledged hands attachment off the conversation follow loop. |
+| [ForgeRun](Services/ForgeRun.cs) | Local mission composition: one file-scoped Hands lifetime and Core tool pause/resume loop. |
+| [ForgeExec](Commands/ForgeExec.cs) | One-shot hosted mission execution, artifact input/output, and ForgeAPI endpoint selection. |
+| [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
+| [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
+| [ForgeProject](Commands/ForgeProject.cs) | Explicit portable Project creation and hosted Chat setup through the shared Client. |
+| [ForgeChat](Commands/ForgeChat.cs) | Portable Project opening, hosted conversation reconnection, fresh hands approval/attachment, and terminal/line-mode selection. |
+| [MacChatWindow](Services/MacChatWindow.cs) | Interactive Mac launch into a dedicated Ghostty instance, exact child context and visible request/child failures. |
+| [ChatHandsAttachment](Services/ChatHandsAttachment.cs) | Executes file requests for an acknowledged hands attachment off the conversation follow loop. |
 | [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (chat theme, API endpoint) bound by the CLI host. |
 
 ### Terminal UI — [Tui/](Tui)

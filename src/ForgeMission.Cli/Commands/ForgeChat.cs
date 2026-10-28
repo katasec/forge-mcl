@@ -41,8 +41,7 @@ public static class ForgeChat
             MacChatWindow.ChildMarker(OperatingSystem.IsMacOS(),
                 UsesTui(Console.IsInputRedirected, Console.IsOutputRedirected),
                 Environment.GetEnvironmentVariable(MacChatWindow.Marker)),
-            context => MacChatWindow.RestoreContext(context, Directory.SetCurrentDirectory,
-                (name, value) => Environment.SetEnvironmentVariable(name, value)),
+            context => MacChatWindow.RestoreContext(context, Directory.SetCurrentDirectory),
             () => { Console.ReadKey(intercept: true); }, Console.Error, cancellationToken));
         return cmd;
     }
@@ -97,8 +96,7 @@ public static class ForgeChat
         if (MacChatWindow.ShouldLaunch(OperatingSystem.IsMacOS(), interactive,
             Environment.GetEnvironmentVariable(MacChatWindow.Marker)))
             return await MacChatWindow.LaunchAsync(Environment.ProcessPath, hands, projectFile,
-                Directory.GetCurrentDirectory(), Environment.GetEnvironmentVariable("FORGE_API_ENDPOINT"),
-                Console.Out, Console.Error, cancellationToken: cancellationToken);
+                Directory.GetCurrentDirectory(), Console.Out, Console.Error, cancellationToken: cancellationToken);
 
         try
         {
@@ -110,6 +108,16 @@ public static class ForgeChat
             return 1;
         }
         catch (HttpRequestException failure)
+        {
+            Console.Error.WriteLine($"chat failed: {failure.Message}");
+            return 1;
+        }
+        // R10: the conversation host returned a body the client could not read as a mission reply
+        // (e.g. a non-JSON 500). The Application layer reports this as ConversationHostProtocolException,
+        // which is internal to ForgeMission.Application — a `catch (ConversationHostProtocolException)`
+        // will not compile (CS0122), and its only public base is the too-broad InvalidOperationException,
+        // so it is matched by exact type name to stay narrow without swallowing unrelated failures.
+        catch (Exception failure) when (failure.GetType().Name == "ConversationHostProtocolException")
         {
             Console.Error.WriteLine($"chat failed: {failure.Message}");
             return 1;

@@ -101,23 +101,29 @@ public static class ForgeExec
         ExecuteMissionResponseDto? result = null;
 
         await using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken);
-        using var reader = new StreamReader(stream);
-        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        try
         {
-            if (line.Length == 0) continue;
-            MissionRunEventDto? evt;
-            try { evt = JsonSerializer.Deserialize(line, ForgeExecJsonContext.Default.MissionRunEventDto); }
-            catch (JsonException) { continue; } // a malformed line shouldn't kill an otherwise-good stream
-
-            switch (evt?.Type)
+            // The runner streams one JSON event per line (NDJSON); read the sequence of root-level
+            // values straight off the stream rather than buffering and parsing each line by hand.
+            await foreach (var evt in JsonSerializer.DeserializeAsyncEnumerable(
+                stream, ForgeExecJsonContext.Default.MissionRunEventDto, topLevelValues: true, cancellationToken))
             {
-                case "progress" when evt.Progress is not null:
-                    progress.Update(Label(evt.Progress));
-                    break;
-                case "result" or "error":
-                    result = evt.Result;
-                    break;
+                switch (evt?.Type)
+                {
+                    case "progress" when evt.Progress is not null:
+                        progress.Update(Label(evt.Progress));
+                        break;
+                    case "result" or "error":
+                        result = evt.Result;
+                        break;
+                }
             }
+        }
+        catch (JsonException ex)
+        {
+            progress.Clear();
+            Console.Error.WriteLine($"exec failed: malformed event in the mission stream: {ex.Message}");
+            return 1;
         }
         progress.Clear();
 
@@ -354,13 +360,27 @@ public static class ForgeExec
             return false;
         }
 
-        var dir = Path.GetDirectoryName(Path.GetFullPath(path));
-        if (!string.IsNullOrWhiteSpace(dir))
-            Directory.CreateDirectory(dir);
+        var fullPath = Path.GetFullPath(path);
+        var dir      = Path.GetDirectoryName(fullPath) ?? ".";
+        Directory.CreateDirectory(dir);
 
-        await using var input = await resp.Content.ReadAsStreamAsync(cancellationToken);
-        await using var output = File.Create(path, 4096, FileOptions.Asynchronous);
-        await input.CopyToAsync(output, cancellationToken);
+        // Stage into a temp file beside the target, then atomically land it: a failed or cancelled
+        // download leaves no partial file, and any existing file survives untouched.
+        var tempPath = Path.Combine(dir, $".{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var input = await resp.Content.ReadAsStreamAsync(cancellationToken))
+            await using (var output = File.Create(tempPath, 4096, FileOptions.Asynchronous))
+                await input.CopyToAsync(output, cancellationToken);
+
+            if (File.Exists(fullPath)) File.Replace(tempPath, fullPath, null);
+            else                       File.Move(tempPath, fullPath);
+        }
+        catch
+        {
+            try { File.Delete(tempPath); } catch { /* best-effort cleanup */ }
+            throw;
+        }
         return true;
     }
 
