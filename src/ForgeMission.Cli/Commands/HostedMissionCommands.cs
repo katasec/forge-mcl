@@ -3,13 +3,12 @@ using ForgeMission.Cli.Services;
 using ForgeMission.Core.Resolution;
 using ForgeMission.MissionRegistry;
 using Katasec.OciClient;
-using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli.Commands;
 
 // Hosted-mission and packaging commands: `forge run` (run a mission as a cloud conversation in a
-// project), `forge exec` (run a hosted mission through ForgeAPI) and `forge publish` (package a mission directory into an OCI artifact and push it). The
-// hosted-mission transport lives in ForgeExec; OCI packaging/push lives in MissionRegistry and
+// project) and `forge publish` (package a mission directory into an OCI artifact and push it). The
+// cloud run lives in ForgeDurableRun; OCI packaging/push lives in MissionRegistry and
 // Katasec.OciClient. This surface owns only the command wiring.
 internal static class HostedMissionCommands
 {
@@ -44,38 +43,6 @@ internal static class HostedMissionCommands
     /// <paramref name="directory"/>.</summary>
     internal static string RunProject(string? option, string directory) =>
         option ?? Path.Combine(directory, DefaultProjectFile);
-
-    // forge exec — the one-shot hosted-mission command (42.6 task 8). The `@` prefix on a handle is
-    // optional (ForgeExec.RunAsync strips it if present) — deliberately, because pwsh (the maintainer's
-    // default shell, see AGENTS.md) mangles an unquoted leading `@` before it reaches a native process
-    // ("Required argument missing", not a forge bug — confirmed 2026-07-19: `@websearch` fails in pwsh,
-    // `"@websearch"` or bare `websearch` both work). Documented as the plain form so pwsh users aren't
-    // steered into the gotcha; bash/zsh users can still type `@handle` fine.
-    internal static Command BuildExecCommand(IOptions<ForgeApiSettings> api, IHttpClientFactory clients)
-    {
-        var targetArg = new Argument<string>("target") { Description = "Mission handle, e.g. websearch (an optional leading @ is also accepted, but quote it in pwsh: \"@websearch\")" };
-        var promptArg = new Argument<string?>("prompt") { Description = "The mission's free-text input", Arity = ArgumentArity.ZeroOrOne };
-        var inputOpt = new Option<string?>("--input") { Description = "Upload a file as the mission's input artifact" };
-        var modeOpt = new Option<string?>("--mode") { Description = "Mission output mode, e.g. text or pdf" };
-        var outOpt = new Option<string?>("--out") { Description = "Write the first returned artifact to this path" };
-
-        var cmd = new Command("exec", "Run a hosted mission once and print the answer");
-        cmd.Add(targetArg);
-        cmd.Add(promptArg);
-        cmd.Add(inputOpt);
-        cmd.Add(modeOpt);
-        cmd.Add(outOpt);
-
-        cmd.SetCancellableAction((result, cancellationToken) =>
-            ForgeExec.RunAsync(api, clients,
-                result.GetValue(targetArg)!,
-                result.GetValue(promptArg),
-                result.GetValue(inputOpt),
-                result.GetValue(modeOpt),
-                result.GetValue(outOpt),
-                cancellationToken));
-        return cmd;
-    }
 
     // ---------------------------------------------------------------------------
     // forge publish — package a mission directory and push it to an OCI registry (39.4)

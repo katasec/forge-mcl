@@ -63,7 +63,6 @@ static IHost BuildHost()
 
 static RootCommand BuildRootCommand(IServiceProvider services)
 {
-    var api = services.GetRequiredService<IOptions<ForgeApiSettings>>();
     var clients = services.GetRequiredService<IHttpClientFactory>();
     var webSearch = services.GetRequiredService<IOptions<WebSearchOptions>>();
     var logger = services.GetRequiredService<ILogger<Program>>();
@@ -77,7 +76,6 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(AuthCommands.BuildLoginCommand(services.GetRequiredService<IOptions<PlatformLoginOptions>>(), clients));
     rootCommand.Add(AuthCommands.BuildWhoamiCommand(clients));
     rootCommand.Add(AuthCommands.BuildLogoutCommand());
-    rootCommand.Add(HostedMissionCommands.BuildExecCommand(api, clients));
     rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>(), clients)); // forge chat (53.2; --hands, Phase 55)
     rootCommand.Add(ForgeProject.BuildCommand(clients));
     rootCommand.Add(HostedMissionCommands.BuildPublishCommand());

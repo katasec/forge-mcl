@@ -5,7 +5,7 @@ using ForgeMission.Core.Resolution;
 
 namespace ForgeMission.Cli.Commands;
 
-// forge run --project: the same one-shot run, kept as a cloud conversation in the project. The
+// forge run: a mission run kept as a cloud conversation in the project. The
 // Conversation Host owns the history; this surface prepares the package, admits it as a new
 // conversation, submits one turn and prints the final reply. Hands are on by default: the run is
 // admitted ProjectWorkspace rooted at the project folder, and Hands decides each file request.
