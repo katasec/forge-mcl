@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using ForgeMission.Conversations.Contracts;
+using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
 
@@ -67,14 +68,28 @@ public sealed class ForgeDurableRunTests : IDisposable
     }
 
     [Fact]
-    public async Task Without_the_option_the_project_file_in_the_directory_is_used_when_it_exists()
+    public void Without_the_option_the_project_file_in_the_directory_is_used()
     {
-        var projectFile = Path.Combine(_home, "forge.project.json");
-        Assert.Null(RunProject.Invoke(null, [null, _home]));
+        Assert.Equal(Path.Combine(_home, "forge.project.json"), RunProject.Invoke(null, [null, _home]));
+    }
 
-        await File.WriteAllTextAsync(projectFile, "{}");
+    // Every run needs a project file: without one, forge run stops before sign-in or any network call.
+    [Fact]
+    public async Task A_run_without_a_project_file_stops_with_a_clear_message()
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.SignIn("https://example.invalid");
+        // The process sees the temp folder through resolved symlinks (/private/var on macOS), so the
+        // message is pinned by its folder-relative end rather than the full path.
+        var projectFile = Path.Combine(Path.GetFileName(harness.WorkingDirectory), "forge.project.json");
 
-        Assert.Equal(projectFile, RunProject.Invoke(null, [null, _home]));
+        var result = await harness.RunAsync("run", "./m.mcl", "hello");
+
+        Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
+        var error = result.StandardError.Trim();
+        Assert.StartsWith("Project file not found: /", error);
+        Assert.EndsWith($"/{projectFile}. Run `forge project create`.", error);
+        Assert.Empty(harness.Proxy.Attempts);
     }
 
     private async Task<string> WriteProjectAsync(string mission)

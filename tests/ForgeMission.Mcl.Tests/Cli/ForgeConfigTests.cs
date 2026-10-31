@@ -71,20 +71,20 @@ public sealed class ForgeConfigTests
     }
 
     // api.endpoint is trimmed of whitespace and trailing slashes; blank means the hosted default.
-    // The theme is forge chat's alone: an unknown one does not stop a hosted run.
+    // The theme is forge chat's alone: an unknown one does not stop a hosted command.
     [Fact]
-    public async Task The_configured_api_endpoint_is_where_a_hosted_run_is_sent()
+    public async Task The_configured_api_endpoint_is_where_a_hosted_command_is_sent()
     {
         await using var harness = ForgeCliHarness.Start();
         var stub = await harness.StartStubAsync(_ => new StubResponse(500, "boom"));
-        harness.SignIn(stub.Address.ToString());
+        harness.SignIn("https://example.invalid");
         harness.WriteConfig($$"""{ "theme": "solarized", "api": { "endpoint": "  {{stub.Address}}/ " } }""");
 
-        var result = await harness.RunAsync("run", "Noop", "hello");
+        var result = await harness.RunAsync("project", "create");
 
-        Assert.Equal((1, "", "exec failed (500): boom"),
-            (result.ExitCode, result.StandardOutput, result.StandardError.Trim()));
-        Assert.Equal(("POST", "/api/ExecuteMission"), (Assert.Single(stub.Requests).Method, stub.Requests[0].PathAndQuery));
+        Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
+        Assert.Equal(("POST", "/api/CreateMissionConversation"), (Assert.Single(stub.Requests).Method, stub.Requests[0].PathAndQuery));
+        Assert.Empty(harness.Proxy.Attempts);
     }
 
     [Fact]
@@ -94,41 +94,10 @@ public sealed class ForgeConfigTests
         harness.SignIn("https://example.invalid");
         harness.WriteConfig("""{ "api": { "endpoint": " " } }""");
 
-        var result = await harness.RunAsync("run", "Noop", "hello");
+        var result = await harness.RunAsync("project", "create");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.StartsWith("Could not reach https://api.forge.katasec.com: ", result.StandardError);
         Assert.Contains(new ProxyAttempt("CONNECT", "api.forge.katasec.com:443"), harness.Proxy.Attempts);
-    }
-
-    // Every hosted call of forge exec — input upload, the run, artifact download — goes to the
-    // configured endpoint; a URL input is fetched from its own host first.
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Every_exec_call_goes_to_the_configured_api_endpoint(bool urlInput)
-    {
-        await using var harness = ForgeCliHarness.Start();
-        var stub = await harness.StartStubAsync(request => request.PathAndQuery switch
-        {
-            "/api/UploadArtifact" => new StubResponse(200, """{"artifact":{"id":"in-1","name":"in.txt"}}"""),
-            "/api/ExecuteMission" => new StubResponse(200,
-                """{"type":"result","result":{"answer":"done","artifacts":[{"id":"out-1","name":"out.txt"}]}}"""),
-            "/in.txt" => new StubResponse(200, "source", "text/plain"),
-            _ => new StubResponse(200, "converted", "application/octet-stream"),
-        });
-        harness.SignIn("https://example.invalid");
-        harness.WriteConfig($$"""{ "api": { "endpoint": "{{stub.Address}}" } }""");
-        File.WriteAllText(Path.Combine(harness.WorkingDirectory, "in.txt"), "source");
-        var input = urlInput ? new Uri(stub.Address, "in.txt").ToString() : "in.txt";
-
-        var result = await harness.RunAsync("exec", "Noop", "--input", input, "--out", "out.txt");
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Created: out.txt", result.StandardOutput);
-        string[] calls = ["/api/UploadArtifact", "/api/ExecuteMission", "/api/GetArtifact"];
-        Assert.Equal(urlInput ? ["/in.txt", .. calls] : calls, stub.Requests.Select(r => r.PathAndQuery));
-        Assert.Equal("converted", File.ReadAllText(Path.Combine(harness.WorkingDirectory, "out.txt")));
     }
 
     // forge project create and forge chat reach the hosted conversations at the configured endpoint.

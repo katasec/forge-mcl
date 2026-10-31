@@ -14,7 +14,7 @@ permissions:
 jobs:
   verify:
     name: Verify package and macOS ARM64 CLI
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: read
       packages: read

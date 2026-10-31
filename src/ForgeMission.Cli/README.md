@@ -45,7 +45,7 @@ behavior in forge-client.
 | Piece | Responsibility |
 |---|---|
 | [Program](Program.cs) | Executable entry point, command registration, and command handlers. |
-| [ForgeExec](Commands/ForgeExec.cs) | One-shot hosted mission execution, artifact input/output, and ForgeAPI endpoint selection. |
+| [ForgeDurableRun](Commands/ForgeDurableRun.cs) | `forge run`: one turn of a mission as a cloud conversation in the project, with Hands. |
 | [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
 | [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
 | [ForgeProject](Commands/ForgeProject.cs) | Explicit portable Project creation and hosted Chat setup through the shared Client. |
@@ -119,14 +119,13 @@ flowchart LR
 
 ## Important flows and constraints
 
-- **Local run:** Every `forge run` creates one Hands session rooted at the current working
-  directory, even when the mission file is elsewhere or no tools are requested. Invoking the
-  command grants agent experts Read/Write/Edit within that workspace, including scripted runs.
-  Terminal capability is unavailable. Hands owns path/symlink containment and policy; Core owns
-  tool continuation. Single tool calls execute successively, with errors returned to the model.
-  Ctrl-C cancels execution and disposes Hands before a nonzero result. Final output follows
-  disposal. Trusted `kind: exec` experts and explicit output-file declarations retain their
-  existing authority; Hands does not sandbox the whole mission.
+- **Run:** `forge run <mission.mcl|oci-ref> "<prompt>"` reads `./forge.project.json`, or the file
+  given by `--project <file>`. A missing project file stops with exit 1 before sign-in or any
+  network call. The run is a cloud conversation in the Conversation Host, readable after the CLI
+  exits. Hands is on and rooted at the project folder: agent experts may Read/Write/Edit there,
+  with no terminal tools; Hands owns path and symlink containment. The run's mission must be
+  declared as `<Mission>@1` in the project file. The final answer goes to stdout; diagnostics and
+  the conversation ID go to stderr.
 
 - **Composition:** `Program` wires existing owners. Provider, Docker, search, and HTTP behavior
   belong in [Chat Clients](../ForgeMission.ChatClients/README.md),
