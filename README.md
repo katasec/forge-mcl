@@ -22,17 +22,19 @@ Full Git history and CLI version tags are required. Local builds print
 `X.Y.Z-dev.N+<commit>` (plus `.dirty` for uncommitted changes), based on the nearest reachable
 CLI tag and the number of commits since it. Rebuilding a clean commit keeps the same identity.
 
-## Run a local mission
+## Run a mission
 
 ```sh
+forge login
+forge project create              # writes forge.project.json in this folder
 forge init mission.mcl
-forge run mission.mcl
+forge run mission.mcl "<prompt>"  # declare the mission as <Mission>@1 in forge.project.json first
 ```
 
-Every run includes Hands. Agent experts can Read/Write/Edit files inside the current working
-directory; invoking the command grants this file access in interactive and scripted runs.
-Selecting a mission in another folder does not change that workspace. Terminal tools are not
-granted. See [local run boundaries](src/ForgeMission.Cli/README.md#important-flows-and-constraints).
+The mission reasons in the cloud. Hands is on: agent experts can Read/Write/Edit files inside the
+project folder, and nowhere else; terminal tools are not granted. Without a `forge.project.json`
+(or `--project <file>`), `forge run` stops with a message. See
+[run boundaries](src/ForgeMission.Cli/README.md#important-flows-and-constraints).
 
 ## Terminal clipboard component
 
