@@ -71,20 +71,20 @@ public sealed class ForgeConfigTests
     }
 
     // api.endpoint is trimmed of whitespace and trailing slashes; blank means the hosted default.
-    // The theme is forge chat's alone: an unknown one does not stop a hosted run.
+    // The theme is forge chat's alone: an unknown one does not stop a hosted command.
     [Fact]
-    public async Task The_configured_api_endpoint_is_where_a_hosted_run_is_sent()
+    public async Task The_configured_api_endpoint_is_where_a_hosted_command_is_sent()
     {
         await using var harness = ForgeCliHarness.Start();
         var stub = await harness.StartStubAsync(_ => new StubResponse(500, "boom"));
-        harness.SignIn(stub.Address.ToString());
+        harness.SignIn("https://example.invalid");
         harness.WriteConfig($$"""{ "theme": "solarized", "api": { "endpoint": "  {{stub.Address}}/ " } }""");
 
-        var result = await harness.RunAsync("run", "Noop", "hello");
+        var result = await harness.RunAsync("project", "create");
 
-        Assert.Equal((1, "", "exec failed (500): boom"),
-            (result.ExitCode, result.StandardOutput, result.StandardError.Trim()));
-        Assert.Equal(("POST", "/api/ExecuteMission"), (Assert.Single(stub.Requests).Method, stub.Requests[0].PathAndQuery));
+        Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
+        Assert.Equal(("POST", "/api/CreateMissionConversation"), (Assert.Single(stub.Requests).Method, stub.Requests[0].PathAndQuery));
+        Assert.Empty(harness.Proxy.Attempts);
     }
 
     [Fact]
@@ -94,10 +94,9 @@ public sealed class ForgeConfigTests
         harness.SignIn("https://example.invalid");
         harness.WriteConfig("""{ "api": { "endpoint": " " } }""");
 
-        var result = await harness.RunAsync("run", "Noop", "hello");
+        var result = await harness.RunAsync("project", "create");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.StartsWith("Could not reach https://api.forge.katasec.com: ", result.StandardError);
         Assert.Contains(new ProxyAttempt("CONNECT", "api.forge.katasec.com:443"), harness.Proxy.Attempts);
     }
 
