@@ -40,6 +40,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: make release-prepare
 
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      NUGET_AUTH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.x'
+      - name: Build and test managed code
+        run: make test
+
   build:
     needs: prepare
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || needs.prepare.result == 'success') }}

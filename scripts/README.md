@@ -13,7 +13,8 @@ as documented in the repository README. Release transport additionally uses the 
 
 | Command | Result |
 |---|---|
-| `make build`, `make test`, `make clean` | Existing solution operations |
+| `make build`, `make clean` | Existing solution operations |
+| `make test` | Managed build with `-warnaserror` and the test suite, without the two physical-UI tests; CI runs it on every PR |
 | `make install` | Detect host RID, publish/verify, install entire NativeAOT payload into user-home `.local/bin` |
 | `make install-self-contained` | Detect host RID, publish a self-contained single-file non-NativeAOT CLI with native libraries/content extracted at startup, and install it into user-home `.local/bin` |
 | `make cli-package` | Detect host RID, publish/verify and create `dist/cli/forge-<rid>.zip` and checksum |
