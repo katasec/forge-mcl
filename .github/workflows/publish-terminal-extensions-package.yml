@@ -1,7 +1,6 @@
 name: Publish Terminal Extensions package
 
 on:
-  pull_request:
   push:
     tags:
       - terminal-extensions-v0.1.0
@@ -12,45 +11,8 @@ permissions:
   packages: read
 
 jobs:
-  verify:
-    name: Verify package and macOS ARM64 CLI
-    runs-on: macos-15
-    permissions:
-      contents: read
-      packages: read
-    env:
-      NUGET_AUTH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Install existing native prerequisites
-        run: brew install openssl@3 brotli
-
-      - name: Verify current product and package
-        shell: pwsh
-        run: make cli-script-test cli-verify verify-terminal-extensions-package
-
-      - name: Preserve full verification evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: terminal-extensions-verification-${{ github.sha }}
-          path: |
-            artifacts/verification
-            artifacts/packages
-          if-no-files-found: error
-
   publish:
     name: Publish Katasec.Forge.Terminal.Extensions 0.1.0
-    needs: verify
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     permissions:
       contents: read

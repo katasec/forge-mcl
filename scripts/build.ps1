@@ -14,7 +14,7 @@ function Invoke-CliBuild {
     $identity = Get-CliVersion $ReleaseTag
     $properties = @(Get-IdentityProperties $identity)
     if ($Action -eq 'build') { Invoke-Checked dotnet (@('build', 'ForgeMission.slnx') + $properties); return }
-    if ($Action -eq 'test') { Invoke-Checked dotnet (@('test', 'ForgeMission.slnx') + $properties); return }
+    if ($Action -eq 'test') { Invoke-ManagedVerification (Resolve-Destination) $identity; return }
     $runtime = Resolve-Runtime $Rid
     $destination = Resolve-Destination
     if ($Action -eq 'verify') { Invoke-ManagedVerification $destination $identity }
@@ -149,7 +149,7 @@ function Resolve-Runtime {
 
 function Resolve-Destination {
     if ($Output) { return [IO.Path]::GetFullPath($Output) }
-    if ($Action -eq 'verify') { return Join-Path $script:repositoryRoot 'artifacts/verification' }
+    if ($Action -in @('verify', 'test')) { return Join-Path $script:repositoryRoot 'artifacts/verification' }
     return Join-Path $script:repositoryRoot 'dist/cli'
 }
 
