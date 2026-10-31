@@ -7,8 +7,8 @@ using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli.Commands;
 
-// Hosted-mission and packaging commands: `forge run` and `forge exec` (run a hosted mission through
-// ForgeAPI) and `forge publish` (package a mission directory into an OCI artifact and push it). The
+// Hosted-mission and packaging commands: `forge run` (run a mission as a cloud conversation in a
+// project), `forge exec` (run a hosted mission through ForgeAPI) and `forge publish` (package a mission directory into an OCI artifact and push it). The
 // hosted-mission transport lives in ForgeExec; OCI packaging/push lives in MissionRegistry and
 // Katasec.OciClient. This surface owns only the command wiring.
 internal static class HostedMissionCommands
@@ -16,31 +16,34 @@ internal static class HostedMissionCommands
     // ---------------------------------------------------------------------------
     // fms run
 
-    internal static Command BuildRunCommand(IOptions<ForgeApiSettings> api, IHttpClientFactory clients)
+    internal static Command BuildRunCommand(IHttpClientFactory clients)
     {
-        var missionArg = new Argument<string>("mission") { Description = "Hosted mission handle, e.g. vanilla; with --project, a .mcl path or OCI reference" };
+        var missionArg = new Argument<string>("mission") { Description = "A .mcl path or OCI reference" };
         var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
-        var projectOpt = new Option<string?>("--project") { Description = "Keep the run as a cloud conversation in this project file (default ./forge.project.json)" };
-        var cmd = new Command("run", "Run a hosted mission and print the answer");
+        var projectOpt = new Option<string?>("--project") { Description = "Project file (default ./forge.project.json)" };
+        var cmd = new Command("run", "Run a mission as a cloud conversation in a project and print the answer");
         cmd.Add(missionArg);
         cmd.Add(promptArg);
         cmd.Add(projectOpt);
-        cmd.SetCancellableAction((result, cancellationToken) => RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory()) is { } project
-            ? ForgeDurableRun.RunAsync(clients, project, result.GetValue(missionArg)!, result.GetValue(promptArg)!, cancellationToken)
-            : ForgeExec.RunAsync(api, clients, result.GetValue(missionArg)!, result.GetValue(promptArg), cancellationToken: cancellationToken));
+        cmd.SetCancellableAction((result, cancellationToken) =>
+        {
+            var project = RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory());
+            if (!File.Exists(project))
+            {
+                Console.Error.WriteLine($"Project file not found: {Path.GetFullPath(project)}. Run `forge project create`.");
+                return Task.FromResult(1);
+            }
+            return ForgeDurableRun.RunAsync(clients, project, result.GetValue(missionArg)!, result.GetValue(promptArg)!, cancellationToken);
+        });
         return cmd;
     }
 
     private const string DefaultProjectFile = "forge.project.json";
 
     /// <summary>The run's project file: --project when given, else forge.project.json in
-    /// <paramref name="directory"/> when it exists. Without either, the run is the one-shot hosted handle.</summary>
-    internal static string? RunProject(string? option, string directory)
-    {
-        if (option is not null) return option;
-        var file = Path.Combine(directory, DefaultProjectFile);
-        return File.Exists(file) ? file : null;
-    }
+    /// <paramref name="directory"/>.</summary>
+    internal static string RunProject(string? option, string directory) =>
+        option ?? Path.Combine(directory, DefaultProjectFile);
 
     // forge exec — the one-shot hosted-mission command (42.6 task 8). The `@` prefix on a handle is
     // optional (ForgeExec.RunAsync strips it if present) — deliberately, because pwsh (the maintainer's

@@ -69,7 +69,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     var logger = services.GetRequiredService<ILogger<Program>>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(MissionDevCommands.BuildInitCommand());
-    rootCommand.Add(HostedMissionCommands.BuildRunCommand(api, clients));
+    rootCommand.Add(HostedMissionCommands.BuildRunCommand(clients));
     rootCommand.Add(MissionDevCommands.BuildValidateCommand());
     rootCommand.Add(MissionDevCommands.BuildListCommand());
     rootCommand.Add(MissionDevCommands.BuildExpertCommand());
