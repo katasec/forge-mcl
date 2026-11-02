@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Katasec.Anthropic.Models;
 using Katasec.AnthropicServer;
 using Microsoft.Extensions.AI;
 
@@ -31,7 +32,7 @@ public sealed class ToolMappingTests
     public void MapDeclaredTools_CapturedToolSet_FiltersToEssentials()
     {
         var request = LoadRequest("main-loop-tools.json");
-        Assert.Equal(28, request.Tools.Count); // full captured declaration set
+        Assert.Equal(28, request.Tools?.Count); // full captured declaration set
 
         var mapped = ToolMapping.MapDeclaredTools(request);
         var names  = mapped.Select(t => t.Name).OrderBy(n => n).ToList();

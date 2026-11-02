@@ -7,9 +7,9 @@
   <ItemGroup>
     <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageVersion Include="GitHub.Copilot.SDK" Version="*" />
-    <PackageVersion Include="Katasec.AITools" Version="0.1.8" />
+    <PackageVersion Include="Katasec.AITools" Version="0.2.0" />
     <PackageVersion Include="Katasec.Anthropic.Models" Version="0.2.0" />
-    <PackageVersion Include="Katasec.AnthropicServer" Version="0.1.7" />
+    <PackageVersion Include="Katasec.AnthropicServer" Version="0.2.0" />
     <PackageVersion Include="Katasec.Forge.Client" Version="0.10.1" />
     <PackageVersion Include="Katasec.Forge.Client.Contracts" Version="0.2.1" />
     <PackageVersion Include="Katasec.Forge.Conversations.Contracts" Version="0.12.0" />

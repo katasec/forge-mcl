@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Runtime;
+using Katasec.Anthropic.Models;
 using Katasec.AnthropicServer;
 using Microsoft.Extensions.AI;
 
