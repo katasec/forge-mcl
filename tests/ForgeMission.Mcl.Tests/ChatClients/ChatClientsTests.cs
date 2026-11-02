@@ -336,6 +336,22 @@ public sealed class ChatClientsTests
         Assert.True(body.GetProperty("tool_choice").GetProperty("disable_parallel_tool_use").GetBoolean());
     }
 
+    // Phase 77: every tool-free step asks for structured output; read off the wire, a JSON-schema
+    // response format reaches Anthropic as output_config.format.
+    [Fact]
+    public async Task Anthropic_JsonSchemaResponseFormat_SendsOutputConfig()
+    {
+        var schema = JsonSerializer.Deserialize<JsonElement>("""{"type":"object","properties":{"answer":{"type":"string"}}}""");
+        var options = new ChatOptions { ResponseFormat = ChatResponseFormat.ForJsonSchema(schema, "step") };
+
+        var body = await CaptureAnthropicRequestAsync(client =>
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")], options));
+
+        var format = body.GetProperty("output_config").GetProperty("format");
+        Assert.Equal("json_schema", format.GetProperty("type").GetString());
+        Assert.Contains("answer", format.GetProperty("schema").GetRawText());
+    }
+
     private static ChatOptions OneToolCallOptions() => new() { Tools = [ReadTool()], AllowMultipleToolCalls = false };
 
     private static AITool ReadTool() => AIFunctionFactory.Create((string path) => "", "Read", "Reads a file");
