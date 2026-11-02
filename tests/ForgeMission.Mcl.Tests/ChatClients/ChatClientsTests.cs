@@ -312,8 +312,8 @@ public sealed class ChatClientsTests
         Assert.Equal(4096, body.GetProperty("max_tokens").GetInt32());
     }
 
-    // Phase 61: tryAGI.Anthropic ignores AllowMultipleToolCalls; read off the wire, a one-call
-    // request carries tool_choice.disable_parallel_tool_use on both call paths.
+    // Phase 61: AllowMultipleToolCalls = false reaches the wire; a one-call request carries
+    // tool_choice.disable_parallel_tool_use on both call paths.
     [Fact]
     public async Task Anthropic_OneToolCall_SendsDisableParallelToolUse()
     {
@@ -464,10 +464,10 @@ public sealed class ChatClientsTests
         var error = await ProviderErrorAsync(400, body, callShape);
 
         Assert.Equal($"{ProviderErrorSummary} Details: prompt is too long: 250000 tokens > 200000 maximum", error.Message);
-        Assert.IsAssignableFrom<Anthropic.ApiException>(error.InnerException);
+        Assert.IsAssignableFrom<HttpRequestException>(error.InnerException);
     }
 
-    // A streamed 5xx keeps no body in the SDK; a whole-response one keeps a body with no message.
+    // An error body with no error.message gives the summary alone, without a Details suffix, on every call path.
     [Theory]
     [InlineData("complete")]
     [InlineData("native-stream")]
@@ -477,7 +477,91 @@ public sealed class ChatClientsTests
         var error = await ProviderErrorAsync(500, """{"type":"error","error":{"type":"api_error"}}""", callShape);
 
         Assert.Equal(ProviderErrorSummary, error.Message);
-        Assert.IsAssignableFrom<Anthropic.ApiException>(error.InnerException);
+        Assert.IsAssignableFrom<HttpRequestException>(error.InnerException);
+    }
+
+    // Phase 77: a complete tool_use reply becomes a FunctionCallContent, and sending that history back
+    // writes one tool_use block and merges consecutive tool results into one user message.
+    [Fact]
+    public async Task Anthropic_ToolCall_RoundTrip()
+    {
+        const string reply = """{"id":"msg_1","type":"message","role":"assistant","model":"test-model","content":[{"type":"text","text":"Reading."},{"type":"tool_use","id":"call_1","name":"Read","input":{"path":"a.txt"}}],"stop_reason":"tool_use","usage":{"input_tokens":3,"output_tokens":4}}""";
+        var options = new ChatOptions { Tools = [ReadTool()] };
+        ChatResponse? response = null;
+        await ServeAnthropicAsync(200, "application/json", reply, async client =>
+            response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")], options));
+
+        var call = Assert.Single(response!.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>());
+        Assert.Equal("a.txt", ((JsonElement)call.Arguments!["path"]!).GetString());
+
+        List<ChatMessage> history =
+        [
+            new(ChatRole.User, "hi"),
+            .. response.Messages,
+            new(ChatRole.Tool, [new FunctionResultContent("call_1", "contents")]),
+            new(ChatRole.Tool, [new FunctionResultContent("call_2", null) { Exception = new IOException("missing") }]),
+        ];
+        var body = await CaptureAnthropicRequestAsync(client => client.GetResponseAsync(history, options));
+
+        var messages = body.GetProperty("messages").EnumerateArray().ToList();
+        Assert.Equal(["user", "assistant", "user"], messages.Select(message => message.GetProperty("role").GetString()));
+        var toolUse = Assert.Single(messages[1].GetProperty("content").EnumerateArray(), block => block.GetProperty("type").GetString() == "tool_use");
+        Assert.Equal("call_1", toolUse.GetProperty("id").GetString());
+        Assert.Equal("a.txt", toolUse.GetProperty("input").GetProperty("path").GetString());
+        var results = messages[2].GetProperty("content").EnumerateArray().ToList();
+        Assert.Equal(["call_1", "call_2"], results.Select(result => result.GetProperty("tool_use_id").GetString()));
+        Assert.Equal([false, true], results.Select(result => result.GetProperty("is_error").GetBoolean()));
+    }
+
+    // Phase 77: a tool-mode stream rebuilds the call from input_json_delta, reports usage, and skips
+    // thinking and ping events.
+    [Fact]
+    public async Task Anthropic_ToolModeStream_ReassemblesCallWithUsageAndSkipsThinking()
+    {
+        var accumulator = new UsageAccumulator();
+        var updates = new List<ChatResponseUpdate>();
+
+        await ServeAnthropicAsync(200, "text/event-stream", AnthropicToolStream, async client =>
+        {
+            using var tracked = new UsageTrackingChatClient(client, accumulator);
+            await foreach (var update in tracked.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hi")], new ChatOptions { Tools = [ReadTool()] }))
+                updates.Add(update);
+        });
+
+        var call = Assert.Single(updates.SelectMany(update => update.Contents).OfType<FunctionCallContent>());
+        Assert.Equal("call_1", call.CallId);
+        Assert.Equal("a.txt", ((JsonElement)call.Arguments!["path"]!).GetString());
+        Assert.Equal(30, accumulator.InputTokens);
+        Assert.Equal(12, accumulator.OutputTokens);
+        Assert.DoesNotContain(updates, update => update.Text.Contains("secret") || update.Text.Contains("sig"));
+        Assert.Equal(ChatFinishReason.ToolCalls, Assert.Single(updates, update => update.FinishReason is not null).FinishReason);
+    }
+
+    [Fact]
+    public async Task Anthropic_StreamErrorEvent_ThrowsProviderError()
+    {
+        const string stream = """
+            event: error
+            data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}
+
+
+            """;
+        InvalidOperationException? error = null;
+        await ServeAnthropicAsync(200, "text/event-stream", stream, async client =>
+            error = await Assert.ThrowsAsync<InvalidOperationException>(() => CallAsync(client, "native-stream")));
+
+        Assert.Equal($"{ProviderErrorSummary} Details: Overloaded", error!.Message);
+    }
+
+    [Fact]
+    public async Task Anthropic_TruncatedStream_Throws()
+    {
+        var truncated = AnthropicTextStream[..AnthropicTextStream.IndexOf("event: message_stop", StringComparison.Ordinal)];
+        InvalidOperationException? error = null;
+        await ServeAnthropicAsync(200, "text/event-stream", truncated, async client =>
+            error = await Assert.ThrowsAsync<InvalidOperationException>(() => CallAsync(client, "native-stream")));
+
+        Assert.Equal("The model provider (Anthropic) stream ended before the reply was complete.", error!.Message);
     }
 
     private static void AssertResponsesOptions(JsonElement request)
@@ -594,6 +678,46 @@ public sealed class ChatClientsTests
 
         event: message_delta
         data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":7}}
+
+        event: message_stop
+        data: {"type":"message_stop"}
+
+
+        """;
+
+    private const string AnthropicToolStream = """
+        event: message_start
+        data: {"type":"message_start","message":{"id":"msg_2","type":"message","role":"assistant","model":"test-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":30,"cache_creation_input_tokens":5,"cache_read_input_tokens":10,"output_tokens":1}}}
+
+        event: content_block_start
+        data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"secret plan"}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}
+
+        event: content_block_stop
+        data: {"type":"content_block_stop","index":0}
+
+        event: ping
+        data: {"type":"ping"}
+
+        event: content_block_start
+        data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_1","name":"Read","input":{}}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}
+
+        event: content_block_stop
+        data: {"type":"content_block_stop","index":1}
+
+        event: message_delta
+        data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":12}}
 
         event: message_stop
         data: {"type":"message_stop"}

@@ -8,6 +8,7 @@
     <PackageVersion Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageVersion Include="GitHub.Copilot.SDK" Version="*" />
     <PackageVersion Include="Katasec.AITools" Version="0.1.8" />
+    <PackageVersion Include="Katasec.Anthropic.Models" Version="0.2.0" />
     <PackageVersion Include="Katasec.AnthropicServer" Version="0.1.7" />
     <PackageVersion Include="Katasec.Forge.Client" Version="0.10.1" />
     <PackageVersion Include="Katasec.Forge.Client.Contracts" Version="0.2.1" />
@@ -23,7 +24,6 @@
     <PackageVersion Include="Spectre.Console" Version="0.49.1" />
     <PackageVersion Include="StbTrueTypeSharp" Version="1.26.13" />
     <PackageVersion Include="System.CommandLine" Version="2.0.9" />
-    <PackageVersion Include="tryAGI.Anthropic" Version="3.8.3" />
     <!-- Terminal.Extensions pins these exactly ([x]); it keeps the pin via VersionOverride. -->
     <PackageVersion Include="XenoAtom.Terminal" Version="[2.2.0]" />
     <PackageVersion Include="XenoAtom.Terminal.UI" Version="3.10.0" />
