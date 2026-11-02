@@ -21,8 +21,8 @@ Provider SDKs and their protocol differences must stay below MCL execution. This
 - [`ChatClients.Build`](ChatClients.cs) and [`ChatClients.BuildChatClient`](ChatClients.cs) for supported profile values.
 - OpenAI Responses client construction and missing SDK failure-content normalization in [`OpenAiResponseFailures`](OpenAiResponseFailures.cs).
 - Azure, Ollama, and xAI Chat Completions client construction.
-- Anthropic response-format and one-tool-call (`disable_parallel_tool_use`) adaptation in [`AnthropicResponseFormatChatClient`](ChatClients.cs).
-- Anthropic plain-text streaming with token usage in [`AnthropicTextStream`](AnthropicTextStream.cs).
+- The Anthropic Messages client in [`AnthropicChatClient`](AnthropicChatClient.cs), on `Katasec.Anthropic.Models` wire types.
+- Anthropic request/response translation in [`AnthropicMessageMapping`](AnthropicMessageMapping.cs) and SSE streaming in [`AnthropicStream`](AnthropicStream.cs).
 - Anthropic provider-error translation in [`AnthropicProviderError`](AnthropicProviderError.cs).
 
 ## Does not own
@@ -46,7 +46,7 @@ A change belongs here only if it advances construction or protocol adaptation fo
 flowchart LR
   Profile[Core ProviderProfile] --> Factory[ChatClients]
   Factory -->|IChatClient| Runner[Core DirectExpertRunner]
-  Factory -->|provider SDK calls| Providers[OpenAI / Anthropic-compatible endpoints]
+  Factory -->|provider calls| Providers[OpenAI / Anthropic-compatible endpoints]
   Runner -->|IExpertRunner| Host[CLI / forge-runner]
 ```
 
@@ -58,9 +58,10 @@ flowchart LR
 - Generic protected reasoning survives Core's serialized tool continuation. The pinned SDK does not persist native reasoning item IDs; Azure Foundry project-scoped Responses endpoints requiring those IDs are not supported. Azure retains its existing Chat Completions endpoint contract.
 - Ollama and xAI use the OpenAI-compatible client with their own default endpoints.
 - Anthropic structured output is translated at this boundary; do not leak native provider types into Core.
-- Every Anthropic call sends `MaxOutputTokens` 4096 unless the caller sets one; the SDK otherwise sends 250, which cut streamed and tool-mode replies short.
-- A plain-text Anthropic stream (no tools, text-only messages) is read from the native event stream: the SDK's streaming adapter drops usage, so it would bill 0 tokens. Tool-mode streaming still uses the SDK adapter and reports no usage or tool calls.
-- An Anthropic `ApiException` on any call path is rethrown as `InvalidOperationException` reading `The model provider (Anthropic) returned an error. Check your provider account. Details: <error.message>` (Details only when the body has `error.message`); the SDK exception is the inner exception.
+- Every Anthropic call sends `max_tokens` 4096 unless the caller sets one.
+- Anthropic JSON goes only through `AnthropicJsonContext`, `JsonDocument` and `Utf8JsonWriter`; no reflection serialization.
+- Every Anthropic stream, plain or tool-mode, reports usage once and yields completed tool calls; a stream without `message_stop` throws.
+- A non-2xx Anthropic response or SSE `error` event is thrown as `InvalidOperationException` reading `The model provider (Anthropic) returned an error. Check your provider account. Details: <error.message>` (Details only when there is an `error.message`); the inner exception is `HttpRequestException`.
 
 ## Related documentation
 

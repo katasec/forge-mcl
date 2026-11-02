@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using Katasec.Anthropic.Models;
 using Katasec.AnthropicServer;
 using Microsoft.Extensions.AI;
 
