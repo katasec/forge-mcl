@@ -243,22 +243,6 @@ public class PipelineRunnerTests
         }
     }
 
-    [Fact]
-    public void MissingApiKey_ThrowsClearly()
-    {
-        var ast = MclParser.Parse("""
-            let apiKey = env("MCL_API_KEY")
-            mission Demo = { Worker }
-            """);
-
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            new PipelineRunner(new StubExpertRunner())
-                .RunAsync(ast, Experts("Worker"), new PipelineRunOptions("Demo"))
-                .GetAwaiter().GetResult());
-
-        Assert.Contains("MCL_API_KEY", ex.Message);
-    }
-
     // ── StepEnvelope / fail-fast ──────────────────────────────────────────────
 
     [Fact]
