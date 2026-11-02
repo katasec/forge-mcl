@@ -111,7 +111,7 @@ public sealed class ForgeConfigTests
         harness.SignIn("https://example.invalid");
         harness.WriteConfig($$"""{ "api": { "endpoint": "{{stub.Address}}" } }""");
         File.WriteAllText(Path.Combine(harness.WorkingDirectory, "forge.project.json"),
-            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
+            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[\".\"]}");
 
         var result = await harness.RunAsync(args);
 

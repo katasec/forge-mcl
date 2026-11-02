@@ -33,7 +33,7 @@ public sealed class ForgeChatTests
         var missing = Path.Combine(parent, "missing", "forge1.project.json");
         Directory.CreateDirectory(child);
         await File.WriteAllTextAsync(Path.Combine(parent, "forge.project.json"),
-            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
+            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[\".\"]}");
         var result = await RunChatAsync(harness, child, explicitFile ? missing : null, childMarker);
         Assert.Equal(1, result.ExitCode);
         Assert.Equal("", result.Output);
@@ -106,7 +106,7 @@ public sealed class ForgeChatTests
         {
             var projectFile = Path.Combine(home, "forge1.project.json");
             await File.WriteAllTextAsync(projectFile,
-                "{\"projectId\":\"" + projectId + "\",\"missions\":[\"" + mission + "@1\"],\"folders\":[]}");
+                "{\"projectId\":\"" + projectId + "\",\"missions\":[\"" + mission + "@1\"],\"folders\":[\".\"]}");
             using var host = new PinnedHost(projectId, mission, profile);
             var chat = LoadForgeChatMethod("ChatInProjectAsync");
             var appType = chat.GetParameters()[0].ParameterType;
@@ -143,7 +143,7 @@ public sealed class ForgeChatTests
         {
             var projectFile = Path.Combine(home, "forge1.project.json");
             await File.WriteAllTextAsync(projectFile,
-                "{\"projectId\":\"" + projectId + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
+                "{\"projectId\":\"" + projectId + "\",\"missions\":[\"Chat@1\"],\"folders\":[\".\"]}");
             using var host = new NonJsonErrorHost(projectId, "Chat", MissionHandsProfile.NoHands);
             var chat = LoadForgeChatMethod("ChatInProjectAsync");
             var appType = chat.GetParameters()[0].ParameterType;

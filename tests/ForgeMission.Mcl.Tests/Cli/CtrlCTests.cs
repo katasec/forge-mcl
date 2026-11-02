@@ -24,7 +24,7 @@ public sealed class CtrlCTests
         harness.SignIn(stub.Address.ToString());
         harness.WriteConfig($$"""{ "api": { "endpoint": "{{stub.Address}}" } }""");
         File.WriteAllText(Path.Combine(harness.WorkingDirectory, "forge.project.json"),
-            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[]}");
+            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[\".\"]}");
 
         CliResult result;
         try { result = await harness.InterruptWhileAsync(_ => UntilAsync(() => stub.Requests.Count > 0), args); }

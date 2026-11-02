@@ -48,7 +48,7 @@ internal static class ForgeDurableRun
             ? $"{opened.Error.Message} Declare {package.RootMissionName}@1 in {projectFile}."
             : opened.Error?.Message ?? "The project could not be opened.");
 
-        var workspace = new MissionWorkspaceDescription([session.Project.Home]);
+        var workspace = app.Projects.ReadRunProject(projectFile).Workspace;
         var created = await app.MissionConversations.CreateSelectedAsync(
             session.Project.ProjectId, Guid.NewGuid(), Guid.NewGuid(), package, workspace, ct);
         var launch = created.Launch;

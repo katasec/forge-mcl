@@ -100,7 +100,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_home, "forge.toml"), "[experts]\nResearcher = \"https://invalid.example/Researcher\"\n");
         var projectFile = Path.Combine(_home, "forge.project.json");
         await File.WriteAllTextAsync(projectFile,
-            "{\"projectId\":\"" + _projectId + "\",\"missions\":[\"" + mission + "\"],\"folders\":[]}");
+            "{\"projectId\":\"" + _projectId + "\",\"missions\":[\"" + mission + "\"],\"folders\":[\".\"]}");
         return projectFile;
     }
 
