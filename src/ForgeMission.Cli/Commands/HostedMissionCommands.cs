@@ -15,7 +15,7 @@ internal static class HostedMissionCommands
     // ---------------------------------------------------------------------------
     // fms run
 
-    internal static Command BuildRunCommand(IHttpClientFactory clients)
+    internal static Command BuildRunCommand(IHttpClientFactory clients, string ociBase)
     {
         var missionArg = new Argument<string>("mission") { Description = "A .mcl path or OCI reference" };
         var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
@@ -27,7 +27,7 @@ internal static class HostedMissionCommands
         // A missing project is reported by forge-client's shared open, the same message as forge chat.
         cmd.SetCancellableAction((result, cancellationToken) => ForgeDurableRun.RunAsync(clients,
             RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory()), result.GetValue(missionArg)!,
-            result.GetValue(promptArg)!, cancellationToken));
+            result.GetValue(promptArg)!, ociBase, cancellationToken));
         return cmd;
     }
 

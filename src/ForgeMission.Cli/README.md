@@ -52,7 +52,7 @@ behavior in forge-client.
 | [ForgeChat](Commands/ForgeChat.cs) | `forge chat`: startup checks, continuing the Project's hosted chat through the shared Client, and terminal/line-mode presentation. |
 | [MacChatWindow](Services/MacChatWindow.cs) | Interactive Mac launch into a dedicated Ghostty instance, exact child context and visible request/child failures. |
 | [ImmediateProgress](Services/ImmediateProgress.cs) | Shows the shared Client's Hands reports at once, in order. |
-| [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (chat theme, API endpoint) bound by the CLI host. |
+| [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (chat theme, API endpoint, OCI endpoint for short mission selectors) bound by the CLI host. |
 
 ### Terminal UI — [Tui/](Tui)
 

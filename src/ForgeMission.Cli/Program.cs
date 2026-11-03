@@ -52,6 +52,9 @@ static IHost BuildHost()
     builder.Services.AddOptions<ForgeApiSettings>()
         .Bind(builder.Configuration.GetSection(ForgeApiSettings.Section))
         .PostConfigure(ForgeApiSettings.NormalizeEndpoint);
+    builder.Services.AddOptions<ForgeOciSettings>()
+        .Bind(builder.Configuration.GetSection(ForgeOciSettings.Section))
+        .PostConfigure(ForgeOciSettings.NormalizeEndpoint);
     builder.Services.AddOptions<PlatformLoginOptions>()
         .Bind(builder.Configuration)
         .PostConfigure(PlatformLoginOptions.TrimPlatformEndpoint);
@@ -68,7 +71,8 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     var logger = services.GetRequiredService<ILogger<Program>>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(MissionDevCommands.BuildInitCommand());
-    rootCommand.Add(HostedMissionCommands.BuildRunCommand(clients));
+    rootCommand.Add(HostedMissionCommands.BuildRunCommand(clients,
+        services.GetRequiredService<IOptions<ForgeOciSettings>>().Value.Endpoint));
     rootCommand.Add(MissionDevCommands.BuildValidateCommand());
     rootCommand.Add(MissionDevCommands.BuildListCommand());
     rootCommand.Add(MissionDevCommands.BuildExpertCommand());

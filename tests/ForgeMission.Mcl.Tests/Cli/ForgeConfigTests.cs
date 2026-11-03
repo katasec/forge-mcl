@@ -121,6 +121,24 @@ public sealed class ForgeConfigTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
+    // oci.endpoint is the base a short mission selector resolves against; absent or blank means
+    // ghcr.io/katasec. The pull is the run's first network call, seen as a CONNECT to the registry.
+    [Theory]
+    [InlineData("""{ "oci": { "endpoint": " registry.example.com/team " } }""", "registry.example.com:443")]
+    [InlineData("{}", "ghcr.io:443")]
+    [InlineData("""{ "oci": { "endpoint": " " } }""", "ghcr.io:443")]
+    public async Task A_short_selector_is_pulled_from_the_configured_oci_endpoint(string config, string registry)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.SignIn("https://example.invalid");
+        harness.WriteConfig(config);
+
+        var result = await harness.RunAsync("run", "ocr", "hello");
+
+        Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
+        Assert.Equal(new ProxyAttempt("CONNECT", registry), harness.Proxy.Attempts[0]);
+    }
+
     private static ForgeCliHarness StartInProject()
     {
         var harness = ForgeCliHarness.Start();

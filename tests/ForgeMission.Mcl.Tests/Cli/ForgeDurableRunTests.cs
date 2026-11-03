@@ -37,7 +37,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         await using var app = CreateApp(host);
 
         var exit = await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", CancellationToken.None])!;
 
         Assert.Equal(0, exit);
         var routes = host.Requests;
@@ -55,7 +55,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         await using var app = CreateApp(host);
 
         var exit = await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", CancellationToken.None])!;
 
         Assert.Equal(0, exit);
         Assert.Contains("/api/CreateMissionConversation", host.Requests);
@@ -146,7 +146,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         var projectFile = await WriteProjectAsync("Review@1");
         await using var app = CreateApp(host);
         return await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", CancellationToken.None])!;
     }
 
     private async Task<string> WriteProjectAsync(string mission)

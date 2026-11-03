@@ -4,10 +4,11 @@ using Microsoft.Extensions.Options;
 namespace ForgeMission.Cli.Services;
 
 // The user's local settings in ~/.forge/config.json, loaded by the CLI host's JSON configuration
-// provider: { "theme": "light" | "dark", "api": { "endpoint": "..." } }. Each consumer binds only
-// what it uses: forge chat the theme (ForgeSettings, validated when chat reads it), the hosted
-// commands the API endpoint (ForgeApiSettings). A missing file or key means the dark theme
-// (Phase 56 G10) and the hosted API endpoint.
+// provider: { "theme": "light" | "dark", "api": { "endpoint": "..." }, "oci": { "endpoint": "..." } }.
+// Each consumer binds only what it uses: forge chat the theme (ForgeSettings, validated when chat
+// reads it), the hosted commands the API endpoint (ForgeApiSettings), forge run the OCI base for a
+// short mission selector (ForgeOciSettings). A missing file or key means the dark theme
+// (Phase 56 G10), the hosted API endpoint and ghcr.io/katasec.
 internal sealed class ForgeSettings
 {
     public static string DefaultPath { get; } = Path.Combine(
@@ -43,6 +44,22 @@ internal sealed class ForgeApiSettings
     /// <summary>Trims whitespace and trailing slashes from the endpoint; blank means the default.</summary>
     public static void NormalizeEndpoint(ForgeApiSettings settings) =>
         settings.Endpoint = settings.Endpoint?.Trim().TrimEnd('/') is { Length: > 0 } endpoint
+            ? endpoint
+            : DefaultEndpoint;
+}
+
+/// <summary>The config file's <c>oci</c> section: the registry base a short mission selector
+/// resolves against. A fully qualified reference names its own registry.</summary>
+internal sealed class ForgeOciSettings
+{
+    internal const string Section = "Oci";
+    internal const string DefaultEndpoint = "ghcr.io/katasec";
+
+    public string Endpoint { get; set; } = DefaultEndpoint;
+
+    /// <summary>Trims whitespace from the endpoint; blank means the default.</summary>
+    public static void NormalizeEndpoint(ForgeOciSettings settings) =>
+        settings.Endpoint = settings.Endpoint?.Trim() is { Length: > 0 } endpoint
             ? endpoint
             : DefaultEndpoint;
 }
