@@ -103,7 +103,7 @@ public sealed class ForgeConfigTests
     // forge project create and forge chat reach the hosted conversations at the configured endpoint.
     [Theory]
     [InlineData("/api/CreateMissionConversation", "project", "create")]
-    [InlineData("/api/ListMissionConversations", "chat")]
+    [InlineData("/api/GetConversation", "chat")]
     public async Task Conversation_commands_go_to_the_configured_api_endpoint(string firstCall, params string[] args)
     {
         await using var harness = ForgeCliHarness.Start();

@@ -17,7 +17,6 @@ public sealed class ForgeDurableRunTests : IDisposable
 {
     private const string Source = "mission Review(task) = {\n  Researcher\n}\n";
     private const string Expert = "---\nname: Researcher\nkind: llm\ninput: task\noutput: answer\n---\n{{task}}";
-    private static readonly Type ChatType = ForgeText.Type("ForgeMission.Cli.Commands.ForgeChat");
     private static readonly MethodInfo RunTurn = ForgeText.Type("ForgeMission.Cli.Commands.ForgeDurableRun")
         .GetMethod("RunTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
     private static readonly MethodInfo RunProject = ForgeText.Type("ForgeMission.Cli.Commands.HostedMissionCommands")
@@ -74,22 +73,23 @@ public sealed class ForgeDurableRunTests : IDisposable
         Assert.Equal(Path.Combine(_home, "forge.project.json"), RunProject.Invoke(null, [null, _home]));
     }
 
-    // Every run needs a project file: without one, forge run stops before sign-in or any network call.
+    // Every run needs a project file. Deliberate (Phase 76 decision 2b): forge-client's shared open
+    // reports it with its one message, after sign-in and package preparation, before any network call.
     [Fact]
     public async Task A_run_without_a_project_file_stops_with_a_clear_message()
     {
         await using var harness = ForgeCliHarness.Start();
         harness.SignIn("https://example.invalid");
-        // The process sees the temp folder through resolved symlinks (/private/var on macOS), so the
-        // message is pinned by its folder-relative end rather than the full path.
-        var projectFile = Path.Combine(Path.GetFileName(harness.WorkingDirectory), "forge.project.json");
+        var directory = harness.WorkingDirectory;
+        Directory.CreateDirectory(Path.Combine(directory, "experts", "Researcher"));
+        await File.WriteAllTextAsync(Path.Combine(directory, "m.mcl"), Source);
+        await File.WriteAllTextAsync(Path.Combine(directory, "experts", "Researcher", "expert.md"), Expert);
 
         var result = await harness.RunAsync("run", "./m.mcl", "hello");
 
         Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
-        var error = result.StandardError.Trim();
-        Assert.StartsWith("Project file not found: /", error);
-        Assert.EndsWith($"/{projectFile}. Run `forge project create`.", error);
+        Assert.Equal("run failed: No forge.project.json found in the current directory. Run `forge project create` to create one.",
+            result.StandardError.Trim());
         Assert.Empty(harness.Proxy.Attempts);
     }
 
@@ -165,11 +165,10 @@ public sealed class ForgeDurableRunTests : IDisposable
     {
         var appType = RunTurn.GetParameters()[0].ParameterType;
         var create = appType.GetMethod("Create")!;
-        var publishType = create.GetParameters()[3].ParameterType;
+        var publishType = create.GetParameters()[1].ParameterType;
         var publish = typeof(ForgeDurableRunTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
             .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
-        var policy = ChatType.GetMethod("PolicyFor", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [true]);
-        return (IAsyncDisposable)create.Invoke(null, [host, null, policy, publish, CancellationToken.None])!;
+        return (IAsyncDisposable)create.Invoke(null, [host, publish, CancellationToken.None])!;
     }
 
     private static void IgnoreEvents<T>(T item) { }

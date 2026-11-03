@@ -1,14 +1,14 @@
 using ForgeMission.Application;
-using ForgeMission.Application.Transport;
 using ForgeMission.Conversations.Contracts;
 using ForgeMission.Core.Resolution;
+using ForgeMission.Cli.Services;
 
 namespace ForgeMission.Cli.Commands;
 
 // forge run: a mission run kept as a cloud conversation in the project. The
-// Conversation Host owns the history; this surface prepares the package, admits it as a new
-// conversation, submits one turn and prints the final reply. Hands are on by default: the run is
-// admitted ProjectWorkspace rooted at the project folder, and Hands decides each file request.
+// Conversation Host owns the history; this surface prepares the package and prints. Starting the
+// new conversation (with Hands attached), the one turn and its follow are forge-client's shared
+// path, the same one forge chat uses (Phase 76 decision 2).
 internal static class ForgeDurableRun
 {
     private const string OciBase = "ghcr.io/katasec";
@@ -23,7 +23,7 @@ internal static class ForgeDurableRun
             return 1;
         }
 
-        await using var app = ApplicationComposition.Create(clients, null, ForgeChat.PolicyFor(hands: true), _ => { }, ct);
+        await using var app = ApplicationComposition.Create(clients, _ => { }, ct);
         try
         {
             return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ct);
@@ -41,34 +41,19 @@ internal static class ForgeDurableRun
     {
         var package = await app.MissionConversations.PrepareSelectedPackageAsync(
             selector, Directory.GetCurrentDirectory(), OciBase, ct);
+        var report = new ImmediateProgress(message => Console.Error.WriteLine($"error: {message}"));
+        var started = await app.MissionConversations.StartAsync(projectFile, package, report, ct);
+        await using var conversation = started.Conversation
+            ?? throw new InvalidOperationException(started.Error?.Message ?? "The project could not be opened.");
 
-        var opened = await app.Projects.OpenChatAsync(new ProjectOpenRequest(projectFile, Mission: package.RootMissionName), ct);
-        var session = opened.Session ?? throw new InvalidOperationException(opened.Error?.Message ?? "The project could not be opened.");
+        var turn = await conversation.RunTurnAsync(Guid.NewGuid(), prompt, item =>
+        {
+            if (item.Kind == ConversationEventKind.Error) Console.Error.WriteLine($"error: {item.Reason ?? item.Text}");
+        }, ct);
 
-        var workspace = app.Projects.ReadRunProject(projectFile).Workspace;
-        var created = await app.MissionConversations.CreateSelectedAsync(
-            session.Project.ProjectId, Guid.NewGuid(), Guid.NewGuid(), package, workspace, ct);
-        var launch = created.Launch;
-        await using var hands = await ForgeChat.AttachHandsAsync(app.MissionHands, session.SessionId, created.ConversationId,
-            new MissionAccessApproval(launch.MissionVersionId, launch.VersionNumber, launch.DefinitionHash, launch.Profile), ct);
-        hands.Begin(message => Console.Error.WriteLine($"error: {message}"));
-
-        var inputs = new MissionNamedInputs(new() { [package.RootInputName] = prompt }, []);
-        // The edge admits a turn only without a workspace body; Hands carries the files instead.
-        var turn = await app.MissionConversations.SubmitAsync(created.ConversationId, Guid.NewGuid(), inputs, null!, ct);
-
-        string? reply = null;
-        await ForgeChat.FollowTurnAsync(app.MissionConversations, created.ConversationId, created.AcceptedSequence,
-            turn.TurnAttemptId, includeDeltas: false, item =>
-            {
-                hands.OnEvent(item);
-                if (item.Kind == ConversationEventKind.ParticipantMessage) reply = item.Text;
-                if (item.Kind == ConversationEventKind.Error) Console.Error.WriteLine($"error: {item.Reason ?? item.Text}");
-            }, ct);
-
-        Console.Error.WriteLine($"conversation: {created.ConversationId}");
-        if (reply is null) return 1;
-        Console.WriteLine(reply);
+        Console.Error.WriteLine($"conversation: {conversation.ConversationId}");
+        if (turn.FinalAnswer is null) return 1;
+        Console.WriteLine(turn.FinalAnswer);
         return 0;
     }
 }

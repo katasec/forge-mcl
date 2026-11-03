@@ -383,7 +383,7 @@ public sealed class ChatTranscriptTests
     }
 
     [Fact]
-    public async Task Following_shows_a_delta_only_after_a_step_starts_on_the_same_connection_and_never_moves_the_cursor()
+    public async Task The_live_stream_shows_a_delta_only_after_a_step_starts_on_the_same_connection_and_never_moves_the_cursor()
     {
         var attempt = Guid.NewGuid();
         var connections = new Queue<ConversationEvent[]>([
@@ -395,8 +395,9 @@ public sealed class ChatTranscriptTests
         var (service, requests) = FakeConversations(connections);
         var shown = new List<ConversationEvent>();
 
-        var cursor = await (Task<long>)FollowTurnAsyncMethod.Invoke(null,
-            [service, Guid.NewGuid(), 5L, attempt, true, (Action<ConversationEvent>)shown.Add, CancellationToken.None])!;
+        var cursor = await (Task<long>)StreamAsyncMethod.Invoke(null, [service, Guid.NewGuid(), 5L, true,
+            (Action<ConversationEvent>)shown.Add, (Func<ConversationEvent, bool>)(e => e.RunId == attempt),
+            (Func<Exception?, bool>)(_ => true), CancellationToken.None])!;
 
         Assert.Equal(8, cursor);
         Assert.Equal([(5L, true), (6L, true)], requests);
@@ -429,18 +430,6 @@ public sealed class ChatTranscriptTests
     }
 
     [Fact]
-    public void Hands_act_only_on_this_windows_own_turn_attempt()
-    {
-        var own = Guid.NewGuid();
-        var request = HandsRequested("Read", "notes.txt");
-
-        Assert.True(BelongsToOwnTurn(request with { RunId = own }, own));
-        Assert.False(BelongsToOwnTurn(request with { RunId = Guid.NewGuid() }, own));
-        Assert.False(BelongsToOwnTurn(request with { RunId = own }, null));
-        Assert.False(BelongsToOwnTurn(request with { RunId = null }, own));
-    }
-
-    [Fact]
     public void A_message_from_any_window_starts_a_turn_and_a_terminal_status_ends_it()
     {
         Assert.True(TurnRunning(false, User("hi")));
@@ -448,15 +437,6 @@ public sealed class ChatTranscriptTests
         Assert.True(TurnRunning(true, Status(ConversationRunStatus.Running)));
         Assert.False(TurnRunning(true, Status(ConversationRunStatus.Completed)));
         Assert.False(TurnRunning(false, Delta("x")));
-    }
-
-    [Fact]
-    public void A_stop_pressed_during_a_submit_survives_only_when_the_submit_started_a_turn()
-    {
-        Assert.True(KeepsStop(true, true));
-        Assert.False(KeepsStop(true, false));
-        Assert.False(KeepsStop(false, true));
-        Assert.False(KeepsStop(false, false));
     }
 
     [Fact]
@@ -536,26 +516,12 @@ public sealed class ChatTranscriptTests
         Assert.Single(requests);
     }
 
+    // The line mode's turn follow is forge-client's; a transport failure it throws stops the chat.
     [Fact]
-    public async Task Without_a_lost_handler_a_timeout_stops_the_chat_with_connection_lost()
+    public void A_lost_connection_stops_the_line_mode_with_one_error_line()
     {
-        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.TimedOut]));
+        var (exit, error) = ReportConnectionLost(new IOException("connection reset"));
 
-        var failure = await Assert.ThrowsAsync<TaskCanceledException>(() => FollowTurn(service));
-
-        var (exit, error) = ReportConnectionLost(failure);
-        Assert.Equal(1, exit);
-        Assert.Equal("chat failed: connection lost (The request timed out.)", error);
-    }
-
-    [Fact]
-    public async Task Without_a_lost_handler_a_cut_connection_stops_the_chat_with_connection_lost()
-    {
-        var (service, _) = FakeConversations(new Queue<ConversationEvent[]>([StreamingConversations.Broken]));
-
-        var failure = await Assert.ThrowsAsync<IOException>(() => FollowTurn(service));
-
-        var (exit, error) = ReportConnectionLost(failure);
         Assert.Equal(1, exit);
         Assert.Equal("chat failed: connection lost (connection reset)", error);
     }
@@ -803,9 +769,6 @@ public sealed class ChatTranscriptTests
                 return true;
             }), ct])!;
 
-    private static Task<long> FollowTurn(object service) => (Task<long>)FollowTurnAsyncMethod.Invoke(null,
-        [service, Guid.NewGuid(), 5L, Guid.NewGuid(), false, (Action<ConversationEvent>)(_ => { }), CancellationToken.None])!;
-
     private static (int Exit, string Error) ReportConnectionLost(Exception failure)
     {
         var error = new StringWriter();
@@ -821,21 +784,12 @@ public sealed class ChatTranscriptTests
     private static object ApplyLive(object blocks, ConversationEvent item) =>
         TranscriptMethod("ApplyLive").Invoke(null, [blocks, item])!;
 
-    private static bool BelongsToOwnTurn(ConversationEvent item, Guid? own) =>
-        (bool)ChatTuiType.GetMethod("BelongsToOwnTurn", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [item, own])!;
-
     private static bool TurnRunning(bool running, ConversationEvent item) =>
         (bool)ChatTuiType.GetMethod("TurnRunning", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [running, item])!;
 
-    private static bool KeepsStop(bool stopRequested, bool hasOwnTurn) =>
-        (bool)ChatTuiType.GetMethod("KeepsStop", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [stopRequested, hasOwnTurn])!;
-
-    private static readonly MethodInfo FollowTurnAsyncMethod = Forge.GetType("ForgeMission.Cli.Commands.ForgeChat", throwOnError: true)!
-        .GetMethod("FollowTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
-
     private static (object Service, List<(long After, bool IncludeDeltas)> Requests) FakeConversations(Queue<ConversationEvent[]> connections)
     {
-        var serviceType = FollowTurnAsyncMethod.GetParameters()[0].ParameterType;
+        var serviceType = StreamAsyncMethod.GetParameters()[0].ParameterType;
         var proxy = (StreamingConversations)DispatchProxy.Create(serviceType, typeof(StreamingConversations));
         proxy.Connections = connections;
         return (proxy, proxy.Requests);

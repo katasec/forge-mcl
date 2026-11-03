@@ -9,15 +9,10 @@ using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
 
-// Portable chat startup, command modes, fresh consent and turn/terminal rules.
+// Portable chat startup and terminal rules.
 // The test project loads the built CLI through reflection like the other CLI tests.
 public sealed class ForgeChatTests
 {
-    private static readonly MethodInfo EndsTurn = LoadForgeChatMethod("EndsTurn");
-    private static readonly MethodInfo ParseHands = LoadForgeChatMethod("ParseHands");
-    private static readonly MethodInfo PolicyFor = LoadForgeChatMethod("PolicyFor");
-    private static readonly MethodInfo ModeFor = LoadForgeChatMethod("ModeFor");
-    private static readonly MethodInfo AskApproval = LoadForgeChatMethod("AskApproval");
     private static readonly MethodInfo ImageCell = LoadTerminalFactsMethod("ImageCell");
 
     [Theory]
@@ -25,24 +20,25 @@ public sealed class ForgeChatTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task Missing_project_file_stops_without_login_network_creation_or_ancestor_search(bool explicitFile, bool childMarker)
+    public async Task Missing_project_file_stops_without_network_creation_or_ancestor_search(bool explicitFile, bool childMarker)
     {
         await using var harness = ForgeCliHarness.Start();
+        harness.SignIn("https://example.invalid");
         var parent = harness.Home;
         var child = Path.Combine(parent, "child");
         var missing = Path.Combine(parent, "missing", "forge1.project.json");
         Directory.CreateDirectory(child);
         await File.WriteAllTextAsync(Path.Combine(parent, "forge.project.json"),
             "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[\".\"]}");
-        var result = await RunChatAsync(harness, child, explicitFile ? missing : null, childMarker);
+        var result = await RunChatAsync(harness, child, explicitFile ? missing : null, childMarker, validTheme: true);
         Assert.Equal(1, result.ExitCode);
         Assert.Equal("", result.Output);
-        if (explicitFile) Assert.Equal($"Project file not found: {missing}", result.Error.Trim());
-        else
-        {
-            Assert.StartsWith("Project file not found: ", result.Error);
-            Assert.EndsWith(Path.Combine(Path.GetFileName(parent), "child", "forge.project.json"), result.Error.Trim());
-        }
+        // Deliberate (Phase 76 decision 2b): forge-client's one missing-project message, after sign-in.
+        Assert.Equal(explicitFile
+            ? $"chat stopped: Project file not found: {missing}. Run `forge project create` to create one."
+            : "chat stopped: No forge.project.json found in the current directory. Run `forge project create` to create one.",
+            result.Error.Trim());
+        Assert.Empty(harness.Proxy.Attempts);
         Assert.Empty(Directory.EnumerateFileSystemEntries(child));
         Assert.False(Directory.Exists(Path.GetDirectoryName(missing)));
         Assert.Single(Directory.GetFiles(parent));
@@ -92,49 +88,13 @@ public sealed class ForgeChatTests
         Assert.Equal("{}", await File.ReadAllTextAsync(projectFile));
     }
 
-    [Theory]
-    [InlineData(false, MissionHandsProfile.ProjectWorkspace)]
-    [InlineData(true, MissionHandsProfile.NoHands)]
-    [InlineData(true, MissionHandsProfile.ProjectWorkspaceAndTerminal)]
-    public async Task A_hosted_profile_outside_the_command_mode_stops_before_consent_or_attachment(bool hands, MissionHandsProfile profile)
-    {
-        var home = Path.Combine(Path.GetTempPath(), "forge-chat-profile-" + Guid.NewGuid().ToString("N"));
-        var projectId = Guid.NewGuid();
-        var mission = hands ? "ChatHands" : "Chat";
-        Directory.CreateDirectory(home);
-        try
-        {
-            var projectFile = Path.Combine(home, "forge1.project.json");
-            await File.WriteAllTextAsync(projectFile,
-                "{\"projectId\":\"" + projectId + "\",\"missions\":[\"" + mission + "@1\"],\"folders\":[\".\"]}");
-            using var host = new PinnedHost(projectId, mission, profile);
-            var chat = LoadForgeChatMethod("ChatInProjectAsync");
-            var appType = chat.GetParameters()[0].ParameterType;
-            var create = appType.GetMethod("Create")!;
-            var publishType = create.GetParameters()[3].ParameterType;
-            var publish = typeof(ForgeChatTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
-                .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
-            await using var app = (IAsyncDisposable)create.Invoke(null,
-                [host, null, PolicyFor.Invoke(null, [hands]), publish, CancellationToken.None])!;
-            var theme = ForgeText.Theme("Dark");
-            var failure = await Assert.ThrowsAnyAsync<Exception>(() => (Task<int>)chat.Invoke(null,
-                [app, ModeFor.Invoke(null, [hands]), projectFile, theme, null, new ConcurrentQueue<string>(), CancellationToken.None])!);
-            Assert.Equal("ChatStoppedException", failure.GetType().Name);
-            Assert.Contains("does not match this chat mode", failure.Message, StringComparison.Ordinal);
-            Assert.Equal(["/api/ListMissionConversations", "/api/GetConversation"], host.Requests);
-            Assert.Single(Directory.GetFiles(home));
-            Assert.Empty(Directory.GetDirectories(home));
-        }
-        finally { Directory.Delete(home, recursive: true); }
-    }
-
     private static void IgnoreEvents<T>(T item) { }
 
-    // R10: a non-JSON host 500 on the reconnect path surfaces as ConversationHostProtocolException
+    // R10: a non-JSON host 500 on the open path surfaces as ConversationHostProtocolException
     // (internal to ForgeMission.Application, base InvalidOperationException). ForgeChat.RunAsync's
     // catch matches it by exact type name; this guards that the type it matches is the one thrown.
     [Fact]
-    public async Task A_non_json_host_error_on_reconnect_raises_the_protocol_exception_run_async_catches()
+    public async Task A_non_json_host_error_on_open_raises_the_protocol_exception_run_async_catches()
     {
         var home = Path.Combine(Path.GetTempPath(), "forge-chat-host500-" + Guid.NewGuid().ToString("N"));
         var projectId = Guid.NewGuid();
@@ -144,18 +104,18 @@ public sealed class ForgeChatTests
             var projectFile = Path.Combine(home, "forge1.project.json");
             await File.WriteAllTextAsync(projectFile,
                 "{\"projectId\":\"" + projectId + "\",\"missions\":[\"Chat@1\"],\"folders\":[\".\"]}");
-            using var host = new NonJsonErrorHost(projectId, "Chat", MissionHandsProfile.NoHands);
+            using var host = new NonJsonErrorHost();
             var chat = LoadForgeChatMethod("ChatInProjectAsync");
             var appType = chat.GetParameters()[0].ParameterType;
             var create = appType.GetMethod("Create")!;
-            var publishType = create.GetParameters()[3].ParameterType;
+            var publishType = create.GetParameters()[1].ParameterType;
             var publish = typeof(ForgeChatTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
                 .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
             await using var app = (IAsyncDisposable)create.Invoke(null,
-                [host, null, PolicyFor.Invoke(null, [false]), publish, CancellationToken.None])!;
+                [host, publish, CancellationToken.None])!;
             var theme = ForgeText.Theme("Dark");
             var failure = await Assert.ThrowsAnyAsync<Exception>(() => (Task<int>)chat.Invoke(null,
-                [app, ModeFor.Invoke(null, [false]), projectFile, theme, null, new ConcurrentQueue<string>(), CancellationToken.None])!);
+                [app, projectFile, theme, null, new ConcurrentQueue<string>(), CancellationToken.None])!);
             // The exact type ForgeChat.RunAsync's `when (failure.GetType().Name == …)` guard depends on.
             Assert.Equal("ConversationHostProtocolException", failure.GetType().Name);
             Assert.IsAssignableFrom<InvalidOperationException>(failure);
@@ -163,93 +123,20 @@ public sealed class ForgeChatTests
         finally { Directory.Delete(home, recursive: true); }
     }
 
-    // Lists the project's conversation, then answers the reconnect's GetConversation with a non-JSON 500.
+    // Answers the open's first conversation read with a non-JSON 500.
     private sealed class NonJsonErrorHost : HttpMessageHandler, IHttpClientFactory
     {
-        private readonly Guid _projectId;
-        private readonly Guid _conversationId = Guid.NewGuid();
-        private readonly DurableMissionLaunch _launch;
-        public List<string> Requests { get; } = [];
-
-        public NonJsonErrorHost(Guid projectId, string mission, MissionHandsProfile profile)
-        {
-            _projectId = projectId;
-            var definition = $"mission {mission}(message) = {{\n    Assistant using anthropic\n}}\n";
-            _launch = new DurableMissionLaunch(Guid.NewGuid(), 1, "sha256:test", definition, profile,
-                new DurableMissionPackage(1, "sha256:package", definition, mission, "message", []));
-        }
-
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false)
         {
             BaseAddress = new Uri("https://controlled-host.invalid/"),
         };
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var route = request.RequestUri!.AbsolutePath;
-            Requests.Add(route);
-            if (route == "/api/ListMissionConversations")
-            {
-                var snapshot = new ConversationSnapshot(_conversationId, null, null, 0, ConversationRunStatus.Completed,
-                    null, DateTimeOffset.UtcNow, Purpose: ConversationPurpose.MissionConversation, ProjectId: _projectId, PinnedLaunch: _launch);
-                var json = JsonSerializer.Serialize(new ListMissionConversationsResponse(
-                    [new MissionConversationSummary(_conversationId, _projectId, _launch, snapshot.Status, 0, snapshot.UpdatedAtUtc)]),
-                    ConversationContractsJsonContext.Default.ListMissionConversationsResponse);
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
-                });
-            }
-
-            // The conversation host hands back an HTML/plain 500 instead of a mission reply.
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        // The conversation host hands back an HTML/plain 500 instead of a mission reply.
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
             {
                 Content = new StringContent("<html><body>500 Internal Server Error</body></html>", Encoding.UTF8, "text/html"),
             });
-        }
-    }
-
-    // Controlled Host replies: every request after authenticated pin resolution is a failure.
-    private sealed class PinnedHost : HttpMessageHandler, IHttpClientFactory
-    {
-        private readonly Guid _projectId;
-        private readonly Guid _conversationId = Guid.NewGuid();
-        private readonly DurableMissionLaunch _launch;
-        public List<string> Requests { get; } = [];
-
-        public PinnedHost(Guid projectId, string mission, MissionHandsProfile profile)
-        {
-            _projectId = projectId;
-            var definition = $"mission {mission}(message) = {{\n    Assistant using anthropic\n}}\n";
-            _launch = new DurableMissionLaunch(Guid.NewGuid(), 1, "sha256:test", definition, profile,
-                new DurableMissionPackage(1, "sha256:package", definition, mission, "message", []));
-        }
-
-        public HttpClient CreateClient(string name) => new(this, disposeHandler: false)
-        {
-            BaseAddress = new Uri("https://controlled-host.invalid/"),
-        };
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var route = request.RequestUri!.AbsolutePath;
-            Requests.Add(route);
-            var snapshot = new ConversationSnapshot(_conversationId, null, null, 0, ConversationRunStatus.Completed,
-                null, DateTimeOffset.UtcNow, Purpose: ConversationPurpose.MissionConversation, ProjectId: _projectId, PinnedLaunch: _launch);
-            var json = route switch
-            {
-                "/api/ListMissionConversations" => JsonSerializer.Serialize(new ListMissionConversationsResponse(
-                    [new MissionConversationSummary(_conversationId, _projectId, _launch, snapshot.Status, 0, snapshot.UpdatedAtUtc)]),
-                    ConversationContractsJsonContext.Default.ListMissionConversationsResponse),
-                "/api/GetConversation" => JsonSerializer.Serialize(new GetConversationResponse(snapshot),
-                    ConversationContractsJsonContext.Default.GetConversationResponse),
-                _ => throw new InvalidOperationException($"Profile refusal must precede {route}."),
-            };
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json"),
-            });
-        }
     }
 
     // ── Terminal check (Phase 56 G8) ────────────────────────────────────────────────────────
@@ -317,128 +204,10 @@ public sealed class ForgeChatTests
         return (Value("Width"), Value("Height"));
     }
 
-    // ── --hands (Phase 55) ──────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Hands_are_off_unless_the_flag_is_given()
-    {
-        Assert.False((bool)ParseHands.Invoke(null, [Array.Empty<string>()])!);
-        Assert.True((bool)ParseHands.Invoke(null, [new[] { "--hands" }])!);
-    }
-
-    [Fact]
-    public void Plain_chat_denies_every_capability()
-    {
-        Assert.Equal("AutoDenied", Outcome(false, "file"));
-        Assert.Equal("AutoDenied", Outcome(false, "terminal"));
-    }
-
-    [Fact]
-    public void Hands_auto_approve_files_and_keep_the_terminal_denied()
-    {
-        Assert.Equal("AutoApproved", Outcome(true, "file"));
-        Assert.Equal("AutoDenied", Outcome(true, "terminal"));
-    }
-
-    [Fact]
-    public void Each_mode_selects_its_own_hosted_mission()
-    {
-        Assert.Equal(("Chat", false, "NoHands"), Mode(false));
-        Assert.Equal(("ChatHands", true, "ProjectWorkspace"), Mode(true));
-    }
-
-    [Theory]
-    [InlineData("y\n")]
-    [InlineData("YES\n")]
-    [InlineData(" yes \n")]
-    public void Yes_on_a_terminal_approves(string typed)
-    {
-        var (answer, shown) = Ask(interactive: true, typed);
-
-        Assert.Equal("Approved", answer);
-        Assert.Equal("Allow Forge to read, write and edit files in /p/chat? [y/N] ", shown);
-    }
-
-    [Theory]
-    [InlineData("n\n")]
-    [InlineData("\n")]
-    [InlineData("yep\n")]
-    [InlineData("")]
-    public void Anything_else_or_end_of_input_declines(string typed)
-    {
-        Assert.Equal("Declined", Ask(interactive: true, typed).Answer);
-    }
-
-    [Fact]
-    public void A_piped_run_is_never_asked()
-    {
-        var (answer, shown) = Ask(interactive: false, "y\n");
-
-        Assert.Equal("NotInteractive", answer);
-        Assert.Equal("", shown);
-    }
-
-    private static string Outcome(bool hands, string capability)
-    {
-        var policy = PolicyFor.Invoke(null, [hands])!;
-        var rule = policy.GetType().GetMethod("RuleFor")!.Invoke(policy, [capability])!;
-        return ForgeText.Get<object>(rule, "Outcome").ToString()!;
-    }
-
-    private static (string Mission, bool Hands, string Profile) Mode(bool hands)
-    {
-        var mode = ModeFor.Invoke(null, [hands])!;
-        return ((string)ForgeText.Get<object>(mode, "MissionName"), (bool)ForgeText.Get<object>(mode, "HasHands"), ForgeText.Get<object>(mode, "ExpectedProfile").ToString()!);
-    }
-
-    private static (string Answer, string Shown) Ask(bool interactive, string typed)
-    {
-        var output = new StringWriter();
-        var answer = AskApproval.Invoke(null, ["/p/chat", interactive, new StringReader(typed), output])!;
-        return (answer.ToString()!, output.ToString());
-    }
-
-    [Theory]
-    [InlineData("Completed")]
-    [InlineData("Failed")]
-    [InlineData("Interrupted")]
-    [InlineData("Rejected")]
-    public void A_terminal_run_status_for_this_attempt_ends_the_turn(string status)
-    {
-        var attempt = Guid.NewGuid();
-
-        Assert.True(Ends("RunStatus", attempt, status, attempt));
-    }
-
-    [Theory]
-    [InlineData("Queued")]
-    [InlineData("Running")]
-    [InlineData("WaitingForTool")]
-    public void A_non_terminal_run_status_does_not_end_the_turn(string status)
-    {
-        var attempt = Guid.NewGuid();
-
-        Assert.False(Ends("RunStatus", attempt, status, attempt));
-    }
-
-    [Fact]
-    public void Another_attempts_terminal_status_does_not_end_the_turn()
-    {
-        Assert.False(Ends("RunStatus", Guid.NewGuid(), "Completed", Guid.NewGuid()));
-    }
-
-    [Fact]
-    public void A_participant_message_does_not_end_the_turn()
-    {
-        var attempt = Guid.NewGuid();
-
-        Assert.False(Ends("ParticipantMessage", attempt, null, attempt));
-    }
-
     private static async Task<(int ExitCode, string Output, string Error)> RunChatAsync(
-        ForgeCliHarness harness, string cwd, string? projectPath, bool childMarker = false)
+        ForgeCliHarness harness, string cwd, string? projectPath, bool childMarker = false, bool validTheme = false)
     {
-        harness.WriteConfig("{\"theme\":\"startup-test\"}");
+        harness.WriteConfig(validTheme ? "{\"theme\":\"dark\"}" : "{\"theme\":\"startup-test\"}");
         harness.WorkingDirectory = cwd;
         // Isolated invalid configuration/endpoint proves selection precedes all downstream work.
         harness.Variables["FORGE_API_ENDPOINT"] = "invalid-endpoint";
@@ -447,18 +216,9 @@ public sealed class ForgeChatTests
         return (result.ExitCode, result.StandardOutput, result.StandardError);
     }
 
-    private static bool Ends(string kind, Guid? runId, string? status, Guid attemptId)
-    {
-        var parameters = EndsTurn.GetParameters();
-        var kindValue = Enum.Parse(parameters[0].ParameterType, kind);
-        var statusType = Nullable.GetUnderlyingType(parameters[2].ParameterType)!;
-        var statusValue = status is null ? null : Enum.Parse(statusType, status);
-        return (bool)EndsTurn.Invoke(null, [kindValue, runId, statusValue, attemptId])!;
-    }
-
     /// <summary>The G8 decisions live beside the probe, in Tui/Graphics/TerminalFacts.</summary>
     private static MethodInfo LoadTerminalFactsMethod(string name) =>
-        LoadForgeChatMethod("EndsTurn").DeclaringType!.Assembly
+        LoadForgeChatMethod("LoadFonts").DeclaringType!.Assembly
             .GetType("ForgeMission.Cli.Tui.Graphics.TerminalFacts", throwOnError: true)!
             .GetMethod(name, BindingFlags.Static | BindingFlags.Public)!;
 

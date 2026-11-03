@@ -115,14 +115,12 @@ public sealed class MacChatWindowTests
         Assert.Equal("", error.ToString());
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Request_uses_only_locked_process_scoped_overrides_and_separate_project_and_cwd(bool hands)
+    [Fact]
+    public void Request_uses_only_locked_process_scoped_overrides_and_separate_project_and_cwd()
     {
         var cwd = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "original '雪\" \\ $`  "));
         var projectFile = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "other project", "forge.project.json"));
-        var start = Build("/exact/native forge", hands, projectFile, cwd);
+        var start = Build("/exact/native forge", projectFile, cwd);
         var initial = start.ArgumentList.Single(arg => arg.StartsWith("--initial-command=", StringComparison.Ordinal));
         var command = start.ArgumentList.Single(arg => arg.StartsWith("--command=", StringComparison.Ordinal));
 
@@ -138,7 +136,7 @@ public sealed class MacChatWindowTests
         Assert.Equal(initial["--initial-command=".Length..], command["--command=".Length..]);
         Assert.StartsWith("--command=shell:'", command);
         Assert.DoesNotContain("shell:exec ", command);
-        Assert.Equal(hands, command.Contains("'--hands'", StringComparison.Ordinal));
+        Assert.DoesNotContain("--hands", command, StringComparison.Ordinal);
         Assert.Contains("'--project'", command);
         Assert.Contains("'" + projectFile + "'", command);
     }
@@ -153,7 +151,7 @@ public sealed class MacChatWindowTests
         var output = new StringWriter();
         var error = new StringWriter();
         var calls = 0;
-        var code = await Launch(executable, false, Path.GetTempPath(), Path.GetTempPath(), output, error, start =>
+        var code = await Launch(executable, Path.GetTempPath(), Path.GetTempPath(), output, error, start =>
         {
             calls++;
             Assert.Equal("/usr/bin/open", start.FileName);
@@ -175,7 +173,7 @@ public sealed class MacChatWindowTests
     public async Task Missing_native_executable_does_not_start_a_process(string? executable)
     {
         var error = new StringWriter();
-        Assert.Equal(1, await Launch(executable, false, Path.GetTempPath(), Path.GetTempPath(), new StringWriter(), error,
+        Assert.Equal(1, await Launch(executable, Path.GetTempPath(), Path.GetTempPath(), new StringWriter(), error,
             start => throw new InvalidOperationException("Must not start.")));
         Assert.Contains("could not find its native executable", error.ToString());
     }
@@ -189,7 +187,7 @@ public sealed class MacChatWindowTests
         {
             await File.WriteAllTextAsync(executable, "controlled non-executable fixture");
             var error = new StringWriter();
-            Assert.Equal(1, await Launch(executable, true, home, home, new StringWriter(), error,
+            Assert.Equal(1, await Launch(executable, home, home, new StringWriter(), error,
                 start => throw new InvalidOperationException("Must not start.")));
             Assert.Contains("installed native forge executable, not dotnet", error.ToString());
         }
@@ -210,10 +208,8 @@ public sealed class MacChatWindowTests
         Assert.Equal(string.Concat(Enumerable.Repeat("err\n", 2000)), result.StandardError);
     }
 
-    [SkippableTheory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Both_composed_commands_roundtrip_literal_adversarial_executable_and_argv(bool hands)
+    [SkippableFact]
+    public async Task Both_composed_commands_roundtrip_literal_adversarial_executable_and_argv()
     {
         Skip.If(OperatingSystem.IsWindows(), "Controlled native shell probe requires POSIX.");
         var home = NewTemporaryDirectory();
@@ -224,10 +220,8 @@ public sealed class MacChatWindowTests
             await File.WriteAllTextAsync(executable, "#!/bin/sh\nprintf '%s\\0' \"$0\" \"$@\"\n");
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            var start = Build(executable, hands, project, home);
-            var expected = new List<string> { executable, "chat" };
-            if (hands) expected.Add("--hands");
-            expected.AddRange(["--project", project]);
+            var start = Build(executable, project, home);
+            var expected = new List<string> { executable, "chat", "--project", project };
             foreach (var prefix in new[] { "--initial-command=shell:", "--command=shell:" })
             {
                 var command = start.ArgumentList.Single(arg => arg.StartsWith(prefix, StringComparison.Ordinal))[prefix.Length..];
@@ -257,16 +251,16 @@ public sealed class MacChatWindowTests
     private static void Restore(string context, Action<string> directory) =>
         Method("RestoreContext").CreateDelegate<Action<string, Action<string>>>()(context, directory);
 
-    private static ProcessStartInfo Build(string executable, bool hands, string project, string cwd) =>
-        Method("BuildOpenStartInfo").CreateDelegate<Func<string, bool, string, string, ProcessStartInfo>>()
-            (executable, hands, project, cwd);
+    private static ProcessStartInfo Build(string executable, string project, string cwd) =>
+        Method("BuildOpenStartInfo").CreateDelegate<Func<string, string, string, ProcessStartInfo>>()
+            (executable, project, cwd);
 
-    private static Task<int> Launch(string? executable, bool hands, string project, string cwd,
+    private static Task<int> Launch(string? executable, string project, string cwd,
         TextWriter output, TextWriter error, Func<ProcessStartInfo, Task<(int ExitCode, string StandardOutput, string StandardError)>> start) =>
-        Method("LaunchAsync").CreateDelegate<Func<string?, bool, string, string, TextWriter, TextWriter,
+        Method("LaunchAsync").CreateDelegate<Func<string?, string, string, TextWriter, TextWriter,
             Func<ProcessStartInfo, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>,
             CancellationToken, Task<int>>>()
-                (executable, hands, project, cwd, output, error, (info, _) => start(info), CancellationToken.None);
+                (executable, project, cwd, output, error, (info, _) => start(info), CancellationToken.None);
 
     private static Task<(int ExitCode, string StandardOutput, string StandardError)> StartProcess(ProcessStartInfo start) =>
         Method("StartProcessAsync").CreateDelegate<Func<ProcessStartInfo, CancellationToken,

@@ -2,7 +2,6 @@ using System.CommandLine;
 using ForgeMission.Application;
 using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
-using ForgeMission.Core.Tools;
 
 namespace ForgeMission.Cli.Commands;
 
@@ -73,8 +72,7 @@ public static class ForgeProject
     private static async Task<CreateChatProjectResponse> CreateAsync(
         CreateChatProjectRequest request, IHttpClientFactory clients)
     {
-        await using var app = ApplicationComposition.Create(clients,
-            null, new CapabilityAuthorizationPolicy([], null), _ => { }, CancellationToken.None);
+        await using var app = ApplicationComposition.Create(clients, _ => { }, CancellationToken.None);
         return await app.MissionConversations.CreateChatProjectAsync(request, CancellationToken.None);
     }
 }

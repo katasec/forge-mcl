@@ -24,16 +24,10 @@ internal static class HostedMissionCommands
         cmd.Add(missionArg);
         cmd.Add(promptArg);
         cmd.Add(projectOpt);
-        cmd.SetCancellableAction((result, cancellationToken) =>
-        {
-            var project = RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory());
-            if (!File.Exists(project))
-            {
-                Console.Error.WriteLine($"Project file not found: {Path.GetFullPath(project)}. Run `forge project create`.");
-                return Task.FromResult(1);
-            }
-            return ForgeDurableRun.RunAsync(clients, project, result.GetValue(missionArg)!, result.GetValue(promptArg)!, cancellationToken);
-        });
+        // A missing project is reported by forge-client's shared open, the same message as forge chat.
+        cmd.SetCancellableAction((result, cancellationToken) => ForgeDurableRun.RunAsync(clients,
+            RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory()), result.GetValue(missionArg)!,
+            result.GetValue(promptArg)!, cancellationToken));
         return cmd;
     }
 

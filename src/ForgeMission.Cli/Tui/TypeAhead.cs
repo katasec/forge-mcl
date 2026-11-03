@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace ForgeMission.Cli.Tui;
 
 // forge chat TUI (Phase 56 Task 3 review): keys typed before the TUI takes the terminal — during
-// sign-in, the --hands prompt or opening the conversation — wait in the terminal's input queue.
+// sign-in or opening the conversation — wait in the terminal's input queue.
 // XenoAtom reads them when it starts, the Enter among them does nothing (no conversation yet), and
 // the letters became composer text ("y Please reply…"). The TUI discards that queue as it starts,
 // so only keys typed into the running TUI reach the composer. The terminal's replies to the TUI's

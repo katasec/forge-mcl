@@ -9,8 +9,8 @@ using ForgeMission.Conversations.Contracts;
 namespace ForgeMission.Tests.Cli;
 
 // Phase 76 M0: what forge chat's line mode prints for each event, pinned on the console so the
-// pins hold while chat moves to the shared client path. A plain chat reconnects to a hosted
-// conversation whose stored history is replayed, then end of input at the prompt exits.
+// pins hold while chat moves to the shared client path. The chat continues the project's hosted
+// conversation, whose stored history is replayed, then end of input at the prompt exits.
 [Collection(ConsoleCollection.Name)]
 public sealed class ForgeChatLineModeTests : IDisposable
 {
@@ -109,7 +109,7 @@ public sealed class ForgeChatLineModeTests : IDisposable
         await using var app = CreateApp(host);
         using var console = new ConsoleCapture();
 
-        var exit = await (Task<int>)ChatInProject.Invoke(null, [app, ModeFor(hands: false), projectFile,
+        var exit = await (Task<int>)ChatInProject.Invoke(null, [app, projectFile,
             ForgeText.Theme("Dark"), null, new ConcurrentQueue<string>(), CancellationToken.None])!;
 
         Assert.Equal((0, ""), (exit, console.Error));
@@ -131,61 +131,56 @@ public sealed class ForgeChatLineModeTests : IDisposable
     {
         var appType = ChatInProject.GetParameters()[0].ParameterType;
         var create = appType.GetMethod("Create")!;
-        var publishType = create.GetParameters()[3].ParameterType;
+        var publishType = create.GetParameters()[1].ParameterType;
         var publish = typeof(ForgeChatLineModeTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
             .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
-        var policy = ChatMethod("PolicyFor").Invoke(null, [false]);
-        return (IAsyncDisposable)create.Invoke(null, [host, null, policy, publish, CancellationToken.None])!;
+        return (IAsyncDisposable)create.Invoke(null, [host, publish, CancellationToken.None])!;
     }
-
-    private static object ModeFor(bool hands) => ChatMethod("ModeFor").Invoke(null, [hands])!;
 
     private static MethodInfo ChatMethod(string name) => ChatType.GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!;
 
     private static void IgnoreEvents<T>(T item) { }
 
-    // A controlled Host holding one finished plain Chat conversation of the project: its stored
-    // events are numbered from 1 and replayed on the event stream.
-    private sealed class HistoryHost : HttpMessageHandler, IHttpClientFactory
+    // A controlled Host holding the project's one finished chat conversation, at the id the open
+    // asks for: its stored events are numbered from 1 and replayed on the event stream. Every Hands
+    // route of the open waits for work.
+    private sealed class HistoryHost(Guid projectId, IReadOnlyList<ConversationEvent> history) : HttpMessageHandler, IHttpClientFactory
     {
-        private readonly Guid _conversationId = Guid.NewGuid();
-        private readonly ConversationSnapshot _snapshot;
-        private readonly MissionConversationSummary _summary;
-        private readonly IReadOnlyList<ConversationEvent> _history;
-
-        public HistoryHost(Guid projectId, IReadOnlyList<ConversationEvent> history)
-        {
-            const string definition = "mission Chat(message) = {\n    Assistant using anthropic\n}\n";
-            var launch = new DurableMissionLaunch(Guid.NewGuid(), 1, "sha256:test", definition, MissionHandsProfile.NoHands,
-                new DurableMissionPackage(1, "sha256:package", definition, "Chat", "message", []));
-            _history = [.. history.Select((item, index) => item with { ConversationId = _conversationId, Sequence = index + 1 })];
-            _snapshot = new ConversationSnapshot(_conversationId, null, null, _history.Count, ConversationRunStatus.Completed,
-                null, Sent, Purpose: ConversationPurpose.MissionConversation, ProjectId: projectId, PinnedLaunch: launch);
-            _summary = new MissionConversationSummary(_conversationId, projectId, launch, _snapshot.Status, _history.Count, Sent);
-        }
+        private const string Definition = "mission Chat(message) = {\n    Assistant using anthropic\n}\n";
+        private readonly DurableMissionLaunch _launch = new(Guid.NewGuid(), 1, "sha256:test", Definition,
+            MissionHandsProfile.ProjectWorkspace, new DurableMissionPackage(1, "sha256:package", Definition, "Chat", "message", []));
 
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false)
         {
             BaseAddress = new Uri("https://controlled-host.invalid/"),
         };
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var route = request.RequestUri!.AbsolutePath;
-            var body = route switch
+            var body = request.Content is null ? "{}" : await request.Content.ReadAsStringAsync(ct);
+            var json = route switch
             {
-                "/api/ListMissionConversations" => JsonSerializer.Serialize(new ListMissionConversationsResponse([_summary]),
-                    ConversationContractsJsonContext.Default.ListMissionConversationsResponse),
-                "/api/GetConversation" => JsonSerializer.Serialize(new GetConversationResponse(_snapshot),
+                "/api/GetConversation" => JsonSerializer.Serialize(new GetConversationResponse(Snapshot(ConversationOf(body))),
                     ConversationContractsJsonContext.Default.GetConversationResponse),
-                "/api/StreamConversationEvents" => string.Concat(_history.Select(item =>
+                "/api/StreamConversationEvents" => string.Concat(History(ConversationOf(body)).Select(item =>
                     $"data: {JsonSerializer.Serialize(item, ConversationContractsJsonContext.Default.ConversationEvent)}\n\n")),
-                _ => throw new InvalidOperationException($"A replayed plain chat makes no {route} request."),
+                _ => "{\"status\":\"awaitingHands\"}",
             };
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+        }
+
+        private ConversationSnapshot Snapshot(Guid conversationId) => new(conversationId, null, null, history.Count,
+            ConversationRunStatus.Completed, null, Sent, Purpose: ConversationPurpose.MissionConversation, ProjectId: projectId,
+            PinnedLaunch: _launch);
+
+        private IEnumerable<ConversationEvent> History(Guid conversationId) =>
+            history.Select((item, index) => item with { ConversationId = conversationId, Sequence = index + 1 });
+
+        private static Guid ConversationOf(string body)
+        {
+            using var request = JsonDocument.Parse(body);
+            return request.RootElement.GetProperty("conversationId").GetGuid();
         }
     }
 }

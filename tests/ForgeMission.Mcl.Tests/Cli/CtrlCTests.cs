@@ -1,15 +1,15 @@
-using System.Text.RegularExpressions;
 using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
 
 // Ctrl+C on a command waiting for a hosted call that never answers ends it with the Ctrl+C exit
-// code, 130, and nothing more on stdout than it printed before the call ({home}: the isolated HOME).
+// code, 130, and nothing on stdout: forge chat prints its Project line once the shared open
+// (Phase 76) has the conversation, after its first hosted call.
 public sealed class CtrlCTests
 {
     [SkippableTheory]
     [InlineData("^$", "project", "create")]
-    [InlineData("^Project: .*/{home}\n$", "chat")]
+    [InlineData("^$", "chat")]
     [InlineData("^$", "whoami")]
     public async Task Ctrl_C_during_a_hosted_call_exits_130(string stdout, params string[] args)
     {
@@ -31,8 +31,7 @@ public sealed class CtrlCTests
         finally { release.SetResult(); }
 
         Assert.Equal(130, result.ExitCode);
-        Assert.Matches(stdout.Replace("{home}", Regex.Escape(Path.GetFileName(harness.Home))),
-            result.StandardOutput.ReplaceLineEndings("\n"));
+        Assert.Matches(stdout, result.StandardOutput.ReplaceLineEndings("\n"));
     }
 
     private static async Task UntilAsync(Func<bool> condition)
