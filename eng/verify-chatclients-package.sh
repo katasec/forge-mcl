@@ -33,7 +33,7 @@ for expected_value in \
   "commit=\"$repository_commit\"" \
   "<license type=\"file\">LICENSE.md</license>" \
   "<readme>README.md</readme>" \
-  "id=\"Katasec.Forge.Mcl.Core\" version=\"0.1.8\""; do
+  "id=\"Katasec.Forge.Mcl.Core\" version=\"0.1.9\""; do
   if ! grep -Fq "$expected_value" <<<"$nuspec"; then
     echo "Missing package metadata: $expected_value" >&2
     exit 1

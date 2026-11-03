@@ -15,7 +15,7 @@ public class DurableMissionPackageValidatorTests
     public void Generated_json_roundtrip_preserves_assets_and_canonical_hash(bool withAssets)
     {
         var original = Package("mission Root(message) = { Reader }", "Root", "message", "Reader");
-        if (withAssets) original = Rehash(original with { Assets = [Asset("experts/Reader/read.py", [0, 1, 255], true)] });
+        if (withAssets) original = Rehash(original with { Assets = [Asset("experts/Reader/read.py", [0, 1, 255])] });
         var json = JsonSerializer.Serialize(original, PackageTestJsonContext.Default.DurableMissionPackageInput);
         var restored = JsonSerializer.Deserialize(json, PackageTestJsonContext.Default.DurableMissionPackageInput)!;
         Assert.Equal(original.PackageHash, DurableMissionPackageValidator.ComputeHash(restored));
@@ -24,7 +24,6 @@ public class DurableMissionPackageValidatorTests
         {
             var asset = Assert.Single(restored.Assets!);
             Assert.Equal(new byte[] { 0, 1, 255 }, asset.Bytes);
-            Assert.True(asset.Executable);
         }
         else
         {
@@ -81,13 +80,21 @@ public class DurableMissionPackageValidatorTests
     }
 
     [Fact]
-    public void Asset_digest_execute_bit_and_case_collisions_are_checked()
+    public void Asset_digest_and_case_collisions_are_checked()
     {
         var package = Rehash(Package("mission Root(message) = { Reader }", "Root", "message", "Reader")
             with { Assets = [Asset("read.py", [1])] });
-        Assert.False(DurableMissionPackageValidator.TryValidate(package with { Assets = [Asset("read.py", [1], true)] }, out _, out _));
         Assert.False(DurableMissionPackageValidator.TryValidate(Rehash(package with { Assets = [package.Assets![0] with { Bytes = [2] }] }), out _, out _));
         Assert.False(DurableMissionPackageValidator.TryValidate(Rehash(package with { Assets = [Asset("read.py", [1]), Asset("READ.py", [1])] }), out _, out _));
+    }
+
+    [Fact]
+    public void Assets_differing_only_in_the_ignored_executable_flag_hash_the_same()
+    {
+        var package = Package("mission Root(message) = { Reader }", "Root", "message", "Reader");
+        var plain = package with { Assets = [Asset("read.py", [1])] };
+        var flagged = package with { Assets = [Asset("read.py", [1]) with { Executable = true }] };
+        Assert.Equal(DurableMissionPackageValidator.ComputeHash(plain), DurableMissionPackageValidator.ComputeHash(flagged));
     }
 
     [Theory]
@@ -129,7 +136,7 @@ public class DurableMissionPackageValidatorTests
 
     private static DurableMissionPackageInput Rehash(DurableMissionPackageInput package) => package with { PackageHash = DurableMissionPackageValidator.ComputeHash(package) };
     private static string Hash(byte[] bytes) => "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-    private static DurableMissionAssetInput Asset(string path, byte[] bytes, bool executable = false) => new(path, "application/octet-stream", bytes, Hash(bytes), executable);
+    private static DurableMissionAssetInput Asset(string path, byte[] bytes) => new(path, "application/octet-stream", bytes, Hash(bytes));
     private static DurableResolvedExpertInput Resolved(string name, string kind = "llm", string extra = "")
     {
         var markdown = $"---\nname: {name}\nkind: {kind}\ninput: text\noutput: text\n{extra}\n---\nAnswer.";
