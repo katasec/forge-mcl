@@ -3,7 +3,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>true</IsPackable>
     <PackageId>Katasec.Forge.Mcl.MissionRegistry</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Authors>Katasec</Authors>
     <Description>Generic OCI mission and expert retrieval with a local Forge cache and registry credential boundary.</Description>
     <PackageTags>mcl;mission-control-language;oci;registry;mission;expert;aot</PackageTags>
