@@ -43,10 +43,7 @@ internal static class ForgeDurableRun
             selector, Directory.GetCurrentDirectory(), OciBase, ct);
 
         var opened = await app.Projects.OpenChatAsync(new ProjectOpenRequest(projectFile, Mission: package.RootMissionName), ct);
-        // A run pins version 1, so an undeclared mission is fixed by declaring exactly that.
-        var session = opened.Session ?? throw new InvalidOperationException(opened.Error?.Code == ProjectOperationErrorCode.UnknownMission
-            ? $"{opened.Error.Message} Declare {package.RootMissionName}@1 in {projectFile}."
-            : opened.Error?.Message ?? "The project could not be opened.");
+        var session = opened.Session ?? throw new InvalidOperationException(opened.Error?.Message ?? "The project could not be opened.");
 
         var workspace = app.Projects.ReadRunProject(projectFile).Workspace;
         var created = await app.MissionConversations.CreateSelectedAsync(

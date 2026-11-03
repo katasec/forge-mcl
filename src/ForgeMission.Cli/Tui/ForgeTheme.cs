@@ -154,7 +154,6 @@ internal sealed record ForgeTheme
         UserPillFill = Color.Rgb(0xef, 0xf5, 0xfe),
         UserPillText = Color.Rgb(0x10, 0x3f, 0x87),
         Success = Color.Rgb(0x4e, 0x7c, 0x0f),
-        SuccessFill = Color.Rgb(0xf2, 0xfb, 0xe6),
         Warning = Color.Rgb(0xb4, 0x53, 0x09),
         Error = Color.Rgb(0xb9, 0x1c, 0x1c),
         CodeBlockFill = Color.Rgb(0xf7, 0xf8, 0xfe),
@@ -178,8 +177,6 @@ internal sealed record ForgeTheme
         ComposerRadius = 14,
         ComposerHairline = 1,
         ComposerGlow = new(LightAccent, Alpha: 0.14, Spread: 4),
-        // .pill-ok::before width: 6px; height: 6px
-        PillDotDiameter = 6,
         // .avatar / .logo / .send: the mockup's gradients flattened to Accent; .avatar.me to TextMuted; white glyphs.
         AvatarFill = LightAccent,
         UserAvatarFill = LightMuted,
@@ -206,7 +203,6 @@ internal sealed record ForgeTheme
         UserPillFill = Color.Rgb(0x16, 0x34, 0x5a),
         UserPillText = Color.Rgb(0xe8, 0xee, 0xf7),
         Success = Color.Rgb(0x8c, 0xc1, 0x52),
-        SuccessFill = Color.Rgb(0x1d, 0x2a, 0x1a),
         Warning = Color.Rgb(0xf0, 0xb3, 0x5a),
         Error = Color.Rgb(0xf0, 0x71, 0x78),
         CodeBlockFill = Color.Rgb(0x0f, 0x16, 0x22),
@@ -227,7 +223,6 @@ internal sealed record ForgeTheme
         ComposerRadius = 14,
         ComposerHairline = 1,
         ComposerGlow = new(DarkAccent, Alpha: 0.14, Spread: 4),
-        PillDotDiameter = 6,
         // .avatar / .logo / .send: the mockup's gradients flattened to Accent; .avatar.me to TextMuted; white glyphs.
         AvatarFill = DarkAccent,
         UserAvatarFill = DarkMuted,
@@ -255,7 +250,6 @@ internal sealed record ForgeTheme
     public required Color UserPillFill { get; init; }
     public required Color UserPillText { get; init; }
     public required Color Success { get; init; }
-    public required Color SuccessFill { get; init; }
     public required Color Warning { get; init; }
     public required Color Error { get; init; }
 
@@ -286,8 +280,6 @@ internal sealed record ForgeTheme
     public required double ComposerHairline { get; init; }
     public required RingGlow ComposerGlow { get; init; }
 
-    /// <summary>The APPROVED pill's dot, drawn in its left cap.</summary>
-    public required double PillDotDiameter { get; init; }
 
     /// <summary>The logo, expert avatars and the send button (Phase 56 Task 4).</summary>
     public required Color AvatarFill { get; init; }

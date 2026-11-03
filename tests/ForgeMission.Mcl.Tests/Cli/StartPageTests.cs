@@ -24,7 +24,7 @@ public sealed class StartPageTests
         var text = RenderText(tui.Root);
         Assert.Contains(Title, text);
         Assert.Contains("Write and evaluate a reusable mission version, then approve it for use.", text);
-        Assert.Contains("Start a durable chat on an approved mission version. It stays pinned to that version.", text);
+        Assert.Contains("Start a durable chat with a mission.", text);
         Assert.Contains("newline", text);
         Assert.Equal(1, Get<int>(tui.List, "SelectedIndex"));
         Assert.All(tui.Root.EnumerateVisualsDepthFirst().OfType<TextBlock>(), chrome => Assert.False(chrome.IsSelectable));

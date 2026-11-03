@@ -32,7 +32,7 @@ public sealed class TileSetTests
     private const int CapCols = 2;
 
     private static readonly string[] RingSets = ["CardShape", "CodeBlockShape", "UserShape", "ComposerShape", "CardHoverShape"];
-    private static readonly string[] CapSets = ["UserCaps", "ApprovedCaps", "ToolCaps"];
+    private static readonly string[] CapSets = ["UserCaps", "ToolCaps"];
 
     private static readonly Type StylesType = Type("ForgeMission.Cli.Tui.ForgeStyles");
     private static readonly MethodInfo Solve = Type("ForgeMission.Cli.Tui.Graphics.RingGeometry")
@@ -84,19 +84,6 @@ public sealed class TileSetTests
         });
 
         Assert.Empty(failures.OrderBy(item => item));
-    }
-
-    [Theory]
-    [InlineData("Light")]
-    [InlineData("Dark")]
-    public void The_approved_cap_holds_the_success_dot(string theme)
-    {
-        foreach (var (width, height) in new[] { (19, 42), (10, 21) })
-        {
-            var caps = Caps(theme, "ApprovedCaps", width, height);
-            var centre = height / 2;
-            Assert.True(caps.Left.PixelError(centre, centre, caps.Dot!.Value) <= CleanLevels, $"{width}x{height}: no dot at the cap centre");
-        }
     }
 
     [Theory]
@@ -338,7 +325,7 @@ public sealed class TileSetTests
     }
 
     private sealed record CapFacts(int CellWidth, int CellHeight, Image Left, Image Right, Image Template,
-        (byte R, byte G, byte B) Surface, (byte R, byte G, byte B) Fill, (byte R, byte G, byte B)? Dot);
+        (byte R, byte G, byte B) Surface, (byte R, byte G, byte B) Fill);
 
     private static RingFacts Ring(string theme, string set, int width, int height)
     {
@@ -358,9 +345,8 @@ public sealed class TileSetTests
     {
         var shape = Shape(theme, set);
         var caps = RenderCaps.Invoke(null, [shape, Cell(width, height)])!;
-        var dot = shape.GetType().GetProperty("Dot")!.GetValue(shape) is Color c ? Rgb(c) : ((byte, byte, byte)?)null;
         return new CapFacts(width, height, ImageOf(Get<object>(Get<object>(caps, "Left"), "Image")), ImageOf(Get<object>(Get<object>(caps, "Right"), "Image")),
-            ImageOf(Get<object>(caps, "Template")), Rgb(Get<object>(shape, "Surface")), Rgb(Get<object>(shape, "Fill")), dot);
+            ImageOf(Get<object>(caps, "Template")), Rgb(Get<object>(shape, "Surface")), Rgb(Get<object>(shape, "Fill")));
     }
 
     private static object Shape(string theme, string set) =>

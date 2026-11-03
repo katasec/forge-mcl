@@ -20,7 +20,7 @@ public sealed partial class ChatScreenTileTests
     private const int Gutter = 4;
 
     // Set numbers (ScreenTiles order) and the cap slots.
-    private const int CardSet = 0, CodeBlockSet = 1, UserRingSet = 2, ComposerSet = 3, UserCapsSet = 4, ApprovedSet = 5, ToolSet = 6;
+    private const int CardSet = 0, CodeBlockSet = 1, UserRingSet = 2, ComposerSet = 3, UserCapsSet = 4, ToolSet = 6;
     private const int LeftSlot = 3, RightSlot = 4;
 
     [Fact]
@@ -143,13 +143,9 @@ public sealed partial class ChatScreenTileTests
     }
 
     [Fact]
-    public void The_header_shows_approved_between_its_caps()
+    public void The_header_has_no_approved_pill()
     {
-        var row = new Screen().Render()[0];
-        var start = Text(row).IndexOf("APPROVED", StringComparison.Ordinal);
-
-        Assert.Equal([(ApprovedSet, LeftSlot), (ApprovedSet, LeftSlot)], Tiles(row[(start - 2)..start]));
-        Assert.Equal([(ApprovedSet, RightSlot), (ApprovedSet, RightSlot)], Tiles(row[(start + 8)..(start + 10)]));
+        Assert.DoesNotContain("APPROVED", Text(new Screen().Render()[0]), StringComparison.Ordinal);
     }
 
     [Fact]
