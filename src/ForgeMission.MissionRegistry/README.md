@@ -8,7 +8,7 @@ the local `~/.forge` cache used by those pull operations.
 
 - `OciReference.Resolve` normalizes standard repository selectors against an explicit registry base; the existing `Parse` retains legacy `registry/name@reference` locators.
 - `OciExpertPuller` retrieves one expert document into the Forge cache.
-- `OciMissionPuller.PullVerifiedAsync` resolves every invocation through OciClient 0.5.0, verifies the layer and reads at most 32 MiB of regular tar entries into a fresh cache candidate. Absolute/traversal/duplicate paths, links, directories and devices are rejected. Existing content-keyed cache files must match the verified candidate.
+- `OciMissionPuller.PullVerifiedAsync` resolves every invocation through OciClient 0.5.0, verifies the layer and reads at most 32 MiB of regular tar entries into a fresh cache candidate. Absolute/traversal/duplicate paths, links, directories and devices are rejected. Entry modes are ignored: extracted files are created owner read/write, others read-only, and never carry an execute bit (0.1.2). Existing content-keyed cache files must match the verified candidate's bytes.
 - `ForgeCache` exposes the cache paths used by these operations.
 
 The package does not own a mission catalog, baked fallback content, hosted execution, or user

@@ -98,7 +98,7 @@ public static class DurableMissionPackageValidator
             {
                 Append(canonical, asset.Path); Append(canonical, asset.ContentType);
                 Append(canonical, asset.Bytes.Length.ToString(CultureInfo.InvariantCulture));
-                Append(canonical, asset.Sha256.ToLowerInvariant()); Append(canonical, asset.Executable ? "1" : "0");
+                Append(canonical, asset.Sha256.ToLowerInvariant());
             }
         }
         return Hash(Encoding.UTF8.GetBytes(canonical.ToString()));
@@ -206,6 +206,7 @@ public static class DurableMissionPackageValidator
 }
 
 public sealed record DurableResolvedExpertInput(string Name, string LockSource, string LockPath, string LockHash, string ExpertMarkdown);
+/// <param name="Executable">Ignored; not part of the hash. Deleted in Core 0.1.10 once Katasec.Forge.Client stops passing it (Phase 76 decision 5).</param>
 public sealed record DurableMissionAssetInput(string Path, string ContentType, byte[] Bytes, string Sha256, bool Executable = false);
 [method: JsonConstructor]
 public sealed record DurableMissionPackageInput(int FormatVersion, string PackageHash, string MissionSource,

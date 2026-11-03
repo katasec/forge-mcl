@@ -52,14 +52,19 @@ public static class OciMissionPuller
                 throw new InvalidDataException("Mission bundle contains an invalid path, duplicate, non-regular entry or exceeds its budget.");
             var path = Path.Combine(directory, Path.Combine(parts));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            await using var output = new FileStream(path, NewFileOptions());
             if (entry.DataStream is not null) await entry.DataStream.CopyToAsync(output, ct);
             if (output.Length != entry.Length) throw new InvalidDataException("Mission bundle entry length mismatch.");
-            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, entry.Mode & (UnixFileMode.UserRead | UnixFileMode.UserWrite |
-                UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute));
         }
         if (!names.Any(name => name == "mission.mcl")) throw new InvalidDataException("Mission bundle does not contain mission.mcl.");
     }
+
+    // Extracted files are never executable (Phase 76 decision 5): the entry's mode is ignored and every
+    // file is created owner read/write, others read-only, still reduced by the process umask.
+    private static FileStreamOptions NewFileOptions() => OperatingSystem.IsWindows()
+        ? new() { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None }
+        : new() { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None,
+            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead };
 
     internal static void RequireMatchingCache(string fresh, string cache)
     {
@@ -71,7 +76,7 @@ public static class OciMissionPuller
         foreach (var file in expected)
         {
             var stored = Path.Combine(cache, Path.GetRelativePath(fresh, file));
-            if (!File.Exists(stored) || new FileInfo(stored).Length != new FileInfo(file).Length || !SameExecutableMode(file, stored) || !SameBytes(file, stored))
+            if (!File.Exists(stored) || new FileInfo(stored).Length != new FileInfo(file).Length || !SameBytes(file, stored))
                 throw new InvalidDataException("Mission cache differs from verified content.");
         }
     }
@@ -91,13 +96,6 @@ public static class OciMissionPuller
             System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64
                 ? status.LinuxArm64Mode : status.LinuxX64Mode;
         if ((mode & 0xf000) != 0x8000) throw new InvalidDataException("Mission cache contains a non-regular file.");
-    }
-
-    private static bool SameExecutableMode(string first, string second)
-    {
-        if (OperatingSystem.IsWindows()) return true;
-        const UnixFileMode executable = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
-        return (File.GetUnixFileMode(first) & executable) == (File.GetUnixFileMode(second) & executable);
     }
 
     private static bool SameBytes(string first, string second)

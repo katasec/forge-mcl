@@ -118,22 +118,20 @@ public sealed class OciMissionPullerTests
     }
 
     [Fact]
-    public async Task Cache_RejectsDifferentExecutableMode()
+    public async Task Bundle_EntryMarkedExecutableExtractsWithoutAnyExecuteBit()
     {
         if (OperatingSystem.IsWindows()) return;
-        var root = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
-        var fresh = Path.Combine(root, "fresh");
-        var cache = Path.Combine(root, "cache");
+        var directory = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
+        const UnixFileMode executeOrShareWrite = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute
+            | UnixFileMode.GroupWrite | UnixFileMode.OtherWrite;
         try
         {
-            var bytes = Bundle(("mission.mcl", TarEntryType.RegularFile));
-            await OciMissionPuller.ExtractBundleAsync(bytes, fresh, default);
-            await OciMissionPuller.ExtractBundleAsync(bytes, cache, default);
-            var stored = Path.Combine(cache, "mission.mcl");
-            File.SetUnixFileMode(stored, File.GetUnixFileMode(stored) ^ UnixFileMode.UserExecute);
-            Assert.Throws<InvalidDataException>(() => OciMissionPuller.RequireMatchingCache(fresh, cache));
+            await OciMissionPuller.ExtractBundleAsync(Bundle(("mission.mcl", TarEntryType.RegularFile, (UnixFileMode)0x1FF)), directory, default);
+            var mode = File.GetUnixFileMode(Path.Combine(directory, "mission.mcl"));
+            Assert.Equal((UnixFileMode)0, mode & executeOrShareWrite);
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, mode & (UnixFileMode.UserRead | UnixFileMode.UserWrite));
         }
-        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
     [Fact]
@@ -160,13 +158,17 @@ public sealed class OciMissionPullerTests
     [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "mkfifo", SetLastError = true)]
     private static extern int MakeFifo(string path, uint mode);
     private static byte[] Bundle(params (string Path, TarEntryType Kind)[] items)
+        => Bundle(items.Select(item => (item.Path, item.Kind, (UnixFileMode?)null)).ToArray());
+
+    private static byte[] Bundle(params (string Path, TarEntryType Kind, UnixFileMode? Mode)[] items)
     {
         using var stream = new MemoryStream();
         using (var writer = new TarWriter(stream, leaveOpen: true))
         {
-            foreach (var (path, kind) in items)
+            foreach (var (path, kind, mode) in items)
             {
                 var entry = new PaxTarEntry(kind, path);
+                if (mode is { } entryMode) entry.Mode = entryMode;
                 if (kind == TarEntryType.RegularFile) entry.DataStream = new MemoryStream(Encoding.UTF8.GetBytes("payload"));
                 if (kind == TarEntryType.SymbolicLink) entry.LinkName = "mission.mcl";
                 writer.WriteEntry(entry);
