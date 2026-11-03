@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Runtime.Versioning;
+using System.Text.Json.Nodes;
 using ForgeMission.Tests.Cli.Harness;
 using static ForgeMission.Tests.Cli.ForgeText;
 
@@ -137,6 +139,84 @@ public sealed class ForgeConfigTests
 
         Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
         Assert.Equal(new ProxyAttempt("CONNECT", registry), harness.Proxy.Attempts[0]);
+    }
+
+    // Decision 8: on first use forge writes its defaults to ~/.forge/config.json and keeps what is
+    // already there. Every command gets this; --help is the cheapest one that runs no network call.
+    [Fact]
+    public async Task A_missing_config_file_is_written_with_the_defaults()
+    {
+        await using var harness = ForgeCliHarness.Start();
+
+        var result = await harness.RunAsync("--help");
+
+        Assert.Equal(0, result.ExitCode);
+        AssertConfig(harness, """{ "api": { "endpoint": "https://api.forge.katasec.com" }, "oci": { "endpoint": "ghcr.io/katasec" } }""");
+    }
+
+    // A present value is never overwritten, even blank; a section in another case is the same
+    // section; a section that is not an object is left alone. Only a missing endpoint is added.
+    [Theory]
+    [InlineData("""{ "theme": "light", "api": { "endpoint": "https://custom.example" } }""",
+        """{ "theme": "light", "api": { "endpoint": "https://custom.example" }, "oci": { "endpoint": "ghcr.io/katasec" } }""")]
+    [InlineData("""{ "Api": { "Endpoint": "https://custom.example" } }""",
+        """{ "Api": { "Endpoint": "https://custom.example" }, "oci": { "endpoint": "ghcr.io/katasec" } }""")]
+    [InlineData("""{ "api": { "endpoint": " " }, "oci": {} }""",
+        """{ "api": { "endpoint": " " }, "oci": { "endpoint": "ghcr.io/katasec" } }""")]
+    [InlineData("""{ "api": "text" }""",
+        """{ "api": "text", "oci": { "endpoint": "ghcr.io/katasec" } }""")]
+    public async Task An_existing_config_file_keeps_its_settings_and_gains_the_missing_defaults(string before, string after)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.WriteConfig(before);
+
+        await harness.RunAsync("--help");
+
+        AssertConfig(harness, after);
+    }
+
+    // Nothing to add, or nothing that parses: the file is not rewritten.
+    [Theory]
+    [InlineData("""{"api":{"endpoint":"a"},"oci":{"endpoint":"b"}}""")]
+    [InlineData("{ theme: ")]
+    public async Task A_complete_or_malformed_config_file_is_left_byte_for_byte(string contents)
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.WriteConfig(contents);
+
+        await harness.RunAsync("--help");
+
+        Assert.Equal(contents, File.ReadAllText(ConfigPath(harness)));
+    }
+
+    // forge needs its config file: when it cannot be written, forge stops before any command runs.
+    [SkippableFact]
+    [UnsupportedOSPlatform("windows")]
+    public async Task An_unwritable_config_file_stops_forge_at_startup()
+    {
+        Skip.If(OperatingSystem.IsWindows(), "The read-only directory is POSIX file modes.");
+        await using var harness = ForgeCliHarness.Start();
+        var directory = Path.Combine(harness.Home, ".forge");
+        File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            var result = await harness.RunAsync("project", "create");
+
+            Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
+            Assert.StartsWith($"error: Cannot update {ConfigPath(harness)}: ", result.StandardError.Trim());
+            Assert.Single(result.StandardError.Trim().Split('\n'));
+            Assert.Empty(harness.Proxy.Attempts);
+        }
+        finally
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private static void AssertConfig(ForgeCliHarness harness, string expected)
+    {
+        var actual = JsonNode.Parse(File.ReadAllText(ConfigPath(harness)));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected), actual), actual?.ToJsonString());
     }
 
     private static ForgeCliHarness StartInProject()

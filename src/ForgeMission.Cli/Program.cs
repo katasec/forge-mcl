@@ -45,6 +45,7 @@ static IHost BuildHost()
     var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
     builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
+    ForgeSettings.WriteDefaults(ForgeSettings.DefaultPath);
     builder.Configuration.AddJsonFile(ForgeSettings.DefaultPath, optional: true);
     builder.Services.AddOptions<ForgeSettings>().Bind(builder.Configuration);
     builder.Services.AddSingleton<IValidateOptions<ForgeSettings>, ForgeSettingsValidator>();
