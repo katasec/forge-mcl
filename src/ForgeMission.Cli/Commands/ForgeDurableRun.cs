@@ -11,10 +11,8 @@ namespace ForgeMission.Cli.Commands;
 // path, the same one forge chat uses (Phase 76 decision 2).
 internal static class ForgeDurableRun
 {
-    private const string OciBase = "ghcr.io/katasec";
-
     internal static async Task<int> RunAsync(IHttpClientFactory clients, string projectPath, string selector,
-        string prompt, CancellationToken ct)
+        string prompt, string ociBase, CancellationToken ct)
     {
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
@@ -26,7 +24,7 @@ internal static class ForgeDurableRun
         await using var app = ApplicationComposition.Create(clients, _ => { }, ct);
         try
         {
-            return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ct);
+            return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ociBase, ct);
         }
         // The caller's own cancellation propagates; every other failure is one error line.
         catch (Exception failure) when (!ct.IsCancellationRequested)
@@ -37,10 +35,10 @@ internal static class ForgeDurableRun
     }
 
     private static async Task<int> RunTurnAsync(ApplicationComposition app, string projectFile, string selector,
-        string prompt, CancellationToken ct)
+        string prompt, string ociBase, CancellationToken ct)
     {
         var package = await app.MissionConversations.PrepareSelectedPackageAsync(
-            selector, Directory.GetCurrentDirectory(), OciBase, ct);
+            selector, Directory.GetCurrentDirectory(), ociBase, ct);
         var report = new ImmediateProgress(message => Console.Error.WriteLine($"error: {message}"));
         var started = await app.MissionConversations.StartAsync(projectFile, package, report, ct);
         await using var conversation = started.Conversation

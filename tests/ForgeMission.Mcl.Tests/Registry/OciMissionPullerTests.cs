@@ -10,6 +10,7 @@ public sealed class OciMissionPullerTests
     [InlineData("ocr", "ghcr.io/katasec", "ghcr.io", "katasec/ocr", "latest")]
     [InlineData("team/ocr:V1", "ghcr.io/katasec", "ghcr.io", "katasec/team/ocr", "V1")]
     [InlineData("localhost:5000/team/ocr:1", "ghcr.io/katasec", "localhost:5000", "team/ocr", "1")]
+    [InlineData("ghcr.io/other/ocr:1", "registry.example.com/team", "ghcr.io", "other/ocr", "1")]
     public void Selector_ResolvesWithoutTreatingBareTagAsHost(string value, string origin, string host, string name, string tag)
         => Assert.Equal(new OciReference(host, name, tag), OciReference.Resolve(value, origin));
 
