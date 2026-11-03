@@ -80,8 +80,11 @@ public sealed class StartPageTests
         var theme = Theme("Dark");
         var header = Activator.CreateInstance(Type("ForgeMission.Cli.Tui.ChatHeader"), "chat", "Chat", 1, "anthropic", "ameer")!;
         var fonts = Fonts();
+        // The start page runs no turn, so the conversation handle is never opened.
+        var conversationType = tuiType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).Single().GetParameters()[1].ParameterType;
         var tui = Activator.CreateInstance(tuiType, BindingFlags.Instance | BindingFlags.NonPublic, null,
-            [null, Guid.NewGuid(), header, theme, fonts, null, new ConcurrentQueue<string>(), new CancellationTokenSource()], null)!;
+            [null, System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(conversationType), header, theme, fonts,
+                new ConcurrentQueue<string>(), new CancellationTokenSource()], null)!;
         var styles = Field(tui, "_styles");
         var screen = Field(tui, "_screen");
         var cell = Cell(19, 42);

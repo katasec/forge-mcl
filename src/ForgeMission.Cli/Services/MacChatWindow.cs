@@ -35,7 +35,7 @@ internal static class MacChatWindow
         return 1;
     }
 
-    internal static async Task<int> LaunchAsync(string? executable, bool hands, string projectFile,
+    internal static async Task<int> LaunchAsync(string? executable, string projectFile,
         string originalCwd, TextWriter output, TextWriter error,
         Func<ProcessStartInfo, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError)>>? start = null,
         CancellationToken cancellationToken = default)
@@ -53,7 +53,7 @@ internal static class MacChatWindow
 
         try
         {
-            var result = await (start ?? StartProcessAsync)(BuildOpenStartInfo(executable, hands,
+            var result = await (start ?? StartProcessAsync)(BuildOpenStartInfo(executable,
                 projectFile, originalCwd), cancellationToken);
             if (result.ExitCode != 0)
             {
@@ -98,13 +98,10 @@ internal static class MacChatWindow
         }
     }
 
-    internal static ProcessStartInfo BuildOpenStartInfo(string executable, bool hands, string projectFile,
+    internal static ProcessStartInfo BuildOpenStartInfo(string executable, string projectFile,
         string originalCwd)
     {
-        var argv = new List<string> { executable, "chat" };
-        if (hands)
-            argv.Add("--hands");
-        argv.AddRange(["--project", projectFile]);
+        var argv = new List<string> { executable, "chat", "--project", projectFile };
         var command = "shell:" + string.Join(" ", argv.Select(QuoteArgument));
         var start = new ProcessStartInfo("/usr/bin/open")
         {

@@ -49,9 +49,9 @@ behavior in forge-client.
 | [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
 | [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
 | [ForgeProject](Commands/ForgeProject.cs) | Explicit portable Project creation and hosted Chat setup through the shared Client. |
-| [ForgeChat](Commands/ForgeChat.cs) | Portable Project opening, hosted conversation reconnection, fresh hands approval/attachment, and terminal/line-mode selection. |
+| [ForgeChat](Commands/ForgeChat.cs) | `forge chat`: startup checks, continuing the Project's hosted chat through the shared Client, and terminal/line-mode presentation. |
 | [MacChatWindow](Services/MacChatWindow.cs) | Interactive Mac launch into a dedicated Ghostty instance, exact child context and visible request/child failures. |
-| [ChatHandsAttachment](Services/ChatHandsAttachment.cs) | Executes file requests for an acknowledged hands attachment off the conversation follow loop. |
+| [ImmediateProgress](Services/ImmediateProgress.cs) | Shows the shared Client's Hands reports at once, in order. |
 | [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (chat theme, API endpoint) bound by the CLI host. |
 
 ### Terminal UI — [Tui/](Tui)
@@ -119,13 +119,15 @@ flowchart LR
 
 ## Important flows and constraints
 
+- **One client path (Phase 76):** `forge run` and `forge chat` call the same Client code to open
+  the project, create or continue the conversation, attach Hands, submit one turn and follow it
+  (`StartAsync`/`ContinueChatAsync`, `ProjectConversation.RunTurnAsync`). They differ only as
+  surfaces. A missing project stops with the Client's one message naming `forge project create`.
 - **Run:** `forge run <mission.mcl|oci-ref> "<prompt>"` reads `./forge.project.json`, or the file
-  given by `--project <file>`. A missing project file stops with exit 1 before sign-in or any
-  network call. The run is a cloud conversation in the Conversation Host, readable after the CLI
-  exits. Hands is on and rooted at the project folder: agent experts may Read/Write/Edit there,
-  with no terminal tools; Hands owns path and symlink containment. The run's mission must be
-  declared as `<Mission>@1` in the project file. The final answer goes to stdout; diagnostics and
-  the conversation ID go to stderr.
+  given by `--project <file>`, and starts a new conversation each launch. The run is a cloud
+  conversation in the Conversation Host, readable after the CLI exits. Hands is on and rooted at the project folder: agent experts may Read/Write/Edit there,
+  with no terminal tools; Hands owns path and symlink containment. The final answer goes to
+  stdout; diagnostics and the conversation ID go to stderr.
 
 - **Composition:** `Program` wires existing owners. Provider, Docker, search, and HTTP behavior
   belong in [Chat Clients](../ForgeMission.ChatClients/README.md),
@@ -133,26 +135,23 @@ flowchart LR
   [Serve](../ForgeMission.Serve/README.md); OCI retrieval belongs in
   [Mission Registry](../ForgeMission.MissionRegistry/README.md).
 - **Project creation:** `forge project create [folder]` initializes one portable declaration and one hosted plain Chat conversation. The folder defaults to cwd and must exist. Saved sign-in is required before creation; Projects and Missions own all file, package, admission and retry rules. Explicit retry preserves the same Project and conversation.
-- **Chat modes:** `forge chat` reads `forge.project.json` in the current directory, or the
-  explicit file selected by `--project <file>`, with any filename. Directories
-  and missing declarations stop before configuration, sign-in or network
-  setup; chat creates no Project and searches no ancestors. Plain and `--hands` select separate
-  declared missions (`Chat` and `ChatHands`) and reconnect to the latest matching hosted chat.
+- **Chat:** `forge chat` reads `forge.project.json` in the current directory, or the
+  explicit file selected by `--project <file>`, with any filename, and continues the Project's
+  one hosted chat. A directory stops before configuration, sign-in or network setup; chat creates
+  no Project and searches no ancestors.
 - **Portable files:** `forge.project.json` carries the stable `projectId`, mission/version
   references and relative repository folders. Chat requires neither `mcl.lock` nor private
   authoring state. The authenticated hosted pin supplies its package and provider profile;
   missing or ambiguous hosted references fail explicitly instead of publishing a starter.
-  Plain chat requires `NoHands`; `--hands` requires `ProjectWorkspace`. A different hosted profile
-  is refused before consent or attachment; this command does not grant terminal access.
 - **Profile projection:** Client records reconstructable `session.json` and `messages.jsonl`
   under `<user-home>/.forge/sessions/<projectId>/<conversationId>`, using platform profile
   discovery. Chat always displays hosted history from zero; it never reads these files for
   selection, display or authorization. A projection-write failure shows a notice while hosted
   chat continues. TUI notices are queued and shown on the UI loop, never written into its terminal.
-- **Hands:** Every launch requires fresh terminal approval. Piped runs cannot grant it. Bob
-  attaches only after acknowledging the authenticated hosted pin and gets files in the admitted
-  Project workspace, without terminal capability. The TUI executes hands requests only for this
-  window's turn.
+- **Hands:** Always attached by the Client when the conversation opens; there is no flag or
+  prompt. Bob gets files in the admitted Project workspace. Hands reports print as `error: …`
+  (stderr for run, stdout in line-mode chat, a notice in the TUI). The TUI feeds Hands this
+  window's turn and a turn already running when it opens.
 - **Terminal:** TUI mode requires both stdin and stdout to be terminals, kitty graphics,
   truecolor, and no multiplexer. Environment checks and font loading precede sign-in; the first
   UI tick checks cell size. Unsupported terminals fail explicitly. Shift+Enter needs kitty keyboard support.

@@ -10,12 +10,13 @@ namespace ForgeMission.Tests.Cli;
 
 // forge run --project (Phase 76, Hands by default): the durable run opens the project, attaches
 // Hands rooted at the project folder before it submits the turn, and feeds the followed events
-// to the attachment. The CLI is loaded through reflection like the other CLI tests.
+// to the attachment. The CLI is loaded through reflection like the other CLI tests. The output
+// pins capture the console, so the class runs in the console collection.
+[Collection(ConsoleCollection.Name)]
 public sealed class ForgeDurableRunTests : IDisposable
 {
     private const string Source = "mission Review(task) = {\n  Researcher\n}\n";
     private const string Expert = "---\nname: Researcher\nkind: llm\ninput: task\noutput: answer\n---\n{{task}}";
-    private static readonly Type ChatType = ForgeText.Type("ForgeMission.Cli.Commands.ForgeChat");
     private static readonly MethodInfo RunTurn = ForgeText.Type("ForgeMission.Cli.Commands.ForgeDurableRun")
         .GetMethod("RunTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
     private static readonly MethodInfo RunProject = ForgeText.Type("ForgeMission.Cli.Commands.HostedMissionCommands")
@@ -72,23 +73,80 @@ public sealed class ForgeDurableRunTests : IDisposable
         Assert.Equal(Path.Combine(_home, "forge.project.json"), RunProject.Invoke(null, [null, _home]));
     }
 
-    // Every run needs a project file: without one, forge run stops before sign-in or any network call.
+    // Every run needs a project file. Deliberate (Phase 76 decision 2b): forge-client's shared open
+    // reports it with its one message, after sign-in and package preparation, before any network call.
     [Fact]
     public async Task A_run_without_a_project_file_stops_with_a_clear_message()
     {
         await using var harness = ForgeCliHarness.Start();
         harness.SignIn("https://example.invalid");
-        // The process sees the temp folder through resolved symlinks (/private/var on macOS), so the
-        // message is pinned by its folder-relative end rather than the full path.
-        var projectFile = Path.Combine(Path.GetFileName(harness.WorkingDirectory), "forge.project.json");
+        var directory = harness.WorkingDirectory;
+        Directory.CreateDirectory(Path.Combine(directory, "experts", "Researcher"));
+        await File.WriteAllTextAsync(Path.Combine(directory, "m.mcl"), Source);
+        await File.WriteAllTextAsync(Path.Combine(directory, "experts", "Researcher", "expert.md"), Expert);
 
         var result = await harness.RunAsync("run", "./m.mcl", "hello");
 
         Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
-        var error = result.StandardError.Trim();
-        Assert.StartsWith("Project file not found: /", error);
-        Assert.EndsWith($"/{projectFile}. Run `forge project create`.", error);
+        Assert.Equal("run failed: No forge.project.json found in the current directory. Run `forge project create` to create one.",
+            result.StandardError.Trim());
         Assert.Empty(harness.Proxy.Attempts);
+    }
+
+    // Output pins (Phase 76 M0): what forge run prints, kept while it moves to the shared client path.
+    [Fact]
+    public async Task A_reply_is_printed_on_stdout_and_the_conversation_on_stderr()
+    {
+        using var host = new RunHost(_projectId);
+        using var console = new ConsoleCapture();
+
+        var exit = await RunTurnAsync(host);
+
+        Assert.Equal((0, "done\n"), (exit, console.Out));
+        Assert.Equal($"conversation: {host.ConversationId}\n", WithoutHandsNotice(console.Error));
+    }
+
+    [Fact]
+    public async Task A_turn_without_a_reply_prints_only_the_conversation_and_exits_1()
+    {
+        using var host = new RunHost(_projectId, turnEvents: []);
+        using var console = new ConsoleCapture();
+
+        var exit = await RunTurnAsync(host);
+
+        Assert.Equal((1, "", $"conversation: {host.ConversationId}\n"), (exit, console.Out, WithoutHandsNotice(console.Error)));
+    }
+
+    [Fact]
+    public async Task An_error_event_prints_its_reason_or_else_its_text_on_stderr()
+    {
+        using var host = new RunHost(_projectId, turnEvents:
+        [
+            (ConversationEventKind.Error, "error text", "error reason"),
+            (ConversationEventKind.Error, "text only", null),
+            (ConversationEventKind.ParticipantMessage, "done", null),
+        ]);
+        using var console = new ConsoleCapture();
+
+        var exit = await RunTurnAsync(host);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("done\n", console.Out);
+        Assert.Equal($"error: error reason\nerror: text only\nconversation: {host.ConversationId}\n", WithoutHandsNotice(console.Error));
+    }
+
+    /// <summary>The controlled Host's claim finds no work, and the attachment reports that on
+    /// stderr at a time of its own; the pins compare the rest.</summary>
+    private static string WithoutHandsNotice(string error) =>
+        string.Join("", error.Split('\n').Where(line => !line.StartsWith("error: file operation", StringComparison.Ordinal))
+            .Select(line => line.Length == 0 ? "" : line + "\n"));
+
+    private async Task<int> RunTurnAsync(RunHost host)
+    {
+        var projectFile = await WriteProjectAsync("Review@1");
+        await using var app = CreateApp(host);
+        return await (Task<int>)RunTurn.Invoke(null,
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", CancellationToken.None])!;
     }
 
     private async Task<string> WriteProjectAsync(string mission)
@@ -107,19 +165,23 @@ public sealed class ForgeDurableRunTests : IDisposable
     {
         var appType = RunTurn.GetParameters()[0].ParameterType;
         var create = appType.GetMethod("Create")!;
-        var publishType = create.GetParameters()[3].ParameterType;
+        var publishType = create.GetParameters()[1].ParameterType;
         var publish = typeof(ForgeDurableRunTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
             .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
-        var policy = ChatType.GetMethod("PolicyFor", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [true]);
-        return (IAsyncDisposable)create.Invoke(null, [host, null, policy, publish, CancellationToken.None])!;
+        return (IAsyncDisposable)create.Invoke(null, [host, publish, CancellationToken.None])!;
     }
 
     private static void IgnoreEvents<T>(T item) { }
 
     // A controlled Host for one run. The event stream sends a Hands request, then holds the turn
     // open until the attachment claims it, so the claim proves the event reached the attachment.
-    private sealed class RunHost(Guid projectId) : HttpMessageHandler, IHttpClientFactory
+    // The turn's events (by default one reply, "done") follow, then the run completes.
+    private sealed class RunHost(Guid projectId,
+        IReadOnlyList<(ConversationEventKind Kind, string? Text, string? Reason)>? turnEvents = null)
+        : HttpMessageHandler, IHttpClientFactory
     {
+        private readonly IReadOnlyList<(ConversationEventKind Kind, string? Text, string? Reason)> _turnEvents =
+            turnEvents ?? [(ConversationEventKind.ParticipantMessage, "done", null)];
         private readonly TaskCompletionSource _claimed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Lock _gate = new();
         private readonly List<string> _requests = [];
@@ -127,6 +189,8 @@ public sealed class ForgeDurableRunTests : IDisposable
         private Guid _attemptId;
 
         public DurableMissionLaunch? Launch { get; private set; }
+
+        public Guid ConversationId => _conversationId;
 
         public List<string> Requests
         {
@@ -180,21 +244,23 @@ public sealed class ForgeDurableRunTests : IDisposable
             var pipe = new Pipe();
             _ = Task.Run(async () =>
             {
-                await WriteEventAsync(pipe.Writer, 3, ConversationEventKind.MissionHandsRequested, null, null);
+                await WriteEventAsync(pipe.Writer, 3, ConversationEventKind.MissionHandsRequested, null, null, null);
                 // Without a claim the turn still ends, so the test fails on its assertion, not a hang.
                 await Task.WhenAny(_claimed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
-                await WriteEventAsync(pipe.Writer, 4, ConversationEventKind.ParticipantMessage, "done", null);
-                await WriteEventAsync(pipe.Writer, 5, ConversationEventKind.RunStatus, null, ConversationRunStatus.Completed);
+                var sequence = 4L;
+                foreach (var (kind, text, reason) in _turnEvents)
+                    await WriteEventAsync(pipe.Writer, sequence++, kind, text, reason, null);
+                await WriteEventAsync(pipe.Writer, sequence, ConversationEventKind.RunStatus, null, null, ConversationRunStatus.Completed);
                 await pipe.Writer.CompleteAsync();
             });
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(pipe.Reader.AsStream()) };
         }
 
         private async Task WriteEventAsync(PipeWriter writer, long sequence, ConversationEventKind kind, string? text,
-            ConversationRunStatus? status)
+            string? reason, ConversationRunStatus? status)
         {
             var item = new ConversationEvent(Guid.NewGuid(), 1, _conversationId, _attemptId, sequence, kind,
-                ConversationParticipant.User, null, text, null, null, null, null, null, status, DateTimeOffset.UtcNow);
+                ConversationParticipant.User, null, text, reason, null, null, null, null, status, DateTimeOffset.UtcNow);
             var json = JsonSerializer.Serialize(item, ConversationContractsJsonContext.Default.ConversationEvent);
             await writer.WriteAsync(Encoding.UTF8.GetBytes($"data: {json}\n\n"));
         }

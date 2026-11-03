@@ -4,7 +4,6 @@ using System.Text;
 using System.Text.Json;
 using ForgeMission.Application.Transport;
 using ForgeMission.Core.Resolution;
-using ForgeMission.Core.Tools;
 using ForgeMission.Conversations.Contracts;
 using ForgeMission.Tests.Cli.Harness;
 
@@ -12,31 +11,35 @@ namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeProjectTests
 {
+    // Phase 76 (decision 2b): project create makes the one tool-capable chat, admitted with the
+    // project folder as its workspace, and forge chat continues it through ContinueChatAsync.
     [Fact]
-    public async Task Published_client_creates_opens_and_reconnects_chat_against_current_core()
+    public async Task Published_client_creates_and_continues_chat_against_current_core()
     {
         var root = Directory.CreateTempSubdirectory("forge-published-client-").FullName;
         using var host = new ChatProjectHost();
         try
         {
             var application = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(RunCore.DeclaringType!.Assembly.Location)!, "ForgeMission.Application.dll"));
-            Assert.Equal(new Version(0, 14, 0, 0), application.GetName().Version);
+            Assert.Equal(new Version(0, 15, 0, 0), application.GetName().Version);
             var composition = application.GetType("ForgeMission.Application.ApplicationComposition", true)!;
             await using var app = (IAsyncDisposable)composition.GetMethod("Create")!.Invoke(null,
-                [host, null, new CapabilityAuthorizationPolicy([], null), (Action<ApplicationEvent>)(_ => { }), CancellationToken.None])!;
+                [host, (Action<ApplicationEvent>)(_ => { }), CancellationToken.None])!;
             var conversations = composition.GetProperty("MissionConversations")!.GetValue(app)!;
-            var created = await ClientAction<CreateChatProjectResponse>(conversations, "CreateChatProjectAsync", new CreateChatProjectRequest(root));
+            var created = await ClientAction<CreateChatProjectResponse>(conversations, "CreateChatProjectAsync",
+                new CreateChatProjectRequest(root), CancellationToken.None);
             Assert.Null(created.Error);
             Assert.NotNull(created.Created);
-            var projects = composition.GetProperty("Projects")!.GetValue(app)!;
-            var opened = await ClientAction<ProjectOperationResponse>(projects, "OpenChatAsync", new ProjectOpenRequest(root, "Chat"));
-            Assert.Equal(ProjectOperationOutcome.Opened, opened.Outcome);
-            Assert.Empty(opened.Session!.AvailableCapabilities);
-            var connected = await ClientAction<ReconnectMissionConversationResponse>(conversations, "ReconnectAsync",
-                new ReconnectMissionConversationRequest(opened.Session.SessionId, "Chat"));
-            Assert.Null(connected.Error);
-            Assert.Equal(created.Created.ConversationId, connected.Conversation!.ConversationId);
-            Assert.Equal(["/api/CreateMissionConversation", "/api/ListMissionConversations", "/api/GetConversation"], host.Requests);
+            Assert.Equal(MissionHandsProfile.ProjectWorkspace, host.Created!.Launch.Profile);
+            var projectFile = Path.Combine(root, "forge.project.json");
+            using (var declaration = JsonDocument.Parse(await File.ReadAllTextAsync(projectFile)))
+                Assert.Equal(["."], declaration.RootElement.GetProperty("folders").EnumerateArray().Select(folder => folder.GetString()));
+
+            var opened = await ClientResult(conversations, "ContinueChatAsync", projectFile, new Progress<string>(), CancellationToken.None);
+            Assert.Null(opened.GetType().GetProperty("Error")!.GetValue(opened));
+            await using var conversation = (IAsyncDisposable)opened.GetType().GetProperty("Conversation")!.GetValue(opened)!;
+            Assert.Equal(created.Created.ConversationId, conversation.GetType().GetProperty("ConversationId")!.GetValue(conversation));
+            Assert.Equal(["/api/CreateMissionConversation", "/api/GetConversation"], host.Requests.Take(2));
             Assert.Equal(["forge.project.json"], Directory.GetFiles(root).Select(Path.GetFileName));
             Assert.Empty(Directory.GetDirectories(root));
         }
@@ -52,8 +55,17 @@ public sealed class ForgeProjectTests
         }
     }
 
-    private static Task<T> ClientAction<T>(object owner, string method, object request) =>
-        (Task<T>)owner.GetType().GetMethod(method)!.Invoke(owner, [request, CancellationToken.None])!;
+    private static async Task<T> ClientAction<T>(object owner, string method, params object[] arguments) =>
+        (T)await ClientResult(owner, method, arguments);
+
+    /// <summary>Calls a client action and returns its task's result (the result type may be one the
+    /// tests do not reference).</summary>
+    private static async Task<object> ClientResult(object owner, string method, params object[] arguments)
+    {
+        var task = (Task)owner.GetType().GetMethod(method)!.Invoke(owner, arguments)!;
+        await task;
+        return task.GetType().GetProperty("Result")!.GetValue(task)!;
+    }
 
     private sealed class ChatProjectHost : HttpMessageHandler, IHttpClientFactory
     {
@@ -75,11 +87,9 @@ public sealed class ForgeProjectTests
             {
                 "/api/CreateMissionConversation" => JsonSerializer.Serialize(new ForgeMission.Conversations.Contracts.CreateMissionConversationResponse(conversationId, 1, created.Launch),
                     ConversationContractsJsonContext.Default.CreateMissionConversationResponse),
-                "/api/ListMissionConversations" => JsonSerializer.Serialize(new ForgeMission.Conversations.Contracts.ListMissionConversationsResponse(
-                    [new MissionConversationSummary(conversationId, created.ProjectId, created.Launch, snapshot.Status, 0, snapshot.UpdatedAtUtc)]),
-                    ConversationContractsJsonContext.Default.ListMissionConversationsResponse),
                 "/api/GetConversation" => JsonSerializer.Serialize(new GetConversationResponse(snapshot), ConversationContractsJsonContext.Default.GetConversationResponse),
-                _ => throw new InvalidOperationException($"Unexpected ABI regression request: {route}"),
+                // Every Hands route of the open: the attachment waits for work.
+                _ => "{\"status\":\"awaitingHands\"}",
             };
             return new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Reflection;
 using ForgeMission.Tests.TerminalInteraction;
 using XenoAtom.Terminal;
@@ -1014,17 +1015,20 @@ public sealed class TextInteractionTests
     {
         const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic;
         var type = ForgeText.Type("ForgeMission.Cli.Tui.ChatTui");
-        var serviceType = type.GetConstructors(fields).Single().GetParameters()[0].ParameterType;
-        var service = DispatchProxy.Create(serviceType, typeof(ChatTranscriptTests.StreamingConversations));
+        var parameters = type.GetConstructors(fields).Single().GetParameters();
+        var service = DispatchProxy.Create(parameters[0].ParameterType, typeof(ChatTranscriptTests.StreamingConversations));
+        // These tests run no turn, so the conversation handle is never opened.
+        var conversation = RuntimeHelpers.GetUninitializedObject(parameters[1].ParameterType);
         var styles = ForgeText.Styles(theme);
-        var tui = New("ChatTui", service, Guid.NewGuid(), New("ChatHeader", "chat", "Chat", 1, "anthropic", "ameer"),
-            ForgeText.Theme(theme), ForgeText.Fonts(), null, new System.Collections.Concurrent.ConcurrentQueue<string>(), session);
+        var tui = New("ChatTui", service, conversation, New("ChatHeader", "chat", "Chat", 1, "anthropic", "ameer"),
+            ForgeText.Theme(theme), ForgeText.Fonts(), new System.Collections.Concurrent.ConcurrentQueue<string>(), session);
         var screen = type.GetField("_screen", fields)!.GetValue(tui)!;
         var cell = ForgeText.Cell(10, 20);
         var tiles = ForgeText.Type("ForgeMission.Cli.Tui.ScreenTiles").GetMethod("Create")!.Invoke(null, [styles, cell])!;
         Call(screen, "UseImages", tiles, ChatScreenTileTests.TextImagesFor(styles, cell));
         Call(screen, "ShowChat");
-        type.GetField("_submitting", fields)!.SetValue(tui, true);
+        // This window has a turn of its own, so a Ctrl-C that copies nothing asks to stop it.
+        type.GetField("_ownTurn", fields)!.SetValue(tui, new CancellationTokenSource());
         return (tui, screen, Property(screen, "Interaction"), (TextEditorBase)Property(screen, "Composer"), (Visual)Property(screen, "Root"));
     }
 
