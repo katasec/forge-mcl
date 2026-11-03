@@ -47,18 +47,17 @@ public sealed class ForgeDurableRunTests : IDisposable
     }
 
     [Fact]
-    public async Task A_mission_not_declared_in_the_project_stops_before_any_conversation_is_created()
+    public async Task Any_mission_runs_and_an_old_missions_key_is_ignored()
     {
         var projectFile = await WriteProjectAsync("Other@1");
         using var host = new RunHost(_projectId);
         await using var app = CreateApp(host);
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", CancellationToken.None])!);
+        var exit = await (Task<int>)RunTurn.Invoke(null,
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", CancellationToken.None])!;
 
-        Assert.Contains("No declared mission reference exists for Review.", failure.Message, StringComparison.Ordinal);
-        Assert.Contains($"Declare Review@1 in {projectFile}.", failure.Message, StringComparison.Ordinal);
-        Assert.Empty(host.Requests);
+        Assert.Equal(0, exit);
+        Assert.Contains("/api/CreateMissionConversation", host.Requests);
     }
 
     [Fact]

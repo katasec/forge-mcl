@@ -16,7 +16,7 @@ internal sealed class StartPage
         List = new OptionList<OptionListItem>(
             [
                 Row(styles, "Create a mission", "Write and evaluate a reusable mission version, then approve it for use."),
-                Row(styles, "Chat with a mission", "Start a durable chat on an approved mission version. It stays pinned to that version."),
+                Row(styles, "Chat with a mission", "Start a durable chat with a mission."),
             ],
             ChatIndex)
             .ActivateOnClick(true)

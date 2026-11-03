@@ -47,9 +47,8 @@ internal sealed class ChatScreen
     private readonly Func<long> _clock;
     private readonly ForgeStyles _styles;
     private readonly ChatHeader _header;
-    // Filled by UseImages: the brand and breadcrumb, the APPROVED pill, the composer's frame, the key bar.
+    // Filled by UseImages: the brand and breadcrumb, the composer's frame, the key bar.
     private readonly Padder _brandSlot = new();
-    private readonly Padder _approvedSlot = new();
     private readonly Padder _composerSlot = new() { HorizontalAlignment = Align.Stretch };
     private readonly Padder _keysSlot = new();
     private readonly DockLayout _dock;
@@ -144,7 +143,6 @@ internal sealed class ChatScreen
         _brandSlot.Content = new HStack(
             Image(TextKind.Brand, "forge", _styles.HeaderFill),
             Crumb(_header.Project, _header.Mission)).Spacing(_styles.BrandGapCols);
-        _approvedSlot.Content = PillOf("APPROVED", _styles.Approved, tiles.Approved);
         _composerSlot.Padding = new Thickness(Gutter(tiles.Composer), 0, Gutter(tiles.Composer), 0);
         _composerSlot.Content = new TileFrame(ComposerWithSend(), tiles.Composer, _styles.ComposerFill, Align.Stretch);
         _keysSlot.Content = KeyBar(ChatKeys);
@@ -436,9 +434,7 @@ internal sealed class ChatScreen
     private Visual BuildHeader(ChatHeader header) => new Header()
         .Left(new Padder(_brandSlot).Padding(new Thickness(1, 0, 0, 0)))
         .Right(new Padder(new HStack(
-                new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · ") { IsSelectable = false }.Style(_styles.Label),
-                _approvedSlot,
-                new TextBlock($" · {header.Profile}") { IsSelectable = false }.Style(_styles.Label))).Padding(new Thickness(0, 0, 1, 0)))
+                new TextBlock($"{header.Mission.ToUpperInvariant()} · V{header.Version} · {header.Profile}") { IsSelectable = false }.Style(_styles.Label))).Padding(new Thickness(0, 0, 1, 0)))
         .Style(_styles.Header);
 
     private PromptEditor BuildComposer(ChatHeader header)

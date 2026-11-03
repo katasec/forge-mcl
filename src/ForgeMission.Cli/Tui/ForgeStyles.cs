@@ -43,13 +43,6 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public TextBlockStyle Label { get; } = Foreground(theme.TextMuted);
 
-    /// <summary>The APPROVED pill: Success text on SuccessFill between caps with the status dot.</summary>
-    public Pill Approved { get; } = new(
-        TextBlockStyle.Default with { Foreground = theme.Success, Background = theme.SuccessFill },
-        Style.None.WithBackground(theme.SuccessFill));
-
-    public CapShape ApprovedCaps { get; } = new(theme.SurfaceHeader, theme.SuccessFill, theme.Success, theme.PillDotDiameter);
-
     public RuleStyle Divider { get; } = RuleStyle.Default with { LineStyle = Style.None.WithForeground(theme.Border) };
 
     // ── Transcript ──────────────────────────────────────────────────────────────────────────
@@ -59,7 +52,7 @@ internal sealed class ForgeStyles(ForgeTheme theme)
 
     public Style UserFill { get; } = Style.None.WithBackground(theme.UserPillFill);
 
-    public CapShape UserCaps { get; } = new(theme.Surface, theme.UserPillFill, null, 0);
+    public CapShape UserCaps { get; } = new(theme.Surface, theme.UserPillFill);
 
     /// <summary>A multi-line user message: radius 14, fill only (no border, no shadow).</summary>
     public RingShape UserShape { get; } = new(theme.Surface, theme.UserPillFill, theme.UserPillFill, theme.UserRadius, 0,
@@ -70,7 +63,7 @@ internal sealed class ForgeStyles(ForgeTheme theme)
         TextBlockStyle.Default with { Foreground = theme.TextMuted, Background = theme.ToolFill },
         Style.None.WithBackground(theme.ToolFill));
 
-    public CapShape ToolCaps { get; } = new(theme.Surface, theme.ToolFill, null, 0);
+    public CapShape ToolCaps { get; } = new(theme.Surface, theme.ToolFill);
 
     /// <summary>The widest a user message may be, as a share of the transcript.</summary>
     public double UserMaxWidthPercent => ForgeTheme.UserMaxWidthPercent;
