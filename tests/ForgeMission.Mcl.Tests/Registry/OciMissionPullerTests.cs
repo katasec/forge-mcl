@@ -37,6 +37,38 @@ public sealed class OciMissionPullerTests
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
+    // The published ghcr.io/katasec/forge-mission-vanilla:0.2.0 bundle layer, made with plain tar:
+    // it carries experts/ and experts/Answerer/ directory entries besides its files.
+    [Fact]
+    public async Task Bundle_PublishedVanillaLayerWithDirectoryEntriesExtracts()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var layer = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "oci", "forge-mission-vanilla-0.2.0.tar"));
+            await OciMissionPuller.ExtractBundleAsync(layer, directory, default);
+            Assert.Equal(["experts/Answerer/expert.md", "forge.toml", "mcl.lock", "mission.mcl"],
+                Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
+                    .Select(file => Path.GetRelativePath(directory, file).Replace('\\', '/')).Order(StringComparer.Ordinal));
+            Assert.StartsWith("mission Vanilla(goal)", await File.ReadAllTextAsync(Path.Combine(directory, "mission.mcl")));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Bundle_SkipsStandardTarDirectoryEntriesAndExtractsTheirFiles()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await OciMissionPuller.ExtractBundleAsync(Bundle(("experts/", TarEntryType.Directory), ("experts/Answerer/", TarEntryType.Directory),
+                ("experts/Answerer/expert.md", TarEntryType.RegularFile), ("mission.mcl", TarEntryType.RegularFile)), directory, default);
+            Assert.Equal("payload", await File.ReadAllTextAsync(Path.Combine(directory, "experts/Answerer/expert.md")));
+            Assert.Equal(["expert.md", "mission.mcl"], Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Select(Path.GetFileName).Order());
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
     [Fact]
     public async Task VerifiedPull_RejectsDirectlyConstructedTraversalBeforeNetworkOrCacheWrites()
     {
@@ -52,7 +84,9 @@ public sealed class OciMissionPullerTests
     [InlineData("Mission.mcl", TarEntryType.RegularFile)]
     [InlineData("link", TarEntryType.SymbolicLink)]
     [InlineData("fifo", TarEntryType.Fifo)]
-    [InlineData("folder/", TarEntryType.Directory)]
+    [InlineData("../folder/", TarEntryType.Directory)]
+    [InlineData("folder/../", TarEntryType.Directory)]
+    [InlineData("folder//", TarEntryType.Directory)]
     public async Task Bundle_RejectsTraversalDuplicateAndNonRegularEntries(string path, TarEntryType kind)
     {
         var directory = Path.Combine(Path.GetTempPath(), "forge-registry-" + Guid.NewGuid().ToString("N"));
