@@ -211,7 +211,7 @@ public static class ForgeChat
         {
             if (item.Kind != ConversationEventKind.ParticipantDelta && item.Sequence <= printed) return;
             printed = Math.Max(printed, item.Sequence);
-            lastReply = Print(item, lastReply);
+            lastReply = Print(item, lastReply, Console.Out);
         };
         await ReplayAsync(conversations, conversation.ConversationId, 0, snapshot.LastSequence, print, cancellationToken);
         await conversation.ResumeAsync(print, cancellationToken);
@@ -303,37 +303,38 @@ public static class ForgeChat
 
     // ── Output and rules ────────────────────────────────────────────────────────────────────
 
-    /// <summary>Prints one event; returns the last reply text printed, so a final result that
-    /// repeats it (<see cref="Transcript.RepeatsLastReply"/>) is printed once.</summary>
-    private static string? Print(ConversationEvent item, string? lastReply)
+    /// <summary>Prints one event to <paramref name="output"/>; returns the last reply text printed, so a
+    /// final result that repeats it (<see cref="Transcript.RepeatsLastReply"/>) is printed once.
+    /// forge run --verbose uses it too, on stderr.</summary>
+    internal static string? Print(ConversationEvent item, string? lastReply, TextWriter output)
     {
         if (Transcript.RepeatsLastReply(lastReply, item)) return lastReply;
         switch (item.Kind)
         {
             // Phase 59: every message shows when it was sent, a live echo of a typed line too.
             case ConversationEventKind.UserMessage:
-                Console.WriteLine($"you · {Transcript.TimeOf(item.OccurredAtUtc)}> {item.Text}");
+                output.WriteLine($"you · {Transcript.TimeOf(item.OccurredAtUtc)}> {item.Text}");
                 break;
             case ConversationEventKind.ParticipantStarted:
-                Console.WriteLine($"[{item.Text} · {Transcript.TimeOf(item.OccurredAtUtc)}]");
+                output.WriteLine($"[{item.Text} · {Transcript.TimeOf(item.OccurredAtUtc)}]");
                 break;
             case ConversationEventKind.ParticipantMessage:
-                Console.WriteLine(item.Text);
-                Console.WriteLine();
+                output.WriteLine(item.Text);
+                output.WriteLine();
                 return item.Text ?? "";
             case ConversationEventKind.Error:
-                Console.WriteLine($"error: {item.Reason ?? item.Text}");
+                output.WriteLine($"error: {item.Reason ?? item.Text}");
                 break;
             // H8: one line per tool use; the outcome completes the line its request started.
             case ConversationEventKind.MissionHandsRequested:
-                Console.Write(Transcript.HandsLabel(item));
+                output.Write(Transcript.HandsLabel(item));
                 break;
             case ConversationEventKind.MissionHandsResult or ConversationEventKind.MissionHandsCancelled or
                 ConversationEventKind.MissionHandsInterrupted:
-                Console.WriteLine($" → {Transcript.HandsOutcome(item)}");
+                output.WriteLine($" → {Transcript.HandsOutcome(item)}");
                 break;
             case ConversationEventKind.RunStatus when item.RunStatus is { } status && IsTerminal(status) && status != ConversationRunStatus.Completed:
-                Console.WriteLine($"(run {status.ToString().ToLowerInvariant()})");
+                output.WriteLine($"(run {status.ToString().ToLowerInvariant()})");
                 break;
         }
         return lastReply;

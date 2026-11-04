@@ -37,7 +37,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         await using var app = CreateApp(host);
 
         var exit = await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", false, CancellationToken.None])!;
 
         Assert.Equal(0, exit);
         var routes = host.Requests;
@@ -55,7 +55,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         await using var app = CreateApp(host);
 
         var exit = await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", false, CancellationToken.None])!;
 
         Assert.Equal(0, exit);
         Assert.Contains("/api/CreateMissionConversation", host.Requests);
@@ -135,18 +135,45 @@ public sealed class ForgeDurableRunTests : IDisposable
         Assert.Equal($"error: error reason\nerror: text only\nconversation: {host.ConversationId}\n", WithoutHandsNotice(console.Error));
     }
 
+    // --verbose renders the turn with chat's line-mode formatter on stderr; stdout stays the answer.
+    [Fact]
+    public async Task Verbose_prints_the_expert_steps_and_errors_once_on_stderr_and_the_same_stdout()
+    {
+        using var host = new RunHost(_projectId, turnEvents:
+        [
+            (ConversationEventKind.ParticipantStarted, "Researcher", null),
+            (ConversationEventKind.Error, "text only", null),
+            (ConversationEventKind.ParticipantMessage, "done", null),
+        ]);
+        using var console = new ConsoleCapture();
+
+        var exit = await RunTurnAsync(host, verbose: true);
+
+        Assert.Equal((0, "done\n"), (exit, console.Out));
+        // The attachment's own notice lands on stderr at a time of its own, so the pin checks
+        // order and count rather than the exact text.
+        var error = console.Error;
+        var lines = error.Split('\n');
+        Assert.Single(lines, line => line == "error: text only");
+        Assert.Single(lines, line => line == "done");
+        Assert.True(error.IndexOf("[Researcher · ", StringComparison.Ordinal) is var step and >= 0
+            && step < error.IndexOf("error: text only", StringComparison.Ordinal)
+            && error.IndexOf("error: text only", StringComparison.Ordinal) < error.IndexOf("done\n", StringComparison.Ordinal), error);
+        Assert.Contains($"conversation: {host.ConversationId}\n", error);
+    }
+
     /// <summary>The controlled Host's claim finds no work, and the attachment reports that on
     /// stderr at a time of its own; the pins compare the rest.</summary>
     private static string WithoutHandsNotice(string error) =>
         string.Join("", error.Split('\n').Where(line => !line.StartsWith("error: file operation", StringComparison.Ordinal))
             .Select(line => line.Length == 0 ? "" : line + "\n"));
 
-    private async Task<int> RunTurnAsync(RunHost host)
+    private async Task<int> RunTurnAsync(RunHost host, bool verbose = false)
     {
         var projectFile = await WriteProjectAsync("Review@1");
         await using var app = CreateApp(host);
         return await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", verbose, CancellationToken.None])!;
     }
 
     private async Task<string> WriteProjectAsync(string mission)

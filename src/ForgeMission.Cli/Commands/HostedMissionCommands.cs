@@ -20,14 +20,16 @@ internal static class HostedMissionCommands
         var missionArg = new Argument<string>("mission") { Description = "A .mcl path or OCI reference" };
         var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
         var projectOpt = new Option<string?>("--project") { Description = "Project file (default ./forge.project.json)" };
+        var verboseOpt = new Option<bool>("--verbose") { Description = "Show the turn's expert steps, Hands use and errors on stderr" };
         var cmd = new Command("run", "Run a mission as a cloud conversation in a project and print the answer");
         cmd.Add(missionArg);
         cmd.Add(promptArg);
         cmd.Add(projectOpt);
+        cmd.Add(verboseOpt);
         // A missing project is reported by forge-client's shared open, the same message as forge chat.
         cmd.SetCancellableAction((result, cancellationToken) => ForgeDurableRun.RunAsync(clients,
             RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory()), result.GetValue(missionArg)!,
-            result.GetValue(promptArg)!, ociBase, cancellationToken));
+            result.GetValue(promptArg)!, ociBase, result.GetValue(verboseOpt), cancellationToken));
         return cmd;
     }
 

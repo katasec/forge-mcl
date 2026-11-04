@@ -12,7 +12,7 @@ namespace ForgeMission.Cli.Commands;
 internal static class ForgeDurableRun
 {
     internal static async Task<int> RunAsync(IHttpClientFactory clients, string projectPath, string selector,
-        string prompt, string ociBase, CancellationToken ct)
+        string prompt, string ociBase, bool verbose, CancellationToken ct)
     {
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
@@ -24,7 +24,7 @@ internal static class ForgeDurableRun
         await using var app = ApplicationComposition.Create(clients, _ => { }, ct);
         try
         {
-            return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ociBase, ct);
+            return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ociBase, verbose, ct);
         }
         // The caller's own cancellation propagates; every other failure is one error line.
         catch (Exception failure) when (!ct.IsCancellationRequested)
@@ -35,7 +35,7 @@ internal static class ForgeDurableRun
     }
 
     private static async Task<int> RunTurnAsync(ApplicationComposition app, string projectFile, string selector,
-        string prompt, string ociBase, CancellationToken ct)
+        string prompt, string ociBase, bool verbose, CancellationToken ct)
     {
         var package = await app.MissionConversations.PrepareSelectedPackageAsync(
             selector, Directory.GetCurrentDirectory(), ociBase, ct);
@@ -44,14 +44,21 @@ internal static class ForgeDurableRun
         await using var conversation = started.Conversation
             ?? throw new InvalidOperationException(started.Error?.Message ?? "The project could not be opened.");
 
-        var turn = await conversation.RunTurnAsync(Guid.NewGuid(), prompt, item =>
-        {
-            if (item.Kind == ConversationEventKind.Error) Console.Error.WriteLine($"error: {item.Reason ?? item.Text}");
-        }, ct);
+        var turn = await conversation.RunTurnAsync(Guid.NewGuid(), prompt, Observer(verbose), ct);
 
         Console.Error.WriteLine($"conversation: {conversation.ConversationId}");
         if (turn.FinalAnswer is null) return 1;
         Console.WriteLine(turn.FinalAnswer);
         return 0;
+    }
+
+    /// <summary>Verbose renders every event with chat's line-mode formatter, errors included;
+    /// otherwise only errors are printed. Both write to stderr.</summary>
+    private static Action<ConversationEvent> Observer(bool verbose)
+    {
+        if (!verbose)
+            return item => { if (item.Kind == ConversationEventKind.Error) Console.Error.WriteLine($"error: {item.Reason ?? item.Text}"); };
+        string? lastReply = null;
+        return item => lastReply = ForgeChat.Print(item, lastReply, Console.Error);
     }
 }
