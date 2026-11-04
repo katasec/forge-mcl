@@ -45,10 +45,14 @@ public static class OciMissionPuller
         Directory.CreateDirectory(directory);
         while (await reader.GetNextEntryAsync(copyData: false, cancellationToken: ct) is { } entry)
         {
-            var parts = entry.Name.Split('/');
-            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile) ||
-                parts.Any(part => part is "" or "." or "..") || entry.Name.IndexOfAny(['\\', ':', '\0']) >= 0 ||
-                !names.Add(entry.Name) || names.Count > 4096 || entry.Length < 0 || (total += entry.Length) > maxBytes)
+            // Standard tar writes directory entries; their directories are created from file paths.
+            var isDirectory = entry.EntryType == TarEntryType.Directory;
+            var parts = (isDirectory && entry.Name.EndsWith('/') ? entry.Name[..^1] : entry.Name).Split('/');
+            if (!(isDirectory || entry.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile) ||
+                parts.Any(part => part is "" or "." or "..") || entry.Name.IndexOfAny(['\\', ':', '\0']) >= 0)
+                throw new InvalidDataException("Mission bundle contains an invalid path, duplicate, non-regular entry or exceeds its budget.");
+            if (isDirectory) continue;
+            if (!names.Add(entry.Name) || names.Count > 4096 || entry.Length < 0 || (total += entry.Length) > maxBytes)
                 throw new InvalidDataException("Mission bundle contains an invalid path, duplicate, non-regular entry or exceeds its budget.");
             var path = Path.Combine(directory, Path.Combine(parts));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
