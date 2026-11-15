@@ -23,7 +23,7 @@ internal static class HostedMissionCommands
         var verboseOpt = new Option<bool>("--verbose") { Description = "Show the turn's expert steps, Hands use and errors on stderr" };
         var inputOpt = new Option<string[]>("--input")
         {
-            Description = "A named mission input, repeatable: name=value for text, name=@file to upload one file",
+            Description = "A named mission input, repeatable: name=value for text, name=@file for a file (a text file's contents)",
             AllowMultipleArgumentsPerToken = false,
         };
         var cmd = new Command("run", "Run a mission as a cloud conversation in a project and print the answer");

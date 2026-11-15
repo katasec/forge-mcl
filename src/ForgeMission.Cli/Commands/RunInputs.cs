@@ -1,10 +1,12 @@
+using System.Text;
 using ForgeMission.Conversations.Contracts;
 
 namespace ForgeMission.Cli.Commands;
 
 /// <summary>
 /// `forge run --input` values (Phase 76 decision 7): <c>name=value</c> is a text input and
-/// <c>name=@path</c> uploads one file. A folder is refused. The prompt fills the root mission's own
+/// <c>name=@path</c> is one file: a text file's contents become the input, a binary file is uploaded.
+/// A folder is refused. The prompt fills the root mission's own
 /// input, so that name cannot also be given here.
 /// </summary>
 internal static class RunInputs
@@ -32,8 +34,6 @@ internal static class RunInputs
         return inputs;
     }
 
-    /// <summary>The turn's named inputs: the prompt under the root input, every text input, and every
-    /// file uploaded under <paramref name="commandId"/>.</summary>
     /// <summary>The prompt fills the root mission's own input, so <c>--input</c> cannot name it.</summary>
     internal static void RequireNotRoot(IReadOnlyList<Input> inputs, string rootInput)
     {
@@ -41,6 +41,9 @@ internal static class RunInputs
             throw new ArgumentException($"--input '{rootInput}' is the mission's own input; it comes from the prompt.");
     }
 
+    /// <summary>The turn's named inputs: the prompt under the root input and every text input. A text
+    /// file's contents are its input's text, so <c>{{name}}</c> is the file. A binary file (not UTF-8,
+    /// or containing a NUL byte) is uploaded instead, for an <c>exec</c> step to read.</summary>
     internal static async Task<MissionNamedInputs> BuildAsync(IReadOnlyList<Input> inputs, string rootInput, string prompt,
         Func<string, byte[], Task<MissionContentReference>> upload, CancellationToken ct)
     {
@@ -48,11 +51,28 @@ internal static class RunInputs
         var files = new Dictionary<string, MissionContentReference>(StringComparer.Ordinal);
         foreach (var input in inputs)
         {
-            if (input.Text is not null) strings[input.Name] = input.Text;
-            else files[input.Name] = await upload(input.Name, await File.ReadAllBytesAsync(input.FilePath!, ct));
+            if (input.Text is not null) { strings[input.Name] = input.Text; continue; }
+            var bytes = await File.ReadAllBytesAsync(input.FilePath!, ct);
+            if (Text(bytes) is { } text) strings[input.Name] = TextWithinLimit(input, text);
+            else files[input.Name] = await upload(input.Name, bytes);
         }
         return new MissionNamedInputs(strings, files);
     }
+
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    /// <summary>The file as text, or null when it is binary.</summary>
+    private static string? Text(byte[] bytes)
+    {
+        if (Array.IndexOf(bytes, (byte)0) >= 0) return null;
+        try { return StrictUtf8.GetString(bytes).TrimStart('\uFEFF'); }
+        catch (DecoderFallbackException) { return null; }
+    }
+
+    // Text inputs travel in the turn's body, which ForgeAPI caps at 4 MiB.
+    private static string TextWithinLimit(Input input, string text) =>
+        Encoding.UTF8.GetByteCount(text) <= ConversationBodyLimits.MaxBodyBytes ? text
+            : throw new ArgumentException($"--input {input.Name}: text file is larger than 4 MiB.");
 
     private static string FilePath(string name, string path, string invocationDirectory)
     {

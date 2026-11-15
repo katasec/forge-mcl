@@ -74,8 +74,10 @@ flowchart LR
   Conversation Host, readable after the CLI exits. A missing project stops with the Client's one
   message naming `forge project create`. The final answer goes to stdout; diagnostics, the
   `--verbose` transcript and the conversation ID go to stderr.
-- **Named inputs:** `--input name=value` (text) and `--input name=@file` (uploads one file, at most
-  100 MiB; a folder is refused) are repeatable. The prompt fills the root mission's own input, so
+- **Named inputs:** `--input name=value` (text) and `--input name=@file` (one file; a folder is
+  refused) are repeatable. A text file's contents become the input, so `{{name}}` is the file's text
+  (at most 4 MiB). A binary file (not UTF-8, or containing a NUL byte) is uploaded instead (at most
+  100 MiB) for an `exec` step to read. The prompt fills the root mission's own input, so
   `--input` cannot name it. With any `--input`, the turn is submitted as named inputs through the
   Client (`UploadInputAsync`, then `RunTurnAsync` with `MissionNamedInputs`). Every value is checked
   before any network call.

@@ -177,29 +177,33 @@ public sealed class ForgeDurableRunTests : IDisposable
             [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", inputs ?? [], "ghcr.io/katasec", verbose, CancellationToken.None])!;
     }
 
-    // forge run --input (Phase 76 decision 7): name=value is text, name=@file uploads one file. The
-    // prompt goes under the root mission's input (`task` here) and the turn carries no text.
+    // forge run --input (Phase 76 decision 7): name=value is text; name=@file is the file. A text
+    // file's contents become the input's text; a binary file is uploaded for an exec step. The prompt
+    // goes under the root mission's input (`task` here) and the turn carries no text.
     [Fact]
-    public async Task Named_inputs_upload_files_then_submit_them_by_name_with_the_prompt_under_the_root_input()
+    public async Task Named_inputs_send_a_text_files_contents_and_upload_a_binary_file()
     {
-        await File.WriteAllBytesAsync(Path.Combine(_home, "code.txt"), [1, 2, 3]);
+        await File.WriteAllTextAsync(Path.Combine(_home, "notes.txt"), "hello from notes\n");
+        await File.WriteAllBytesAsync(Path.Combine(_home, "image.bin"), [0, 255, 1]);
         var previous = Directory.GetCurrentDirectory();
         Directory.SetCurrentDirectory(_home);
         using var host = new RunHost(_projectId);
         int exit;
-        try { exit = await RunTurnAsync(host, inputs: ["style=terse", "code=@code.txt"]); }
+        try { exit = await RunTurnAsync(host, inputs: ["style=terse", "notes=@notes.txt", "image=@image.bin"]); }
         finally { Directory.SetCurrentDirectory(previous); }
 
         Assert.Equal(0, exit);
         var routes = host.Requests;
         Assert.True(routes.IndexOf("/api/UploadMissionInput") is >= 0 and var upload &&
             upload < routes.IndexOf("/api/SubmitMissionTurn"), string.Join(", ", routes));
+        Assert.Single(routes, route => route == "/api/UploadMissionInput");
         var submitted = host.Submitted!;
         Assert.Null(submitted.Text);
         Assert.Null(submitted.Workspace);
-        Assert.Equal(new Dictionary<string, string> { ["task"] = "write a file", ["style"] = "terse" }, submitted.Inputs!.Strings);
+        Assert.Equal(new Dictionary<string, string> { ["task"] = "write a file", ["style"] = "terse", ["notes"] = "hello from notes\n" },
+            submitted.Inputs!.Strings);
         var file = Assert.Single(submitted.Inputs.Artifacts);
-        Assert.Equal(("code", 3L, submitted.CommandId), (file.Key, file.Value.ByteLength, host.UploadedCommandId));
+        Assert.Equal(("image", 3L, submitted.CommandId), (file.Key, file.Value.ByteLength, host.UploadedCommandId));
     }
 
     // Every bad value is refused before any network call.
