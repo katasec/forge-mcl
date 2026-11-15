@@ -33,24 +33,27 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var timeout = ParseTimeout(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
         cancellation.CancelAfter(timeout);
-        ExecProcess process;
-        try { process = ExecProcess.Start(ProcessOptions(expert, inputs, context)); }
+        Process process;
+        try { process = Process.Start(ProcessOptions(expert, inputs, context))
+            ?? throw new InvalidOperationException("No process was started."); }
         catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
         { return new("", "fail", $"Failed to start '{expert.Command}': {exception.Message}"); }
 
-        try
+        using (process)
         {
-            var (stdout, stderr, exitCode) = await ExchangeAsync(process, inputJson, cancellation, ct);
-            ct.ThrowIfCancellationRequested();
-            if (exitCode != 0)
-                return new(stderr, "fail", $"Expert '{expert.Name}' exited with code {exitCode}. stderr: {stderr}".TrimEnd());
-            return ApplyOutput(expert, context, stdout);
+            try
+            {
+                var (stdout, stderr, exitCode) = await ExchangeAsync(process, inputJson, cancellation);
+                ct.ThrowIfCancellationRequested();
+                if (exitCode != 0)
+                    return new(stderr, "fail", $"Expert '{expert.Name}' exited with code {exitCode}. stderr: {stderr}".TrimEnd());
+                return ApplyOutput(expert, context, stdout);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            { return new("", "fail", $"Expert '{expert.Name}' timed out after {timeout}."); }
+            catch (IOException exception)
+            { ct.ThrowIfCancellationRequested(); return new("", "fail", $"Executable I/O failed: {exception.Message}"); }
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        { return new("", "fail", $"Expert '{expert.Name}' timed out after {timeout}."); }
-        catch (ExecProcessCleanupException) { throw; }
-        catch (IOException exception)
-        { ct.ThrowIfCancellationRequested(); return new("", "fail", $"Executable I/O failed: {exception.Message}"); }
     }
 
     public async IAsyncEnumerable<string> StreamAsync(
@@ -59,8 +62,8 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         // Process backend produces output only on exit; no true streaming for exec.
-        // Yield only envelope.Text — not the JSON envelope — so content writers (Open WebUI,
-        // CLI) receive plain text. ParseStreamedEnvelope handles non-JSON as a pass envelope.
+        // Yield only envelope.Text — not the JSON envelope — so content writers receive plain
+        // text. ParseStreamedEnvelope handles non-JSON as a pass envelope.
         var envelope = await RunAsync(expert, context, ct);
         yield return envelope.Text ?? string.Empty;
     }
@@ -124,51 +127,37 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         }
     }
 
+    /// <summary>Writes stdin and reads bounded stdout/stderr until the child exits. A timeout, the
+    /// caller's cancellation or a failed read kills the child and its process tree, and the child is
+    /// joined before this returns or throws.</summary>
     private static async Task<(string Output, string Error, int ExitCode)> ExchangeAsync(
-        ExecProcess process, string input, CancellationTokenSource cancellation, CancellationToken callerToken)
+        Process process, string input, CancellationTokenSource cancellation)
     {
-        var write = WriteInputAsync(process.StandardInput, input, cancellation);
-        var output = ReadBoundedAsync(process.StandardOutput, MaxOutputBytes, "stdout", cancellation);
-        var error = ReadBoundedAsync(process.StandardError, MaxErrorBytes, "stderr", cancellation);
+        var write = WriteInputAsync(process.StandardInput.BaseStream, input, cancellation);
+        var output = ReadBoundedAsync(process.StandardOutput.BaseStream, MaxOutputBytes, "stdout", cancellation);
+        var error = ReadBoundedAsync(process.StandardError.BaseStream, MaxErrorBytes, "stderr", cancellation);
         var io = Task.WhenAll(write, output, error);
-        var observer = process.ObserveExitAsync(cancellation.Token);
-        Exception? failure = null;
-        try { await observer; await io; }
-        catch (Exception exception) { failure = exception; }
-        cancellation.Cancel();
-        List<IOException> cleanupFailures = [];
-        try { await observer; }
-        catch (OperationCanceledException) { }
-        catch (IOException exception) { cleanupFailures.Add(exception); }
-        try { process.Terminate(); }
-        catch (IOException exception) { cleanupFailures.Add(exception); }
-        try { await io; }
-        catch (Exception exception) when (exception is IOException or OperationCanceledException)
-        { failure = io.Exception?.InnerExceptions.OfType<IOException>().FirstOrDefault() ?? failure ?? exception; }
-        var exitCode = await JoinProcessAsync(process, cleanupFailures);
-        try { await process.DisposeAsync(); }
-        catch (IOException exception) { cleanupFailures.Add(exception); }
-        if (failure is not null || cleanupFailures.Count > 0)
-            ThrowExchangeFailure(failure ?? new IOException("Process cleanup failed."), cleanupFailures, callerToken);
-        callerToken.ThrowIfCancellationRequested();
-        return (await output, await error, exitCode);
+        try
+        {
+            await io;
+            await process.WaitForExitAsync(cancellation.Token);
+        }
+        catch
+        {
+            cancellation.Cancel();
+            KillTree(process);
+            await process.WaitForExitAsync(CancellationToken.None);
+            try { await io; }
+            catch (Exception exception) when (exception is IOException or OperationCanceledException) { }
+            throw;
+        }
+        return (await output, await error, process.ExitCode);
     }
 
-    private static async Task<int> JoinProcessAsync(ExecProcess process, List<IOException> failures)
+    private static void KillTree(Process process)
     {
-        using var deadline = new CancellationTokenSource(ExecProcess.CleanupBudget);
-        try { return await process.JoinAsync(deadline.Token); }
-        catch (IOException exception) { failures.Add(exception); return -1; }
-    }
-
-    private static void ThrowExchangeFailure(Exception failure,
-        IReadOnlyList<IOException> cleanupFailures, CancellationToken callerToken)
-    {
-        if (cleanupFailures.Count > 0)
-            throw new ExecProcessCleanupException("exchange cleanup", new AggregateException(cleanupFailures), failure);
-        if (failure is ExecProcessCleanupException) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
-        callerToken.ThrowIfCancellationRequested();
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        try { process.Kill(entireProcessTree: true); }
+        catch (InvalidOperationException) { } // already exited
     }
 
     private static async Task<string> WriteInputAsync(Stream stream, string input, CancellationTokenSource cancellation)

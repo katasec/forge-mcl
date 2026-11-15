@@ -99,13 +99,6 @@ public sealed class ForgeCliHarness : IAsyncDisposable
     }
 
     /// <summary>
-    /// Runs a long-lived command (a server such as <c>forge serve</c>) while <paramref name="whileRunning"/>
-    /// exercises it, then stops it; the result's exit code is that of the stopped process.
-    /// </summary>
-    public Task<CliResult> RunWhileAsync(Func<Task> whileRunning, params string[] args) =>
-        RunThenStopAsync(_ => whileRunning(), process => process.Kill(entireProcessTree: true), args);
-
-    /// <summary>
     /// Runs a command while <paramref name="whileRunning"/> waits for it to reach a point (reading its
     /// stdout if it needs to), then sends it SIGINT (the terminal's Ctrl+C); the result's exit code is
     /// the one the CLI chose and its <see cref="CliResult.StandardOutput"/> holds only the output

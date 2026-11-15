@@ -7,7 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-// No @file response-file expansion — @handles (forge claude @websearch) are arguments.
+// No @file response-file expansion: an argument that starts with @ stays an argument.
 // One top-level exit/exception handler owns every exit code: helpers signal a deliberate exit by
 // throwing ForgeExitException (see CliDiagnostics.Die) rather than calling Environment.Exit deep in
 // the stack, so teardown/finally runs on the way out. System.CommandLine's own exception handler is
@@ -47,8 +47,6 @@ static IHost BuildHost()
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
     ForgeSettings.WriteDefaults(ForgeSettings.DefaultPath);
     builder.Configuration.AddJsonFile(ForgeSettings.DefaultPath, optional: true);
-    builder.Services.AddOptions<ForgeSettings>().Bind(builder.Configuration);
-    builder.Services.AddSingleton<IValidateOptions<ForgeSettings>, ForgeSettingsValidator>();
     builder.Services.AddCliHttpClients();
     builder.Services.AddOptions<ForgeApiSettings>()
         .Bind(builder.Configuration.GetSection(ForgeApiSettings.Section))
@@ -69,7 +67,6 @@ static RootCommand BuildRootCommand(IServiceProvider services)
 {
     var clients = services.GetRequiredService<IHttpClientFactory>();
     var webSearch = services.GetRequiredService<IOptions<WebSearchOptions>>();
-    var logger = services.GetRequiredService<ILogger<Program>>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(MissionDevCommands.BuildInitCommand());
     rootCommand.Add(HostedMissionCommands.BuildRunCommand(clients,
@@ -81,16 +78,9 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(AuthCommands.BuildLoginCommand(services.GetRequiredService<IOptions<PlatformLoginOptions>>(), clients));
     rootCommand.Add(AuthCommands.BuildWhoamiCommand(clients));
     rootCommand.Add(AuthCommands.BuildLogoutCommand());
-    rootCommand.Add(ForgeChat.BuildCommand(services.GetRequiredService<IOptions<ForgeSettings>>(), clients)); // forge chat (53.2; one client path, Phase 76)
     rootCommand.Add(ForgeProject.BuildCommand(clients));
     rootCommand.Add(HostedMissionCommands.BuildPublishCommand());
     rootCommand.Add(CleanCommand.Build());
-    rootCommand.Add(ServeCommands.BuildServeCommand(webSearch, clients, logger));
-    rootCommand.Add(ServeCommands.BuildClaudeCommand(webSearch, clients, logger));
-    rootCommand.Add(ConnectCommand.Build(ServeCommands.ResolveClaudeTarget, ServeCommands.EnsureInitializedAsync,
-        (config, agentDir, cancellationToken) => MissionServerBuilder.TryBuildMissionServerAsync(webSearch, clients, logger, config, agentDir, cancellationToken), CliDiagnostics.Die));
-    rootCommand.Add(AgentCommand.Build(CliDiagnostics.Die, CliPrereqs.RunAndPrintPrereqs, CliPrereqs.BuildEnvArray, CliPrereqs.FindGitRoot));
-    rootCommand.Add(WebuiCommand.Build(CliDiagnostics.Die, CliPrereqs.RunAndPrintPrereqs));
     rootCommand.Add(ProviderCommand.BuildProviderCommand());
     rootCommand.Add(McpCommand.BuildMcpCommand(services.GetRequiredService<ILoggerFactory>(), clients, webSearch));
     return rootCommand;

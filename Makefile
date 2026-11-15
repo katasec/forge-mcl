@@ -1,5 +1,3 @@
-TERMINAL_EXTENSIONS_PROJECT := src/ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj
-TERMINAL_EXTENSIONS_COMMIT := $(shell git rev-parse HEAD)
 PARSER_PROJECT := src/ForgeMission.Parser/ForgeMission.Parser.csproj
 PARSER_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
 PARSER_PACKAGE_DIR := artifacts/packages
@@ -25,32 +23,11 @@ MISSIONREGISTRY_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Te
 MISSIONREGISTRY_PACKAGE_DIR := artifacts/packages
 MISSIONREGISTRY_PACKAGE_VERSION := 0.1.3
 MISSIONREGISTRY_COMMIT := $(shell git rev-parse HEAD)
-SERVE_PROJECT := src/ForgeMission.Serve/ForgeMission.Serve.csproj
-SERVE_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
-SERVE_PACKAGE_DIR := artifacts/packages
-SERVE_PACKAGE_VERSION := 0.1.0
-SERVE_COMMIT := $(shell git rev-parse HEAD)
-DOCKER_PROJECT := src/ForgeMission.Docker/ForgeMission.Docker.csproj
-DOCKER_TEST_PROJECT := tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj
-DOCKER_PACKAGE_DIR := artifacts/packages
-DOCKER_PACKAGE_VERSION := 0.1.0
-DOCKER_COMMIT := $(shell git rev-parse HEAD)
 
-.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package test-serve pack-serve verify-serve-package test-docker pack-docker verify-docker-package install install-self-contained build-linux clean
+.PHONY: build test test-parser pack-parser verify-parser-package test-scout pack-scout verify-scout-package test-core pack-core verify-core-package test-chatclients pack-chatclients verify-chatclients-package test-missionregistry pack-missionregistry verify-missionregistry-package install install-self-contained build-linux clean
 
 build:
 	pwsh -NoProfile -File scripts/build.ps1 -Action build
-
-.PHONY: test-terminal-extensions pack-terminal-extensions verify-terminal-extensions-package
-
-test-terminal-extensions:
-	dotnet test tests/ForgeMission.Mcl.Tests/ForgeMission.Mcl.Tests.csproj -c Release --filter "FullyQualifiedName~ForgeMission.Tests.Terminal"
-
-pack-terminal-extensions:
-	dotnet pack $(TERMINAL_EXTENSIONS_PROJECT) -c Release --output artifacts/packages -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(TERMINAL_EXTENSIONS_COMMIT)
-
-verify-terminal-extensions-package: test-terminal-extensions pack-terminal-extensions
-	bash ./eng/verify-terminal-extensions-package.sh artifacts/packages $(TERMINAL_EXTENSIONS_COMMIT)
 
 test:
 	pwsh -NoProfile -File scripts/build.ps1 -Action test
@@ -99,24 +76,6 @@ pack-missionregistry:
 
 verify-missionregistry-package: test-missionregistry pack-missionregistry
 	bash ./eng/verify-missionregistry-package.sh $(MISSIONREGISTRY_PACKAGE_DIR) $(MISSIONREGISTRY_COMMIT)
-
-test-serve:
-	dotnet test $(SERVE_TEST_PROJECT) -c Release --filter "FullyQualifiedName~ForgeMission.Tests.Integration.ConvergedServeTests"
-
-pack-serve:
-	dotnet pack $(SERVE_PROJECT) -c Release --output $(SERVE_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(SERVE_COMMIT)
-
-verify-serve-package: test-serve pack-serve
-	bash ./eng/verify-serve-package.sh $(SERVE_PACKAGE_DIR) $(SERVE_COMMIT)
-
-test-docker:
-	dotnet test $(DOCKER_TEST_PROJECT) -c Release --filter "FullyQualifiedName~ForgeMission.Tests.Docker"
-
-pack-docker:
-	dotnet pack $(DOCKER_PROJECT) -c Release --output $(DOCKER_PACKAGE_DIR) -p:ContinuousIntegrationBuild=true -p:RepositoryCommit=$(DOCKER_COMMIT)
-
-verify-docker-package: test-docker pack-docker
-	bash ./eng/verify-docker-package.sh $(DOCKER_PACKAGE_DIR) $(DOCKER_COMMIT)
 
 install:
 	pwsh -NoProfile -File scripts/build.ps1 -Action install

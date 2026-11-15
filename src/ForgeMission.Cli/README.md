@@ -1,7 +1,7 @@
 ---
 type: software-component
 title: Forge CLI
-description: Native-AOT command surface that composes mission execution, hosted chat, and local helpers.
+description: Native-AOT command surface that composes mission authoring, cloud runs, publishing and the MCP wrapper.
 resource: src/ForgeMission.Cli
 tags: [cli, composition, aot, forge]
 ---
@@ -14,93 +14,43 @@ Exposes the `forge` executable and composes existing components into user-facing
 
 ## Why this exists
 
-One command surface connects mission setup, execution, serving, and chat. The CLI handles user
-input and output; the components it calls own language semantics, provider protocols, and services.
+One command surface connects mission setup, cloud runs, publishing and `forge mcp`. The CLI
+handles user input and output; the components it calls own language semantics, provider protocols,
+and services.
 
 ## Owns
 
 - Command registration, arguments, output, and mission-file selection.
-- CLI wiring for OCI pulls, platform sign-in, built-in mission references, and MCP commands.
-- `forge chat` startup and presentation: a full-screen terminal UI or line mode when piped.
-- Owned text-source coordination, selection-aware Copy versus chat Stop, snippet controls and clipboard feedback.
+- CLI wiring for OCI pulls and pushes, platform sign-in, and the MCP command.
+- `forge run` output, including the `--verbose` turn transcript on stderr.
 
 ## Does not own
 
-- MCL parsing or execution, provider SDK adaptation, Docker operations, search, or HTTP wire mapping.
+- MCL parsing or execution, provider SDK adaptation, or search.
 - Project and mission-authoring rules, durable conversation state, or Bob's capability authority;
-  chat composes those services through `Katasec.Forge.Client` from
-  [forge-client](https://github.com/katasec/forge-client).
+  `forge run` and `forge project create` compose those services through `Katasec.Forge.Client`
+  from [forge-client](https://github.com/katasec/forge-client).
 
 ## Change admission
 
 Change this component for command behavior or composition. Change [Parser](../ForgeMission.Parser/README.md)
 for syntax and [Core](../ForgeMission.Core/README.md) for resolution and execution. For provider
-construction, Docker, search, or serving, change the corresponding component. Keep client-service
-behavior in forge-client.
+construction or search, change the corresponding component. Keep client-service behavior in
+forge-client.
 
 ## Use these pieces
-
-### Commands and chat setup
 
 | Piece | Responsibility |
 |---|---|
 | [Program](Program.cs) | Executable entry point, command registration, and command handlers. |
 | [ForgeDurableRun](Commands/ForgeDurableRun.cs) | `forge run`: one turn of a mission as a cloud conversation in the project, with Hands. |
+| [RunTranscript](Commands/RunTranscript.cs) | `forge run --verbose`: one stderr line per expert step, Hands use, error or unfinished run. |
+| [McpCommand](Commands/McpCommand.cs) | `forge mcp`: serves one validated mission over stdio, runners built by [MissionServerBuilder](Services/MissionServerBuilder.cs). |
 | [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
 | [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
-| [ForgeProject](Commands/ForgeProject.cs) | Explicit portable Project creation and hosted Chat setup through the shared Client. |
-| [ForgeChat](Commands/ForgeChat.cs) | `forge chat`: startup checks, continuing the Project's hosted chat through the shared Client, and terminal/line-mode presentation. |
-| [MacChatWindow](Services/MacChatWindow.cs) | Interactive Mac launch into a dedicated Ghostty instance, exact child context and visible request/child failures. |
+| [ForgeProject](Commands/ForgeProject.cs) | Explicit portable Project creation through the shared Client. |
 | [ImmediateProgress](Services/ImmediateProgress.cs) | Shows the shared Client's Hands reports at once, in order. |
-| [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (chat theme, API endpoint, OCI endpoint for short mission selectors) bound by the CLI host. |
-
-### Terminal UI — [Tui/](Tui)
-
-Interactive macOS chat launches a dedicated Ghostty instance after the existing startup checks.
-The child runs the same chat path; the CLI restores its original working directory and endpoint
-before resolution. Launch acceptance reports only the request result. A graceful child failure
-remains visible until a key dismisses it, after normal application cleanup.
-Ghostty owns the window/PTY and scoped Cmd+A forwarding; native editors own Select All and focus.
-No shared terminal configuration is rewritten. Piped and non-Mac chat keep their existing path.
-
-Built on XenoAtom.Terminal.UI.
-
-Fixed native clipboard commands and menus come from
-[Forge Terminal Extensions](../ForgeMission.Terminal.Extensions/README.md). Editing/rendering stays
-with native controls; text-source coordination and visual feedback stay here.
-
-| Piece | Responsibility |
-|---|---|
-| [ChatTui](Tui/ChatTui.cs) | UI loop, replay, submit/cancel, hands routing, screen swaps, and shutdown. |
-| [ChatLink](Tui/ChatLink.cs) | Live-stream ownership, cursor, reconnect, idle sleep, and catch-up on wake. |
-| [Transcript](Tui/Transcript.cs) | Event-to-block mapping for replay/live turns and duplicate final-reply suppression. |
-| [ChatScreen](Tui/ChatScreen.cs), [ComposerEditor](Tui/ComposerEditor.cs) | Screen layout, composer sizing, and editor/start-page slots. |
-| [TextInteraction](Tui/TextInteraction.cs), [ParagraphSelection](Tui/ParagraphSelection.cs) | Owned native text targeting, one-card rich ranges, source claims, truthful feedback and bounded realized-source lifetime. |
-| [CodeCopyControl](Tui/CodeCopyControl.cs) | Reserved snippet header and native Button with immutable complete code payload and lifecycle reset. |
-| [StartPage](Tui/StartPage.cs) | Initial mission choices; **Chat with a mission** opens chat, **Create a mission** is a placeholder. |
-| [EditFile](Tui/EditFile.cs), [FileEditor](Tui/FileEditor.cs) | `/edit <path>` rules and editor view; Ctrl+S saves, Esc closes or guards unsaved changes. |
-| [ForgeTheme](Tui/ForgeTheme.cs), [ForgeStyles](Tui/ForgeStyles.cs) | Light/dark visual tokens and component styles. |
-| [ForgeMarkdown](Tui/ForgeMarkdown.cs), [ForgeCodeBlockRenderer](Tui/ForgeCodeBlockRenderer.cs) | Markdown pipelines, image headings, and framed code blocks. |
-| [Motion](Tui/Motion.cs), [FadeIn](Tui/FadeIn.cs), [StreamCaret](Tui/StreamCaret.cs), [LinkPointer](Tui/LinkPointer.cs) | Animation rules, changed-cell fade, streaming caret, and link feedback. |
-| [TypeAhead](Tui/TypeAhead.cs), [TerminalCaret](Tui/TerminalCaret.cs), [TerminalPointer](Tui/TerminalPointer.cs) | Startup input cleanup and terminal cursor/pointer restoration. |
-| [RawStdout](Tui/RawStdout.cs), [XenoCells](Tui/XenoCells.cs) | Isolated boundaries for raw escapes and XenoAtom internal access. |
-
-### Graphics — [Tui/Graphics/](Tui/Graphics)
-
-Shape and text images use kitty Unicode placeholder cells so normal terminal layout carries them.
-
-| Piece | Responsibility |
-|---|---|
-| [TerminalFacts](Tui/Graphics/TerminalFacts.cs) | Terminal prerequisites and cell-size query. |
-| [Raster](Tui/Graphics/Raster.cs), [Png](Tui/Graphics/Png.cs) | Shape rasterization and PNG encoding. |
-| [RingGeometry](Tui/Graphics/RingGeometry.cs), [RingTiles](Tui/Graphics/RingTiles.cs), [CapTiles](Tui/Graphics/CapTiles.cs) | Cell-aligned frame geometry and pill caps. |
-| [TileSet](Tui/Graphics/TileSet.cs), [TileFrame](Tui/Graphics/TileFrame.cs), [ScreenTiles](Tui/ScreenTiles.cs) | Image sets, frames around content, and the screen's tile registry. |
-| [KittyImages](Tui/Graphics/KittyImages.cs) | Image transmission and placeholder encoding, written through `RawStdout`. |
-| [GlyphText](Tui/Graphics/GlyphText.cs), [GposKerning](Tui/Graphics/GposKerning.cs), [TextArt](Tui/Graphics/TextArt.cs) | Font metrics, kerning, allowed image text, and text rasterization. |
-| [TextImages](Tui/Graphics/TextImages.cs), [ImageCells](Tui/Graphics/ImageCells.cs), [HeadingImage](Tui/Graphics/HeadingImage.cs) | Text-image cache and placement; unsupported text stays terminal text. |
-| [SpinnerFrames](Tui/Graphics/SpinnerFrames.cs), [SpinnerCells](Tui/Graphics/SpinnerCells.cs) | Spinner images and frame selection. |
-| [CodeColours](Tui/Graphics/CodeColours.cs) | TextMate syntax highlighting for recognized chat code fences and editor file extensions. |
-| [Fonts](Tui/Graphics/Fonts), [font subset script](../../eng/fonts/inter-subset.sh) | Embedded Inter fonts, license, and font/kerning fixture generation. |
+| [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (API endpoint, OCI endpoint for short mission selectors) bound by the CLI host. |
 
 ## Communicates with
 
@@ -109,85 +59,44 @@ flowchart LR
   User[User or MCP client] -->|forge command| CLI[Forge CLI]
   CLI -->|parse, resolve, run| Core[Mission Core]
   CLI -->|provider profile| Clients[Chat Clients]
-  CLI -->|serve composition| Serve[Forge Serve]
-  CLI -->|local container commands| Docker[Docker support]
   CLI -->|optional search| Scout[Scout]
-  CLI -->|OCI pulls| Registry[Mission Registry]
-  CLI -->|forge chat| Client[Katasec.Forge.Client]
+  CLI -->|OCI pulls and pushes| Registry[Mission Registry]
+  CLI -->|forge run, project create| Client[Katasec.Forge.Client]
   Client -->|mission-conversation messages| ForgeApi[ForgeAPI]
 ```
 
 ## Important flows and constraints
 
-- **One client path (Phase 76):** `forge run` and `forge chat` call the same Client code to open
-  the project, create or continue the conversation, attach Hands, submit one turn and follow it
-  (`StartAsync`/`ContinueChatAsync`, `ProjectConversation.RunTurnAsync`). They differ only as
-  surfaces. A missing project stops with the Client's one message naming `forge project create`.
 - **Run:** `forge run <mission.mcl|oci-ref> "<prompt>"` reads `./forge.project.json`, or the file
-  given by `--project <file>`, and starts a new conversation each launch. The run is a cloud
-  conversation in the Conversation Host, readable after the CLI exits. Hands is on and rooted at the project folder: agent experts may Read/Write/Edit there,
-  with no terminal tools; Hands owns path and symlink containment. The final answer goes to
-  stdout; diagnostics and the conversation ID go to stderr.
-
-- **Composition:** `Program` wires existing owners. Provider, Docker, search, and HTTP behavior
-  belong in [Chat Clients](../ForgeMission.ChatClients/README.md),
-  [Docker](../ForgeMission.Docker/README.md), [Scout](../ForgeMission.Scout/README.md), and
-  [Serve](../ForgeMission.Serve/README.md); OCI retrieval belongs in
-  [Mission Registry](../ForgeMission.MissionRegistry/README.md).
-- **Project creation:** `forge project create [folder]` initializes one portable declaration and one hosted plain Chat conversation. The folder defaults to cwd and must exist. Saved sign-in is required before creation; Projects and Missions own all file, package, admission and retry rules. Explicit retry preserves the same Project and conversation.
-- **Chat:** `forge chat` reads `forge.project.json` in the current directory, or the
-  explicit file selected by `--project <file>`, with any filename, and continues the Project's
-  one hosted chat. A directory stops before configuration, sign-in or network setup; chat creates
-  no Project and searches no ancestors.
-- **Portable files:** `forge.project.json` carries the stable `projectId`, mission/version
-  references and relative repository folders. Chat requires neither `mcl.lock` nor private
-  authoring state. The authenticated hosted pin supplies its package and provider profile;
-  missing or ambiguous hosted references fail explicitly instead of publishing a starter.
-- **Profile projection:** Client records reconstructable `session.json` and `messages.jsonl`
-  under `<user-home>/.forge/sessions/<projectId>/<conversationId>`, using platform profile
-  discovery. Chat always displays hosted history from zero; it never reads these files for
-  selection, display or authorization. A projection-write failure shows a notice while hosted
-  chat continues. TUI notices are queued and shown on the UI loop, never written into its terminal.
+  given by `--project <file>`, and starts a new conversation each launch through the Client
+  (`StartAsync`, `ProjectConversation.RunTurnAsync`). The run is a cloud conversation in the
+  Conversation Host, readable after the CLI exits. A missing project stops with the Client's one
+  message naming `forge project create`. The final answer goes to stdout; diagnostics, the
+  `--verbose` transcript and the conversation ID go to stderr.
 - **Hands:** Always attached by the Client when the conversation opens; there is no flag or
-  prompt. Bob gets files in the admitted Project workspace. Hands reports print as `error: …`
-  (stderr for run, stdout in line-mode chat, a notice in the TUI). The TUI feeds Hands this
-  window's turn and a turn already running when it opens.
-- **Terminal:** TUI mode requires both stdin and stdout to be terminals, kitty graphics,
-  truecolor, and no multiplexer. Environment checks and font loading precede sign-in; the first
-  UI tick checks cell size. Unsupported terminals fail explicitly. Shift+Enter needs kitty keyboard support.
-- **Turns and connection:** One turn runs at a time across windows. Ctrl-C copies selected owned
-  text first, including a failed copy attempt; without selection it cancels this window's turn.
-  Ctrl-D ends the stream and busy calls before stopping the UI. A stream ending during a
-  turn reconnects from its cursor; an idle stream sleeps, then catches up before reopening or sending.
-  Piped mode uses whole messages and exits on a lost stream.
-- **Streaming:** Live deltas update a reply only after its step started on that connection.
-  They never advance the durable cursor; the completed step message replaces the partial reply.
-- **Theme and rendering:** Missing config or theme means dark; invalid config stops both chat modes.
-  Visual values belong in `ForgeTheme`; `CodeColours` adapts TextMate's light/dark syntax colors.
-  Send images on the UI thread after entering the alternate screen. Idle screens do not animate.
-- **Editor:** `/edit` is a local spike. Paths resolve from the CLI's starting folder, not the
-  selected Project; `~` expands to home. Save does not create parent folders. Chat shortcuts
-  stand aside while the editor is open; typing there currently wakes an idle chat link.
-- **AOT and boundaries:** Preserve source-generated JSON and reflection safety. Under `Tui/`,
-  only `RawStdout` writes raw escapes; `GlyphText` is the unsafe font adapter. `XenoCells` isolates
-  a temporary `[UnsafeAccessor]` exception pinned to XenoAtom 3.10.0; it covers cell reads,
-  hit-testing, animation access, and Paragraph point/range access for rich selection. Remove it when
-  public APIs replace those operations.
+  prompt. Agent experts may Read/Write/Edit inside the project's folders and nowhere else; terminal
+  tools are not granted. Hands owns path and symlink containment. Hands reports print on stderr
+  as `error: …`.
+- **Composition:** `Program` wires existing owners. Provider and search behavior belong in
+  [Chat Clients](../ForgeMission.ChatClients/README.md) and [Scout](../ForgeMission.Scout/README.md);
+  OCI retrieval belongs in [Mission Registry](../ForgeMission.MissionRegistry/README.md).
+- **Project creation:** `forge project create [folder]` initializes one portable declaration and one hosted plain Chat conversation. The folder defaults to cwd and must exist. Saved sign-in is required before creation; Projects and Missions own all file, package, admission and retry rules. Explicit retry preserves the same Project and conversation.
+- **Portable files:** `forge.project.json` carries the stable `projectId`, mission/version
+  references and relative repository folders.
+- **MCP:** `forge mcp <mission.mcl>` runs the mission locally in-process for each tool call; its
+  runners come from `forge.toml` profiles, built lazily so startup needs no API key.
+- **AOT:** Preserve source-generated JSON and reflection safety.
 
 ## Tests
 
 | Area | Start here |
 |---|---|
-| Commands and setup | [ForgeChatTests](../../tests/ForgeMission.Mcl.Tests/Cli/ForgeChatTests.cs), [MissionFileResolutionTests](../../tests/ForgeMission.Mcl.Tests/Cli/MissionFileResolutionTests.cs) |
-| Transcript and connection | [ChatTranscriptTests](../../tests/ForgeMission.Mcl.Tests/Cli/ChatTranscriptTests.cs) |
-| Screen and motion | [ChatScreenTileTests](../../tests/ForgeMission.Mcl.Tests/Cli/ChatScreenTileTests.cs), [ChatScreenMotionTests](../../tests/ForgeMission.Mcl.Tests/Cli/ChatScreenMotionTests.cs) |
-| Start page and editor | [StartPageTests](../../tests/ForgeMission.Mcl.Tests/Cli/StartPageTests.cs), [FileEditorTests](../../tests/ForgeMission.Mcl.Tests/Cli/FileEditorTests.cs) |
-| Graphics and ownership contracts | [CLI test directory](../../tests/ForgeMission.Mcl.Tests/Cli) |
+| Run | [ForgeDurableRunTests](../../tests/ForgeMission.Mcl.Tests/Cli/ForgeDurableRunTests.cs), [RunTranscriptTests](../../tests/ForgeMission.Mcl.Tests/Cli/RunTranscriptTests.cs) |
+| Commands and config | [CLI test directory](../../tests/ForgeMission.Mcl.Tests/Cli) |
 
 ## Related documentation
 
 - [Architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)
 - [MCL language](https://github.com/katasec/mission-control-language/blob/main/docs/design/language.md)
 - [Conversation flow](https://github.com/katasec/mission-control-language/blob/main/docs/design/how-conversations-work.md)
-- [TUI graphics design](https://github.com/katasec/mission-control-language/blob/main/docs/design/tui-graphics.md)
 - [Build and install](../../README.md#build)

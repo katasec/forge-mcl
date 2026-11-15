@@ -11,10 +11,10 @@ namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeProjectTests
 {
-    // Phase 76 (decision 2b): project create makes the one tool-capable chat, admitted with the
-    // project folder as its workspace, and forge chat continues it through ContinueChatAsync.
+    // Phase 76 (decision 2b): project create makes the one tool-capable conversation, admitted with
+    // the project folder as its workspace.
     [Fact]
-    public async Task Published_client_creates_and_continues_chat_against_current_core()
+    public async Task Published_client_creates_the_project_against_current_core()
     {
         var root = Directory.CreateTempSubdirectory("forge-published-client-").FullName;
         using var host = new ChatProjectHost();
@@ -35,11 +35,7 @@ public sealed class ForgeProjectTests
             using (var declaration = JsonDocument.Parse(await File.ReadAllTextAsync(projectFile)))
                 Assert.Equal(["."], declaration.RootElement.GetProperty("folders").EnumerateArray().Select(folder => folder.GetString()));
 
-            var opened = await ClientResult(conversations, "ContinueChatAsync", projectFile, new Progress<string>(), CancellationToken.None);
-            Assert.Null(opened.GetType().GetProperty("Error")!.GetValue(opened));
-            await using var conversation = (IAsyncDisposable)opened.GetType().GetProperty("Conversation")!.GetValue(opened)!;
-            Assert.Equal(created.Created.ConversationId, conversation.GetType().GetProperty("ConversationId")!.GetValue(conversation));
-            Assert.Equal(["/api/CreateMissionConversation", "/api/GetConversation"], host.Requests.Take(2));
+            Assert.Equal(["/api/CreateMissionConversation"], host.Requests.Take(1));
             Assert.Equal(["forge.project.json"], Directory.GetFiles(root).Select(Path.GetFileName));
             Assert.Empty(Directory.GetDirectories(root));
         }
@@ -169,7 +165,7 @@ public sealed class ForgeProjectTests
         Assert.Equal(1, calls);
         Assert.Equal("", error.ToString());
         Assert.Contains($"Project: {Path.Combine(expectedHome, "forge.project.json")}", output.ToString());
-        Assert.Contains(explicitFolder ? $"Run `forge chat --project '{Path.Combine(expectedHome, "forge.project.json")}'`." : "Run `forge chat`.", output.ToString());
+        Assert.Contains(explicitFolder ? $"Run `forge run --project '{Path.Combine(expectedHome, "forge.project.json")}' <mission> \"<prompt>\"`." : "Run `forge run <mission> \"<prompt>\"`.", output.ToString());
     }
 
     [Fact]
@@ -183,7 +179,7 @@ public sealed class ForgeProjectTests
         Assert.Equal(0, result);
         Assert.Equal("", error.ToString());
         var quotedFile = Path.Combine(Directory.GetCurrentDirectory(), "project $value''s `folder", "forge.project.json");
-        Assert.Contains($"Run `forge chat --project '{quotedFile}'`.", output.ToString());
+        Assert.Contains($"Run `forge run --project '{quotedFile}' <mission> \"<prompt>\"`.", output.ToString());
     }
 
     [Theory]

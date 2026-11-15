@@ -26,7 +26,7 @@ internal static class HostedMissionCommands
         cmd.Add(promptArg);
         cmd.Add(projectOpt);
         cmd.Add(verboseOpt);
-        // A missing project is reported by forge-client's shared open, the same message as forge chat.
+        // A missing project is reported by forge-client's shared open.
         cmd.SetCancellableAction((result, cancellationToken) => ForgeDurableRun.RunAsync(clients,
             RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory()), result.GetValue(missionArg)!,
             result.GetValue(promptArg)!, ociBase, result.GetValue(verboseOpt), cancellationToken));

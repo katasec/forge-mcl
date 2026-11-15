@@ -62,8 +62,8 @@ public static class ForgeProject
 
         var projectFile = Path.Combine(created.HomePath, "forge.project.json");
         output.WriteLine($"Project: {projectFile}");
-        output.WriteLine(folder is null ? "Run `forge chat`." :
-            $"Run `forge chat --project '{projectFile.Replace("'", "''")}'`.");
+        output.WriteLine(folder is null ? "Run `forge run <mission> \"<prompt>\"`." :
+            $"Run `forge run --project '{projectFile.Replace("'", "''")}' <mission> \"<prompt>\"`.");
         return 0;
     }
 

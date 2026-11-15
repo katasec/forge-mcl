@@ -15,7 +15,7 @@ public sealed class ToolExecutorRegistryTests : IDisposable
         _capabilities = new CapabilityRegistry(
         [
             new WorkspaceFileProvider(workspace),
-            new WorkspaceTerminalProvider(workspace),
+            new StubTerminalProvider(),
         ]);
         _dispatcher = new CapabilityDispatcher(_capabilities,
             new PolicyCapabilityAuthorizer(CapabilityAuthorizationPolicy.Default), new InMemoryCapabilityAuditLog());
@@ -27,7 +27,7 @@ public sealed class ToolExecutorRegistryTests : IDisposable
     public void Default_CoversExactlyTheEssentials()
     {
         var names = ToolExecutorRegistry.Default().Select(e => e.Name).OrderBy(n => n).ToList();
-        Assert.Equal(["Bash", "Edit", "Read", "Write"], names);
+        Assert.Equal(["Edit", "Read", "Write"], names);
     }
 
     [Fact]

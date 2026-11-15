@@ -16,7 +16,7 @@ public sealed class CapabilityRegistryTests : IDisposable
         var allCapabilities = new CapabilityRegistry(
         [
             new WorkspaceFileProvider(workspace),
-            new WorkspaceTerminalProvider(workspace),
+            new StubTerminalProvider(),
         ]);
 
         Assert.Equal(["file"], fileOnly.AvailableCapabilities);

@@ -3,14 +3,14 @@ using Microsoft.Extensions.AI;
 
 namespace ForgeMission.Tests.Runtime;
 
-// Phase 43.1 task 1: the four tool declarations Forge Desktop attaches for its terminal agent
+// Phase 43.1 task 1: the four tool declarations a terminal agent expert attaches
 // expert — no wire relay in this path, forge originates the schemas itself.
 public sealed class AgentToolDeclarationsTests
 {
     private static readonly CapabilityRegistry AllCapabilities = new(
     [
         new WorkspaceFileProvider(new LocalDiskWorkspace(AppContext.BaseDirectory)),
-        new WorkspaceTerminalProvider(new LocalDiskWorkspace(AppContext.BaseDirectory)),
+        new ForgeMission.Tests.Tools.StubTerminalProvider(),
     ]);
 
     [Fact]

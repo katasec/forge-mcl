@@ -4,18 +4,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj" />
-    <PackageReference Include="GitHub.Copilot.SDK" />
     <PackageReference Include="Katasec.AnthropicServer" />
-    <PackageReference Include="Katasec.OaiServer" />
-    <!-- The event type the forge chat transcript mapping reads (same version forge resolves). -->
+    <!-- The event type the forge run tests read (same version forge resolves). -->
     <PackageReference Include="Katasec.Forge.Conversations.Contracts" />
     <PackageReference Include="Katasec.Forge.Client.Contracts" />
-    <!-- Style types the forge chat TUI style tests compare (same versions forge uses). -->
-    <PackageReference Include="XenoAtom.Terminal.UI" />
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
-    <!-- The CLI's CodeColours (G12) needs TextMateSharp and libonigwrap resolvable from the test output. -->
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
@@ -32,11 +24,8 @@
     <ProjectReference Include="..\..\src\ForgeMission.Parser\ForgeMission.Parser.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.Scout\ForgeMission.Scout.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.ChatClients\ForgeMission.ChatClients.csproj" />
-    <ProjectReference Include="..\..\src\ForgeMission.Serve\ForgeMission.Serve.csproj" />
-    <ProjectReference Include="..\..\src\ForgeMission.Docker\ForgeMission.Docker.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.MissionRegistry\ForgeMission.MissionRegistry.csproj" />
     <ProjectReference Include="..\..\src\ForgeMission.Cli\ForgeMission.Cli.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../ForgeMission.Exec.Probe/ForgeMission.Exec.Probe.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
