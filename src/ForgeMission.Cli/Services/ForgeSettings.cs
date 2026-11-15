@@ -1,23 +1,18 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using ForgeMission.Cli.Tui;
-using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli.Services;
 
 // The user's local settings in ~/.forge/config.json, loaded by the CLI host's JSON configuration
-// provider: { "theme": "light" | "dark", "api": { "endpoint": "..." }, "oci": { "endpoint": "..." } }.
-// Each consumer binds only what it uses: forge chat the theme (ForgeSettings, validated when chat
-// reads it), the hosted commands the API endpoint (ForgeApiSettings), forge run the OCI base for a
-// short mission selector (ForgeOciSettings). A missing file or key means the dark theme
-// (Phase 56 G10), the hosted API endpoint and ghcr.io/katasec. On first use forge writes the two
-// endpoint defaults into the file and keeps whatever is already there (Phase 76 decision 8).
-internal sealed class ForgeSettings
+// provider: { "api": { "endpoint": "..." }, "oci": { "endpoint": "..." } }. Each consumer binds only
+// what it uses: the hosted commands the API endpoint (ForgeApiSettings), forge run the OCI base for a
+// short mission selector (ForgeOciSettings). A missing file or key means the hosted API endpoint and
+// ghcr.io/katasec. On first use forge writes the two endpoint defaults into the file and keeps
+// whatever is already there (Phase 76 decision 8).
+internal static class ForgeSettings
 {
     public static string DefaultPath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".forge", "config.json");
-
-    public string? Theme { get; set; }
 
     /// <summary>Adds each missing endpoint default to the config file at <paramref name="path"/>,
     /// creating the file when absent. A present value, a section that is not an object and a file
@@ -86,22 +81,6 @@ internal sealed class ForgeSettings
             File.Delete(temp);
         }
     }
-
-    /// <summary>The theme named in the config file, once <see cref="ForgeSettingsValidator"/> has
-    /// admitted it (light, dark or none).</summary>
-    public ForgeTheme SelectedTheme() => Theme == "light" ? ForgeTheme.Light : ForgeTheme.Dark;
-}
-
-/// <summary>Admits only a known theme name, or none.</summary>
-internal sealed class ForgeSettingsValidator : IValidateOptions<ForgeSettings>
-{
-    private static readonly string[] ValidThemes = ["light", "dark"];
-
-    public ValidateOptionsResult Validate(string? name, ForgeSettings options) =>
-        options.Theme is null || ValidThemes.Contains(options.Theme)
-            ? ValidateOptionsResult.Success
-            : ValidateOptionsResult.Fail(
-                $"Unknown theme \"{options.Theme}\" in {ForgeSettings.DefaultPath}. Valid themes: {string.Join(", ", ValidThemes)}.");
 }
 
 /// <summary>The config file's <c>api</c> section.</summary>

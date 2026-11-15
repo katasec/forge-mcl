@@ -8,7 +8,7 @@ namespace ForgeMission.Cli.Commands;
 // forge run: a mission run kept as a cloud conversation in the project. The
 // Conversation Host owns the history; this surface prepares the package and prints. Starting the
 // new conversation (with Hands attached), the one turn and its follow are forge-client's shared
-// path, the same one forge chat uses (Phase 76 decision 2).
+// path (Phase 76 decision 2).
 internal static class ForgeDurableRun
 {
     internal static async Task<int> RunAsync(IHttpClientFactory clients, string projectPath, string selector,
@@ -52,13 +52,13 @@ internal static class ForgeDurableRun
         return 0;
     }
 
-    /// <summary>Verbose renders every event with chat's line-mode formatter, errors included;
+    /// <summary>Verbose renders every event with <see cref="RunTranscript"/>, errors included;
     /// otherwise only errors are printed. Both write to stderr.</summary>
     private static Action<ConversationEvent> Observer(bool verbose)
     {
         if (!verbose)
             return item => { if (item.Kind == ConversationEventKind.Error) Console.Error.WriteLine($"error: {item.Reason ?? item.Text}"); };
         string? lastReply = null;
-        return item => lastReply = ForgeChat.Print(item, lastReply, Console.Error);
+        return item => lastReply = RunTranscript.Print(item, lastReply, Console.Error);
     }
 }

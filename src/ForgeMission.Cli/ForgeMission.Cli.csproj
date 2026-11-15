@@ -1,12 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="../ForgeMission.Terminal.Extensions/ForgeMission.Terminal.Extensions.csproj" />
     <ProjectReference Include="..\ForgeMission.Core\ForgeMission.Core.csproj" />
     <ProjectReference Include="..\ForgeMission.ChatClients\ForgeMission.ChatClients.csproj" />
-    <ProjectReference Include="..\ForgeMission.Docker\ForgeMission.Docker.csproj" />
     <ProjectReference Include="..\ForgeMission.Scout\ForgeMission.Scout.csproj" />
-    <ProjectReference Include="..\ForgeMission.Serve\ForgeMission.Serve.csproj" />
     <ProjectReference Include="..\ForgeMission.MissionRegistry\ForgeMission.MissionRegistry.csproj" />
   </ItemGroup>
 
@@ -14,24 +11,9 @@
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Katasec.OciClient" />
-    <PackageReference Include="Spectre.Console" />
     <PackageReference Include="Katasec.Forge.Client" />
     <PackageReference Include="Katasec.Forge.Hands" />
     <PackageReference Include="Katasec.Forge.Client.Contracts" />
-    <PackageReference Include="XenoAtom.Terminal.UI" />
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
-    <!-- Phase 56 G2: proportional text in forge chat; referenced only by Tui/Graphics/GlyphText.cs. -->
-    <PackageReference Include="StbTrueTypeSharp" />
-    <!-- Phase 56 G12: syntax colours in code blocks (brings TextMateSharp, its grammars and libonigwrap);
-         TextMateSharp is referenced only by Tui/Graphics/CodeColours.cs. -->
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.CodeEditor.TextMateSharp" />
-  </ItemGroup>
-
-  <!-- Phase 56 G4: Inter 4.1 subset (eng/fonts/inter-subset.sh) and its OFL licence, embedded. -->
-  <ItemGroup>
-    <EmbeddedResource Include="Tui/Graphics/Fonts/Inter-SemiBold.ttf" LogicalName="Inter-SemiBold.ttf" />
-    <EmbeddedResource Include="Tui/Graphics/Fonts/Inter-Bold.ttf" LogicalName="Inter-Bold.ttf" />
-    <EmbeddedResource Include="Tui/Graphics/Fonts/LICENSE.txt" LogicalName="Inter-LICENSE.txt" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -40,8 +22,6 @@
     <PublishAot>true</PublishAot>
     <!-- Ships as a Native AOT payload via scripts/build.ps1, never as a NuGet package. -->
     <IsPackable>false</IsPackable>
-    <!-- StbTrueTypeSharp's API takes pointers; unsafe code is allowed in Tui/Graphics/GlyphText.cs only (TuiColourLiteralTests). -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Runs the code-style rules .editorconfig raises to warnings (IDE0130: namespace matches folder) on build. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <!-- IL2104/IL3053: summaries of YamlDotNet 18.0.0's reflection-based trim/AOT warnings

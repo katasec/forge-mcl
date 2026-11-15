@@ -1,11 +1,11 @@
 # forge-mcl
 
 `forge-mcl` owns the Mission Control Language runtime: parsing, provider-neutral execution,
-provider adapters, web search, generic OCI registry pulls, HTTP wire mapping, Docker helpers, and
-the Native AOT `forge` CLI.
+provider adapters, web search, generic OCI registry pulls, and the Native AOT `forge` CLI
+(`forge run` against Forge cloud, `forge publish`, and the `forge mcp` wrapper).
 
-It deliberately does not own a mission catalog, baked mission fallback, hosted Runner, Desktop,
-conversations, Rooms, platform accounts, or billing. Those remain consumer-owned concerns.
+It deliberately does not own a mission catalog, baked mission fallback, hosted Runner,
+conversations, platform accounts, or billing. Those remain consumer-owned concerns.
 
 ## Build
 
@@ -35,38 +35,6 @@ The mission reasons in the cloud. Hands is on: agent experts can Read/Write/Edit
 project folder, and nowhere else; terminal tools are not granted. Without a `forge.project.json`
 (or `--project <file>`), `forge run` stops with a message. See
 [run boundaries](src/ForgeMission.Cli/README.md#important-flows-and-constraints).
-
-## Terminal clipboard component
-
-[Forge Terminal Extensions](src/ForgeMission.Terminal.Extensions/README.md) owns truthful clipboard
-results and fixed native text context menus. The independently packable
-`Katasec.Forge.Terminal.Extensions` package uses exactly XenoAtom.Terminal.UI 3.10.0 and
-XenoAtom.Terminal 2.2.0; the CLI owns selection coordination, snippet composition and presentation.
-Run `make verify-terminal-extensions-package` before its merged-ref publication workflow.
-
-## Create a chat project
-
-```sh
-forge login
-forge project create       # initialize the current existing folder
-forge chat
-```
-
-Use `forge project create <folder>` for another existing folder, then
-`forge chat --project <folder>/forge.project.json`. Chat accepts only a project file path;
-the file may have any name. Omitting `--project` opens `./forge.project.json`. A directory or a missing
-file stops with an error.
-On an interactive Mac, the installed native `forge chat` opens a dedicated Ghostty window after
-its startup checks. Cmd+A selects all in the focused composer or `/edit` editor; quitting closes
-the window. Ordinary terminal tabs keep their shortcuts. Additional tabs in the dedicated
-instance also run Forge. A graceful chat error stays visible until you press a key to close it.
-The dedicated instance uses normal top-level Ghostty display configuration but excludes recursive
-`config-file` includes to keep its command and shortcut scoped. No shared config file is changed.
-Piped chat and other operating systems retain their existing behaviour; the dedicated Mac launch
-requires the native executable rather than `dotnet run`.
-
-Creation writes `forge.project.json` and creates one hosted plain Chat conversation. Rerunning
-the same command safely retries setup with the same Project and conversation identities.
 
 ## CLI releases
 

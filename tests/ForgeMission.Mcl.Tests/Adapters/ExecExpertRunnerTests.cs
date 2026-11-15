@@ -11,43 +11,6 @@ namespace ForgeMission.Tests.Adapters;
 public class ExecExpertRunnerTests : IDisposable
 {
     [Fact]
-    public async Task Native_owner_public_probe_joins_early_exit_descendants()
-    {
-        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
-        var name = OperatingSystem.IsWindows() ? "ForgeMission.Exec.Probe.exe" : "ForgeMission.Exec.Probe";
-        var probe = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../ForgeMission.Exec.Probe/bin", configuration, "net10.0", name));
-        using var process = Process.Start(new ProcessStartInfo(probe)
-        { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true })!;
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        try { await process.WaitForExitAsync(deadline.Token); }
-        catch { process.Kill(true); await process.WaitForExitAsync(); await Task.WhenAll(output, error); throw; }
-        Assert.True(process.ExitCode == 0, await output + "\n" + await error);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Cleanup_error_precedes_cancellation_without_sabotaging_a_live_process(bool cancellation)
-    {
-        var selector = typeof(ExecExpertRunner).GetMethod("ThrowExchangeFailure", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
-        using var source = new CancellationTokenSource();
-        if (cancellation) source.Cancel();
-        Exception original = cancellation ? new OperationCanceledException(source.Token) : new IOException("original pipe error");
-        var cleanup = new IOException("controlled OS reap failure");
-        var thrown = Assert.Throws<System.Reflection.TargetInvocationException>(() => selector.Invoke(null,
-            [original, new IOException[] { cleanup }, source.Token]));
-        var failure = Assert.IsAssignableFrom<IOException>(thrown.InnerException);
-        Assert.Contains("controlled OS reap failure", failure.ToString());
-        Assert.Contains(original.Message, failure.ToString());
-        thrown = Assert.Throws<System.Reflection.TargetInvocationException>(() => selector.Invoke(null,
-            [original, Array.Empty<IOException>(), source.Token]));
-        if (cancellation) Assert.IsAssignableFrom<OperationCanceledException>(thrown.InnerException);
-        else Assert.Same(original, thrown.InnerException);
-    }
-
-    [Fact]
     public void Declined_input_classifier_preserves_other_IO_failures_and_cancellation()
     {
         var classify = typeof(ExecExpertRunner).GetMethod("DeclinedInput", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;

@@ -17,9 +17,10 @@ public sealed class ForgeDurableRunTests : IDisposable
 {
     private const string Source = "mission Review(task) = {\n  Researcher\n}\n";
     private const string Expert = "---\nname: Researcher\nkind: llm\ninput: task\noutput: answer\n---\n{{task}}";
-    private static readonly MethodInfo RunTurn = ForgeText.Type("ForgeMission.Cli.Commands.ForgeDurableRun")
+    private static readonly Assembly Forge = Assembly.LoadFrom(ForgeCliHarness.ForgeDllPath);
+    private static readonly MethodInfo RunTurn = Forge.GetType("ForgeMission.Cli.Commands.ForgeDurableRun", throwOnError: true)!
         .GetMethod("RunTurnAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
-    private static readonly MethodInfo RunProject = ForgeText.Type("ForgeMission.Cli.Commands.HostedMissionCommands")
+    private static readonly MethodInfo RunProject = Forge.GetType("ForgeMission.Cli.Commands.HostedMissionCommands", throwOnError: true)!
         .GetMethod("RunProject", BindingFlags.Static | BindingFlags.NonPublic)!;
 
     private readonly string _home = Path.Combine(Path.GetTempPath(), "forge-durable-run-" + Guid.NewGuid().ToString("N"));
@@ -135,7 +136,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         Assert.Equal($"error: error reason\nerror: text only\nconversation: {host.ConversationId}\n", WithoutHandsNotice(console.Error));
     }
 
-    // --verbose renders the turn with chat's line-mode formatter on stderr; stdout stays the answer.
+    // --verbose renders the turn with RunTranscript on stderr; stdout stays the answer.
     [Fact]
     public async Task Verbose_prints_the_expert_steps_and_errors_once_on_stderr_and_the_same_stdout()
     {
