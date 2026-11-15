@@ -21,15 +21,21 @@ internal static class HostedMissionCommands
         var promptArg = new Argument<string>("prompt") { Description = "The mission's free-text input" };
         var projectOpt = new Option<string?>("--project") { Description = "Project file (default ./forge.project.json)" };
         var verboseOpt = new Option<bool>("--verbose") { Description = "Show the turn's expert steps, Hands use and errors on stderr" };
+        var inputOpt = new Option<string[]>("--input")
+        {
+            Description = "A named mission input, repeatable: name=value for text, name=@file to upload one file",
+            AllowMultipleArgumentsPerToken = false,
+        };
         var cmd = new Command("run", "Run a mission as a cloud conversation in a project and print the answer");
         cmd.Add(missionArg);
         cmd.Add(promptArg);
         cmd.Add(projectOpt);
         cmd.Add(verboseOpt);
+        cmd.Add(inputOpt);
         // A missing project is reported by forge-client's shared open.
         cmd.SetCancellableAction((result, cancellationToken) => ForgeDurableRun.RunAsync(clients,
             RunProject(result.GetValue(projectOpt), Directory.GetCurrentDirectory()), result.GetValue(missionArg)!,
-            result.GetValue(promptArg)!, ociBase, result.GetValue(verboseOpt), cancellationToken));
+            result.GetValue(promptArg)!, result.GetValue(inputOpt) ?? [], ociBase, result.GetValue(verboseOpt), cancellationToken));
         return cmd;
     }
 

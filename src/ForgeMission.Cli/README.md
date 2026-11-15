@@ -44,6 +44,7 @@ forge-client.
 |---|---|
 | [Program](Program.cs) | Executable entry point, command registration, and command handlers. |
 | [ForgeDurableRun](Commands/ForgeDurableRun.cs) | `forge run`: one turn of a mission as a cloud conversation in the project, with Hands. |
+| [RunInputs](Commands/RunInputs.cs) | `forge run --input`: parses and checks named inputs and builds the turn's `MissionNamedInputs`. |
 | [RunTranscript](Commands/RunTranscript.cs) | `forge run --verbose`: one stderr line per expert step, Hands use, error or unfinished run. |
 | [McpCommand](Commands/McpCommand.cs) | `forge mcp`: serves one validated mission over stdio, runners built by [MissionServerBuilder](Services/MissionServerBuilder.cs). |
 | [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
@@ -73,6 +74,11 @@ flowchart LR
   Conversation Host, readable after the CLI exits. A missing project stops with the Client's one
   message naming `forge project create`. The final answer goes to stdout; diagnostics, the
   `--verbose` transcript and the conversation ID go to stderr.
+- **Named inputs:** `--input name=value` (text) and `--input name=@file` (uploads one file, at most
+  100 MiB; a folder is refused) are repeatable. The prompt fills the root mission's own input, so
+  `--input` cannot name it. With any `--input`, the turn is submitted as named inputs through the
+  Client (`UploadInputAsync`, then `RunTurnAsync` with `MissionNamedInputs`). Every value is checked
+  before any network call.
 - **Hands:** Always attached by the Client when the conversation opens; there is no flag or
   prompt. Agent experts may Read/Write/Edit inside the project's folders and nowhere else; terminal
   tools are not granted. Hands owns path and symlink containment. Hands reports print on stderr

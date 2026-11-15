@@ -38,7 +38,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         await using var app = CreateApp(host);
 
         var exit = await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", false, CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", Array.Empty<string>(), "ghcr.io/katasec", false, CancellationToken.None])!;
 
         Assert.Equal(0, exit);
         var routes = host.Requests;
@@ -56,7 +56,7 @@ public sealed class ForgeDurableRunTests : IDisposable
         await using var app = CreateApp(host);
 
         var exit = await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", false, CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", Array.Empty<string>(), "ghcr.io/katasec", false, CancellationToken.None])!;
 
         Assert.Equal(0, exit);
         Assert.Contains("/api/CreateMissionConversation", host.Requests);
@@ -169,12 +169,57 @@ public sealed class ForgeDurableRunTests : IDisposable
         string.Join("", error.Split('\n').Where(line => !line.StartsWith("error: file operation", StringComparison.Ordinal))
             .Select(line => line.Length == 0 ? "" : line + "\n"));
 
-    private async Task<int> RunTurnAsync(RunHost host, bool verbose = false)
+    private async Task<int> RunTurnAsync(RunHost host, bool verbose = false, string[]? inputs = null)
     {
         var projectFile = await WriteProjectAsync("Review@1");
         await using var app = CreateApp(host);
         return await (Task<int>)RunTurn.Invoke(null,
-            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", "ghcr.io/katasec", verbose, CancellationToken.None])!;
+            [app, projectFile, Path.Combine(_home, "mission.mcl"), "write a file", inputs ?? [], "ghcr.io/katasec", verbose, CancellationToken.None])!;
+    }
+
+    // forge run --input (Phase 76 decision 7): name=value is text, name=@file uploads one file. The
+    // prompt goes under the root mission's input (`task` here) and the turn carries no text.
+    [Fact]
+    public async Task Named_inputs_upload_files_then_submit_them_by_name_with_the_prompt_under_the_root_input()
+    {
+        await File.WriteAllBytesAsync(Path.Combine(_home, "code.txt"), [1, 2, 3]);
+        var previous = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_home);
+        using var host = new RunHost(_projectId);
+        int exit;
+        try { exit = await RunTurnAsync(host, inputs: ["style=terse", "code=@code.txt"]); }
+        finally { Directory.SetCurrentDirectory(previous); }
+
+        Assert.Equal(0, exit);
+        var routes = host.Requests;
+        Assert.True(routes.IndexOf("/api/UploadMissionInput") is >= 0 and var upload &&
+            upload < routes.IndexOf("/api/SubmitMissionTurn"), string.Join(", ", routes));
+        var submitted = host.Submitted!;
+        Assert.Null(submitted.Text);
+        Assert.Null(submitted.Workspace);
+        Assert.Equal(new Dictionary<string, string> { ["task"] = "write a file", ["style"] = "terse" }, submitted.Inputs!.Strings);
+        var file = Assert.Single(submitted.Inputs.Artifacts);
+        Assert.Equal(("code", 3L, submitted.CommandId), (file.Key, file.Value.ByteLength, host.UploadedCommandId));
+    }
+
+    // Every bad value is refused before any network call.
+    [Theory]
+    [InlineData("style")]
+    [InlineData("=terse")]
+    [InlineData("9style=terse")]
+    [InlineData("style=terse", "style=long")]
+    [InlineData("code=@experts")]
+    [InlineData("code=@missing.txt")]
+    [InlineData("task=other")]
+    public async Task A_bad_input_is_refused_before_the_turn_is_submitted(params string[] inputs)
+    {
+        var previous = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_home);
+        using var host = new RunHost(_projectId);
+        try { await Assert.ThrowsAsync<ArgumentException>(() => RunTurnAsync(host, inputs: inputs)); }
+        finally { Directory.SetCurrentDirectory(previous); }
+
+        Assert.Empty(host.Requests);
     }
 
     private async Task<string> WriteProjectAsync(string mission)
@@ -211,6 +256,8 @@ public sealed class ForgeDurableRunTests : IDisposable
         private Guid _attemptId;
 
         public DurableMissionLaunch? Launch { get; private set; }
+        public SubmitMissionTurnRequest? Submitted { get; private set; }
+        public Guid? UploadedCommandId { get; private set; }
 
         public Guid ConversationId => _conversationId;
 
@@ -228,12 +275,14 @@ public sealed class ForgeDurableRunTests : IDisposable
         {
             var route = request.RequestUri!.AbsolutePath;
             lock (_gate) _requests.Add(route);
+            if (route == "/api/UploadMissionInput")
+                return Upload(request, await request.Content!.ReadAsByteArrayAsync(ct));
             var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
             return route switch
             {
                 "/api/CreateMissionConversation" => Create(body),
                 "/api/GetConversation" => Json(new GetConversationResponse(Snapshot())),
-                "/api/SubmitMissionTurn" => Submit(),
+                "/api/SubmitMissionTurn" => Submit(body),
                 "/api/StreamConversationEvents" => Stream(),
                 "/api/ClaimMissionHandsWork" => Claim(),
                 // Every other Hands route: the attachment waits for work.
@@ -249,8 +298,19 @@ public sealed class ForgeDurableRunTests : IDisposable
             return Json(new CreateMissionConversationResponse(_conversationId, 1, created.Launch));
         }
 
-        private HttpResponseMessage Submit()
+        // ForgeAPI's reply to an upload: the reference bound to the command and input name.
+        private HttpResponseMessage Upload(HttpRequestMessage request, byte[] bytes)
         {
+            var commandId = Guid.Parse(request.Headers.GetValues("X-Forge-Command-Id").Single());
+            UploadedCommandId = commandId;
+            var name = request.Headers.GetValues("X-Forge-Input-Name").Single();
+            return Json(new MissionContentReference(ConversationDeterministicIds.Body(commandId, "mission-content/input/" + name),
+                bytes.Length, ConversationBodies.Sha256Hex(bytes), "application/octet-stream", MissionContentKind.Input));
+        }
+
+        private HttpResponseMessage Submit(string body)
+        {
+            Submitted = JsonSerializer.Deserialize(body, ConversationContractsJsonContext.Default.SubmitMissionTurnRequest);
             _attemptId = Guid.NewGuid();
             return Json(new SubmitMissionTurnResponse(_conversationId, Guid.NewGuid(), _attemptId, 2, ConversationRunStatus.Running));
         }
