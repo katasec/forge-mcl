@@ -33,7 +33,7 @@ public sealed class ForgeConfigTests
         harness.SignIn("https://example.invalid");
         harness.WriteConfig($$"""{ "api": { "endpoint": "  {{stub.Address}}/ " } }""");
 
-        var result = await harness.RunAsync("project", "create");
+        var result = await harness.RunAsync(harness.WriteLocalRun());
 
         Assert.Equal((1, ""), (result.ExitCode, result.StandardOutput));
         Assert.Equal(("POST", "/api/CreateMissionConversation"), (Assert.Single(stub.Requests).Method, stub.Requests[0].PathAndQuery));
@@ -47,29 +47,26 @@ public sealed class ForgeConfigTests
         harness.SignIn("https://example.invalid");
         harness.WriteConfig("""{ "api": { "endpoint": " " } }""");
 
-        var result = await harness.RunAsync("project", "create");
+        var result = await harness.RunAsync(harness.WriteLocalRun());
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(new ProxyAttempt("CONNECT", "api.forge.katasec.com:443"), harness.Proxy.Attempts);
     }
 
-    // forge project create reaches the hosted conversations at the configured endpoint.
-    [Theory]
-    [InlineData("/api/CreateMissionConversation", "project", "create")]
-    public async Task Conversation_commands_go_to_the_configured_api_endpoint(string firstCall, params string[] args)
+    // forge run reaches the hosted conversations at the configured endpoint with the saved key.
+    [Fact]
+    public async Task Conversation_commands_go_to_the_configured_api_endpoint()
     {
         await using var harness = ForgeCliHarness.Start();
         var stub = await harness.StartStubAsync(_ => new StubResponse(500, "boom"));
         harness.SignIn("https://example.invalid");
         harness.WriteConfig($$"""{ "api": { "endpoint": "{{stub.Address}}" } }""");
-        File.WriteAllText(Path.Combine(harness.WorkingDirectory, "forge.project.json"),
-            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"missions\":[\"Chat@1\"],\"folders\":[\".\"]}");
 
-        var result = await harness.RunAsync(args);
+        var result = await harness.RunAsync(harness.WriteLocalRun());
 
         Assert.Equal(1, result.ExitCode);
         var request = Assert.Single(stub.Requests);
-        Assert.Equal(("POST", firstCall, "Bearer fg_test_key"), (request.Method, request.PathAndQuery, request.Headers["Authorization"]));
+        Assert.Equal(("POST", "/api/CreateMissionConversation", "Bearer fg_test_key"), (request.Method, request.PathAndQuery, request.Headers["Authorization"]));
         Assert.Empty(harness.Proxy.Attempts);
     }
 

@@ -68,6 +68,19 @@ public sealed class ForgeCliHarness : IAsyncDisposable
         WriteForgeFile("credentials.json",
             $$$"""{"platform":{"key":"fg_test_key","user":"harness@test","endpoint":"{{{endpoint}}}"}}""");
 
+    /// <summary>Writes a Project and a one-expert local mission in the working directory. Its run's
+    /// first network call is <c>POST /api/CreateMissionConversation</c>.</summary>
+    public string[] WriteLocalRun()
+    {
+        File.WriteAllText(Path.Combine(WorkingDirectory, "forge.project.json"),
+            "{\"projectId\":\"" + Guid.NewGuid() + "\",\"folders\":[\".\"]}");
+        File.WriteAllText(Path.Combine(WorkingDirectory, "mission.mcl"), "mission Check(task) = {\n    Writer\n}\n");
+        var expert = Path.Combine(WorkingDirectory, "experts", "Writer");
+        Directory.CreateDirectory(expert);
+        File.WriteAllText(Path.Combine(expert, "expert.md"), "---\nname: Writer\nkind: llm\ninput: task\noutput: answer\n---\n{{task}}");
+        return ["run", "./mission.mcl", "hello"];
+    }
+
     /// <summary>Writes <c>~/.forge/{fileName}</c> in the isolated HOME.</summary>
     public void WriteForgeFile(string fileName, string contents) =>
         File.WriteAllText(Path.Combine(Home, ".forge", fileName), contents);
