@@ -5,7 +5,7 @@
 
   <ItemGroup>
     <PackageReference Include="Katasec.AnthropicServer" />
-    <!-- The event type the forge run tests read (same version forge resolves). -->
+    <!-- The event type the forge run tests read. forge gets it through Katasec.Forge.Client 0.19.0, so this pin must match the version Client brings (0.15.0). -->
     <PackageReference Include="Katasec.Forge.Conversations.Contracts" />
     <PackageReference Include="Katasec.Forge.Client.Contracts" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
