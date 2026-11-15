@@ -102,7 +102,7 @@ public sealed class RunTranscriptTests
 
     private static ConversationEvent Event(ConversationEventKind kind, string? text = null, string? reason = null, int? attempt = null,
         ConversationRunStatus? status = null, MissionToolRequest? request = null, MissionToolOutcome? outcome = null) =>
-        new(Guid.NewGuid(), 1, Guid.Empty, null, 0, kind, ConversationParticipant.User, attempt, text, reason, null, null, null,
+        new(Guid.NewGuid(), 1, Guid.Empty, null, 0, kind, ConversationParticipant.User, attempt, text, reason,
             null, status, Sent, request, outcome);
 
     private static MissionToolRequest Tool(string name, string arguments) => new(Guid.NewGuid(), Guid.Empty, Guid.Empty,

@@ -346,13 +346,13 @@ public sealed class ForgeDurableRunTests : IDisposable
             string? reason, ConversationRunStatus? status)
         {
             var item = new ConversationEvent(Guid.NewGuid(), 1, _conversationId, _attemptId, sequence, kind,
-                ConversationParticipant.User, null, text, reason, null, null, null, null, status, DateTimeOffset.UtcNow);
+                ConversationParticipant.User, null, text, reason, null, status, DateTimeOffset.UtcNow);
             var json = JsonSerializer.Serialize(item, ConversationContractsJsonContext.Default.ConversationEvent);
             await writer.WriteAsync(Encoding.UTF8.GetBytes($"data: {json}\n\n"));
         }
 
-        private ConversationSnapshot Snapshot() => new(_conversationId, null, null, 1, ConversationRunStatus.Completed,
-            null, DateTimeOffset.UtcNow, Purpose: ConversationPurpose.MissionConversation, ProjectId: projectId, PinnedLaunch: Launch);
+        private ConversationSnapshot Snapshot() => new(_conversationId, null, 1, ConversationRunStatus.Completed,
+            DateTimeOffset.UtcNow, ConversationPurpose.MissionConversation, projectId, Launch);
 
         private static HttpResponseMessage Json<T>(T value) =>
             Raw(JsonSerializer.Serialize(value, typeof(T), ConversationContractsJsonContext.Default));
