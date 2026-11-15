@@ -12,7 +12,7 @@ namespace ForgeMission.Cli.Commands;
 internal static class ForgeDurableRun
 {
     internal static async Task<int> RunAsync(IHttpClientFactory clients, string projectPath, string selector,
-        string prompt, string ociBase, bool verbose, CancellationToken ct)
+        string prompt, IReadOnlyList<string> inputs, string ociBase, bool verbose, CancellationToken ct)
     {
         var platform = CredentialStore.GetPlatform();
         if (platform is null || string.IsNullOrEmpty(platform.Key))
@@ -24,7 +24,7 @@ internal static class ForgeDurableRun
         await using var app = ApplicationComposition.Create(clients, ct);
         try
         {
-            return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ociBase, verbose, ct);
+            return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, inputs, ociBase, verbose, ct);
         }
         // The caller's own cancellation propagates; every other failure is one error line.
         catch (Exception failure) when (!ct.IsCancellationRequested)
@@ -35,16 +35,23 @@ internal static class ForgeDurableRun
     }
 
     private static async Task<int> RunTurnAsync(ApplicationComposition app, string projectFile, string selector,
-        string prompt, string ociBase, bool verbose, CancellationToken ct)
+        string prompt, IReadOnlyList<string> inputValues, string ociBase, bool verbose, CancellationToken ct)
     {
+        var inputs = RunInputs.Parse(inputValues, Directory.GetCurrentDirectory());
         var package = await app.MissionConversations.PrepareSelectedPackageAsync(
             selector, Directory.GetCurrentDirectory(), ociBase, ct);
+        RunInputs.RequireNotRoot(inputs, package.RootInputName);
         var report = new ImmediateProgress(message => Console.Error.WriteLine($"error: {message}"));
         var started = await app.MissionConversations.StartAsync(projectFile, package, report, ct);
         await using var conversation = started.Conversation
             ?? throw new InvalidOperationException(started.Error?.Message ?? "The project could not be opened.");
 
-        var turn = await conversation.RunTurnAsync(Guid.NewGuid(), prompt, Observer(verbose), ct);
+        var commandId = Guid.NewGuid();
+        var turn = inputs.Count == 0
+            ? await conversation.RunTurnAsync(commandId, prompt, Observer(verbose), ct)
+            : await conversation.RunTurnAsync(commandId, await RunInputs.BuildAsync(inputs, package.RootInputName, prompt,
+                (name, bytes) => conversation.UploadInputAsync(commandId, name, bytes, "application/octet-stream", ct), ct),
+                Observer(verbose), ct);
 
         Console.Error.WriteLine($"conversation: {conversation.ConversationId}");
         if (turn.FinalAnswer is null) return 1;
