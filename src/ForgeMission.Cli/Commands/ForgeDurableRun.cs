@@ -21,7 +21,7 @@ internal static class ForgeDurableRun
             return 1;
         }
 
-        await using var app = ApplicationComposition.Create(clients, _ => { }, ct);
+        await using var app = ApplicationComposition.Create(clients, ct);
         try
         {
             return await RunTurnAsync(app, Path.GetFullPath(projectPath), selector, prompt, ociBase, verbose, ct);

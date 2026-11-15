@@ -80,7 +80,7 @@ flowchart LR
 - **Composition:** `Program` wires existing owners. Provider and search behavior belong in
   [Chat Clients](../ForgeMission.ChatClients/README.md) and [Scout](../ForgeMission.Scout/README.md);
   OCI retrieval belongs in [Mission Registry](../ForgeMission.MissionRegistry/README.md).
-- **Project creation:** `forge project create [folder]` initializes one portable declaration and one hosted plain Chat conversation. The folder defaults to cwd and must exist. Saved sign-in is required before creation; Projects and Missions own all file, package, admission and retry rules. Explicit retry preserves the same Project and conversation.
+- **Project creation:** `forge project create [folder]` writes `forge.project.json` (`folders: ["."]` and a new `projectId`) unless one is already there. The folder defaults to cwd and must exist. It makes no server call and needs no sign-in; forge-client's Projects owner holds the file rules. A rerun keeps the existing Project.
 - **Portable files:** `forge.project.json` carries the stable `projectId`, mission/version
   references and relative repository folders.
 - **MCP:** `forge mcp <mission.mcl>` runs the mission locally in-process for each tool call; its

@@ -1,53 +1,40 @@
 using System.Reflection;
-using System.Net;
-using System.Text;
 using System.Text.Json;
 using ForgeMission.Application.Transport;
-using ForgeMission.Core.Resolution;
-using ForgeMission.Conversations.Contracts;
 using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
 
 public sealed class ForgeProjectTests
 {
-    // Phase 76 (decision 2b): project create makes the one tool-capable conversation, admitted with
-    // the project folder as its workspace.
+    // Phase 79 (D2): project create only writes forge.project.json and calls no server.
     [Fact]
-    public async Task Published_client_creates_the_project_against_current_core()
+    public async Task Published_client_writes_only_the_declaration()
     {
         var root = Directory.CreateTempSubdirectory("forge-published-client-").FullName;
-        using var host = new ChatProjectHost();
+        using var host = new NoServer();
         try
         {
             var application = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(RunCore.DeclaringType!.Assembly.Location)!, "ForgeMission.Application.dll"));
-            Assert.Equal(new Version(0, 16, 0, 0), application.GetName().Version);
+            Assert.Equal(new Version(0, 17, 0, 0), application.GetName().Version);
             var composition = application.GetType("ForgeMission.Application.ApplicationComposition", true)!;
-            await using var app = (IAsyncDisposable)composition.GetMethod("Create")!.Invoke(null,
-                [host, (Action<ApplicationEvent>)(_ => { }), CancellationToken.None])!;
+            await using var app = (IAsyncDisposable)composition.GetMethod("Create")!.Invoke(null, [host, CancellationToken.None])!;
             var conversations = composition.GetProperty("MissionConversations")!.GetValue(app)!;
-            var created = await ClientAction<CreateChatProjectResponse>(conversations, "CreateChatProjectAsync",
-                new CreateChatProjectRequest(root), CancellationToken.None);
+            var created = await ClientAction<CreateProjectResponse>(conversations, "CreateProjectAsync",
+                new CreateProjectRequest(root), CancellationToken.None);
             Assert.Null(created.Error);
-            Assert.NotNull(created.Created);
-            Assert.Equal(MissionHandsProfile.ProjectWorkspace, host.Created!.Launch.Profile);
             var projectFile = Path.Combine(root, "forge.project.json");
             using (var declaration = JsonDocument.Parse(await File.ReadAllTextAsync(projectFile)))
+            {
                 Assert.Equal(["."], declaration.RootElement.GetProperty("folders").EnumerateArray().Select(folder => folder.GetString()));
-
-            Assert.Equal(["/api/CreateMissionConversation"], host.Requests.Take(1));
+                Assert.Equal(created.Created!.ProjectId, declaration.RootElement.GetProperty("projectId").GetGuid());
+            }
             Assert.Equal(["forge.project.json"], Directory.GetFiles(root).Select(Path.GetFileName));
             Assert.Empty(Directory.GetDirectories(root));
         }
         finally
         {
             Directory.Delete(root, true);
-            if (host.Created is { } created)
-            {
-                var projection = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".forge", "sessions",
-                    created.ProjectId.ToString("N"), ConversationDeterministicIds.MissionConversation(created.CommandId).ToString("N"));
-                if (Directory.Exists(projection)) Directory.Delete(projection, true);
-            }
         }
     }
 
@@ -63,36 +50,15 @@ public sealed class ForgeProjectTests
         return task.GetType().GetProperty("Result")!.GetValue(task)!;
     }
 
-    private sealed class ChatProjectHost : HttpMessageHandler, IHttpClientFactory
+    private sealed class NoServer : HttpMessageHandler, IHttpClientFactory
     {
-        public ForgeMission.Conversations.Contracts.CreateMissionConversationRequest? Created { get; private set; }
-        public List<string> Requests { get; } = [];
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new("https://controlled-host.invalid/") };
 
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var route = request.RequestUri!.AbsolutePath;
-            Requests.Add(route);
-            if (route == "/api/CreateMissionConversation")
-                Created = JsonSerializer.Deserialize(await request.Content!.ReadAsStringAsync(ct), ConversationContractsJsonContext.Default.CreateMissionConversationRequest)!;
-            var created = Created ?? throw new InvalidOperationException("Creation must precede chat startup.");
-            var conversationId = ConversationDeterministicIds.MissionConversation(created.CommandId);
-            var snapshot = new ConversationSnapshot(conversationId, null, null, 0, ConversationRunStatus.Completed,
-                null, DateTimeOffset.UtcNow, Purpose: ConversationPurpose.MissionConversation, ProjectId: created.ProjectId, PinnedLaunch: created.Launch);
-            var json = route switch
-            {
-                "/api/CreateMissionConversation" => JsonSerializer.Serialize(new ForgeMission.Conversations.Contracts.CreateMissionConversationResponse(conversationId, 1, created.Launch),
-                    ConversationContractsJsonContext.Default.CreateMissionConversationResponse),
-                "/api/GetConversation" => JsonSerializer.Serialize(new GetConversationResponse(snapshot), ConversationContractsJsonContext.Default.GetConversationResponse),
-                // Every Hands route of the open: the attachment waits for work.
-                _ => "{\"status\":\"awaitingHands\"}",
-            };
-            return new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
-        }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new InvalidOperationException($"project create must not call {request.RequestUri}.");
     }
 
     private static readonly MethodInfo RunCore = LoadRunCore();
-    private static readonly PlatformCredential SignedIn = new() { Key = "controlled-platform-key" };
 
     [Theory]
     [InlineData("root")]
@@ -118,48 +84,24 @@ public sealed class ForgeProjectTests
         var result = await InvokeAsync(["project", "create", "first-folder", "second-folder"]);
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("second-folder", result.Error);
-        Assert.DoesNotContain("Not signed in", result.Error);
         Assert.DoesNotContain("Project:", result.Output);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData(" ")]
-    public async Task Missing_login_stops_before_shared_creation(string? key)
-    {
-        var calls = 0;
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-        var platform = key is null ? null : new PlatformCredential { Key = key };
-        var result = await RunAsync(null, platform, (_, _) =>
-        {
-            calls++;
-            throw new InvalidOperationException("Must not create without login.");
-        }, output, error);
-        Assert.Equal(1, result);
-        Assert.Equal(0, calls);
-        Assert.Equal("", output.ToString());
-        Assert.Equal("Not signed in. Run `forge login`.", error.ToString().Trim());
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Success_forwards_home_and_login_once_and_prints_the_next_command(bool explicitFolder)
+    public async Task Success_forwards_home_once_and_prints_the_next_command(bool explicitFolder)
     {
         var folder = explicitFolder ? "project folder" : null;
         var expectedHome = Path.GetFullPath(folder ?? Directory.GetCurrentDirectory());
         var calls = 0;
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var result = await RunAsync(folder, SignedIn, (request, platform) =>
+        var result = await RunAsync(folder, request =>
         {
             calls++;
             Assert.Equal(expectedHome, request.HomePath);
-            Assert.Same(SignedIn, platform);
-            return Task.FromResult(new CreateChatProjectResponse(
-                new CreatedChatProject(Guid.NewGuid(), Guid.NewGuid(), request.HomePath), null));
+            return Task.FromResult(new CreateProjectResponse(new CreatedProject(Guid.NewGuid(), request.HomePath), null));
         }, output, error);
         Assert.Equal(0, result);
         Assert.Equal(1, calls);
@@ -174,8 +116,8 @@ public sealed class ForgeProjectTests
         const string folder = "project $value's `folder";
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var result = await RunAsync(folder, SignedIn, (request, _) => Task.FromResult(
-            new CreateChatProjectResponse(new CreatedChatProject(Guid.NewGuid(), Guid.NewGuid(), request.HomePath), null)), output, error);
+        var result = await RunAsync(folder, request => Task.FromResult(
+            new CreateProjectResponse(new CreatedProject(Guid.NewGuid(), request.HomePath), null)), output, error);
         Assert.Equal(0, result);
         Assert.Equal("", error.ToString());
         var quotedFile = Path.Combine(Directory.GetCurrentDirectory(), "project $value''s `folder", "forge.project.json");
@@ -184,22 +126,21 @@ public sealed class ForgeProjectTests
 
     [Theory]
     [InlineData(ProjectOperationErrorCode.InvalidManifest, "This folder already contains another Project.")]
-    [InlineData(ProjectOperationErrorCode.SubmissionUncertain, "The project file remains. Rerun the same create safely.")]
+    [InlineData(ProjectOperationErrorCode.ManifestWriteFailed, "Could not update forge.project.json.")]
     public async Task Owner_failure_is_reported_verbatim_without_success(ProjectOperationErrorCode code, string message)
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var result = await RunAsync(null, SignedIn, (_, _) => Task.FromResult(
-            new CreateChatProjectResponse(null, new ProjectOperationError(code, message))), output, error);
+        var result = await RunAsync(null, _ => Task.FromResult(
+            new CreateProjectResponse(null, new ProjectOperationError(code, message))), output, error);
         Assert.Equal(1, result);
         Assert.Equal("", output.ToString());
         Assert.Equal(message, error.ToString().Trim());
     }
 
-    private static Task<int> RunAsync(string? folder, PlatformCredential? platform,
-        Func<CreateChatProjectRequest, PlatformCredential, Task<CreateChatProjectResponse>> create,
+    private static Task<int> RunAsync(string? folder, Func<CreateProjectRequest, Task<CreateProjectResponse>> create,
         TextWriter output, TextWriter error) =>
-        (Task<int>)RunCore.Invoke(null, [folder, platform, create, output, error])!;
+        (Task<int>)RunCore.Invoke(null, [folder, create, output, error])!;
 
     private static async Task<(int ExitCode, string Output, string Error)> InvokeAsync(string[] args)
     {

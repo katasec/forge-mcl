@@ -192,14 +192,8 @@ public sealed class ForgeDurableRunTests : IDisposable
     private static IAsyncDisposable CreateApp(IHttpClientFactory host)
     {
         var appType = RunTurn.GetParameters()[0].ParameterType;
-        var create = appType.GetMethod("Create")!;
-        var publishType = create.GetParameters()[1].ParameterType;
-        var publish = typeof(ForgeDurableRunTests).GetMethod(nameof(IgnoreEvents), BindingFlags.Static | BindingFlags.NonPublic)!
-            .MakeGenericMethod(publishType.GetGenericArguments()[0]).CreateDelegate(publishType);
-        return (IAsyncDisposable)create.Invoke(null, [host, publish, CancellationToken.None])!;
+        return (IAsyncDisposable)appType.GetMethod("Create")!.Invoke(null, [host, CancellationToken.None])!;
     }
-
-    private static void IgnoreEvents<T>(T item) { }
 
     // A controlled Host for one run. The event stream sends a Hands request, then holds the turn
     // open until the attachment claims it, so the claim proves the event reached the attachment.

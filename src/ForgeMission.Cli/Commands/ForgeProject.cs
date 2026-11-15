@@ -1,18 +1,17 @@
 using System.CommandLine;
 using ForgeMission.Application;
 using ForgeMission.Application.Transport;
-using ForgeMission.Core.Resolution;
 
 namespace ForgeMission.Cli.Commands;
 
-// Projects and Missions own creation and recovery. This surface selects the folder, supplies
-// the saved platform login, and reports their result; it writes no Project or package files.
+// forge-client's Projects owner writes forge.project.json; this surface selects the folder and
+// reports the result. It makes no server call, so it needs no sign-in.
 public static class ForgeProject
 {
     internal static Command BuildCommand(IHttpClientFactory clients)
     {
         var project = new Command("project", "Manage portable Forge projects");
-        var create = new Command("create", "Create a portable project with a hosted Chat conversation");
+        var create = new Command("create", "Write forge.project.json in a folder");
         var folder = new Argument<string?>("folder")
         {
             Description = "Existing project folder (default: current directory)",
@@ -24,22 +23,13 @@ public static class ForgeProject
         return project;
     }
 
-    // The conversation-host client carries the saved platform key itself (CliHttpClients).
     internal static Task<int> RunAsync(string? folder, IHttpClientFactory clients) =>
-        RunCoreAsync(folder, CredentialStore.GetPlatform(),
-            (request, _) => CreateAsync(request, clients), Console.Out, Console.Error);
+        RunCoreAsync(folder, request => CreateAsync(request, clients), Console.Out, Console.Error);
 
-    // The seam keeps startup/output checks independent of actual saved credentials and network.
-    internal static async Task<int> RunCoreAsync(string? folder, PlatformCredential? platform,
-        Func<CreateChatProjectRequest, PlatformCredential, Task<CreateChatProjectResponse>> create,
-        TextWriter output, TextWriter error)
+    // The seam keeps output checks independent of the file system owner.
+    internal static async Task<int> RunCoreAsync(string? folder,
+        Func<CreateProjectRequest, Task<CreateProjectResponse>> create, TextWriter output, TextWriter error)
     {
-        if (platform is null || string.IsNullOrWhiteSpace(platform.Key))
-        {
-            error.WriteLine("Not signed in. Run `forge login`.");
-            return 1;
-        }
-
         string home;
         try { home = Path.GetFullPath(folder ?? Directory.GetCurrentDirectory()); }
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException)
@@ -48,7 +38,7 @@ public static class ForgeProject
             return 1;
         }
 
-        var result = await create(new CreateChatProjectRequest(home), platform);
+        var result = await create(new CreateProjectRequest(home));
         if (result.Error is { } failureReason)
         {
             error.WriteLine(failureReason.Message);
@@ -67,12 +57,9 @@ public static class ForgeProject
         return 0;
     }
 
-    // Deliberately not the command's token: Missions report a cancelled creation as an uncertain
-    // submission (an error and exit 1), where Ctrl+C exits 130.
-    private static async Task<CreateChatProjectResponse> CreateAsync(
-        CreateChatProjectRequest request, IHttpClientFactory clients)
+    private static async Task<CreateProjectResponse> CreateAsync(CreateProjectRequest request, IHttpClientFactory clients)
     {
-        await using var app = ApplicationComposition.Create(clients, _ => { }, CancellationToken.None);
-        return await app.MissionConversations.CreateChatProjectAsync(request, CancellationToken.None);
+        await using var app = ApplicationComposition.Create(clients, CancellationToken.None);
+        return await app.MissionConversations.CreateProjectAsync(request, CancellationToken.None);
     }
 }
