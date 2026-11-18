@@ -15,4 +15,4 @@ experts:
   QualityScorer:
     source: experts
     path: experts/QualityScorer/expert.md
-    hash: ed9351b385a221ac5f01512bbabdfcefeaca42ce8f61cfba367dd6ad10ab4773
+    hash: ab756552f88ef100839db2033007ba41651a1b2359d29e8eb25b8ed0de61bbe8
