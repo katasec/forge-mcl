@@ -28,7 +28,7 @@ CLI tag and the number of commits since it. Rebuilding a clean commit keeps the 
 forge login
 forge project create              # writes forge.project.json in this folder
 forge init mission.mcl
-forge run mission.mcl "<prompt>"  # declare the mission as <Mission>@1 in forge.project.json first
+forge run mission.mcl "<prompt>"
 ```
 
 The mission reasons in the cloud. Hands is on: agent experts can Read/Write/Edit files inside the
