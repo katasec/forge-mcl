@@ -19,21 +19,19 @@ internal static class MissionDevCommands
     internal static Command BuildInitCommand()
     {
         var missionArg  = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
-        var refreshOpt  = new Option<bool>("--refresh") { Description = "Re-pull OCI experts even if already present in ~/.forge/experts" };
 
         var cmd = new Command("init", "Resolve expert sources and generate mcl.lock");
         cmd.Add(missionArg);
-        cmd.Add(refreshOpt);
 
         cmd.SetCancellableAction((result, cancellationToken) =>
-            RunInitAsync(result.GetValue(missionArg)!, result.GetValue(refreshOpt), cancellationToken));
+            RunInitAsync(result.GetValue(missionArg)!, cancellationToken));
 
         return cmd;
     }
 
     // Resolve local experts, pull any OCI experts, and write mcl.lock. Each helper reports its own
     // failure through Die (which throws ForgeExitException), so the orchestration reads top-down.
-    internal static async Task RunInitAsync(FileInfo mission, bool refresh, CancellationToken cancellationToken)
+    internal static async Task RunInitAsync(FileInfo mission, CancellationToken cancellationToken)
     {
         var missionDir = mission.DirectoryName!;
 
@@ -45,7 +43,7 @@ internal static class MissionDevCommands
         foreach (var (name, entry) in lockFile.Experts.OrderBy(k => k.Key))
             Console.WriteLine($"  ✓ {name,-30} local    {entry.Path}");
 
-        await PullOciExpertsAsync(manifest, refresh, lockFile, cancellationToken);
+        await PullOciExpertsAsync(manifest, lockFile, cancellationToken);
 
         var lockPath = CliHelpers.MclLockPath(missionDir);
         LockFileIO.Write(lockPath, lockFile);
@@ -69,19 +67,19 @@ internal static class MissionDevCommands
 
     // OCI experts: pull each manifest expert from its registry into the lock file, in name order.
     // The first failure stops init (PullOciExpertAsync calls Die, which throws).
-    static async Task PullOciExpertsAsync(ForgeManifest? manifest, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
+    static async Task PullOciExpertsAsync(ForgeManifest? manifest, LockFile lockFile, CancellationToken cancellationToken)
     {
         if (manifest is null) return;
         foreach (var (name, ociRef) in manifest.Experts.OrderBy(k => k.Key))
-            await PullOciExpertAsync(name, ociRef, refresh, lockFile, cancellationToken);
+            await PullOciExpertAsync(name, ociRef, lockFile, cancellationToken);
     }
 
     // The caller's own cancellation propagates; any other pull failure stops init with MCL011.
-    static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
+    static async Task PullOciExpertAsync(string name, string ociRef, LockFile lockFile, CancellationToken cancellationToken)
     {
         try
         {
-            var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh, cancellationToken);
+            var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, cancellationToken);
             lockFile.Experts[name] = new LockFileExpert
             {
                 Source = "oci",
