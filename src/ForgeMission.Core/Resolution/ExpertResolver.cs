@@ -89,11 +89,20 @@ public static class ExpertResolver
     // The mcl.lock form of a cache path: ~/... when under the user's home, otherwise unchanged.
     // Also the verbose/warning display form.
     public static string ToLockPath(string absolutePath)
+        => ToLockPath(absolutePath, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+    // Abbreviates only at a directory boundary, so a sibling such as /Users/xyz under home
+    // /Users/xy stays unchanged.
+    internal static string ToLockPath(string absolutePath, string home)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return absolutePath.StartsWith(home, StringComparison.Ordinal)
-            ? "~/" + absolutePath[(home.Length + 1)..].Replace(Path.DirectorySeparatorChar, '/')
-            : absolutePath;
+        if (absolutePath == home)
+            return "~";
+
+        var homePrefix = home + Path.DirectorySeparatorChar;
+        if (!absolutePath.StartsWith(homePrefix, StringComparison.Ordinal))
+            return absolutePath;
+
+        return "~/" + absolutePath[homePrefix.Length..].Replace(Path.DirectorySeparatorChar, '/');
     }
 
     private static string ResolveLockPath(string path, string missionDir)

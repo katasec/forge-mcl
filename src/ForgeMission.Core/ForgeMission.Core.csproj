@@ -25,6 +25,8 @@
     <None Include="../../LICENSE.md" Pack="true" PackagePath="/" Link="LICENSE.md" />
   </ItemGroup>
 
+  <ItemGroup><InternalsVisibleTo Include="ForgeMission.Mcl.Tests" /></ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\ForgeMission.Parser\ForgeMission.Parser.csproj" />
     <ProjectReference Include="..\ForgeMission.Scout\ForgeMission.Scout.csproj" />

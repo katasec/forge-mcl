@@ -271,4 +271,21 @@ public class ExpertResolverTests
     [Fact]
     public void ToLockPath_OutsideHome_ReturnsPathUnchanged()
         => Assert.Equal("/opt/forge/expert.md", ExpertResolver.ToLockPath("/opt/forge/expert.md"));
+
+    private static readonly string Home = Path.Combine(Path.GetTempPath(), "xy");
+
+    [Fact]
+    public void ToLockPath_SiblingWithHomePrefix_ReturnsPathUnchanged()
+    {
+        var sibling = Path.Combine(Path.GetTempPath(), "xyz", "a");
+        Assert.Equal(sibling, ExpertResolver.ToLockPath(sibling, Home));
+    }
+
+    [Fact]
+    public void ToLockPath_UnderHome_AbbreviatesToTilde()
+        => Assert.Equal("~/a/b", ExpertResolver.ToLockPath(Path.Combine(Home, "a", "b"), Home));
+
+    [Fact]
+    public void ToLockPath_EqualToHome_ReturnsTilde()
+        => Assert.Equal("~", ExpertResolver.ToLockPath(Home, Home));
 }
