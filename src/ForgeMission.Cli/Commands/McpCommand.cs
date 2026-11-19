@@ -53,8 +53,8 @@ internal static class McpCommand
 
             Dictionary<string, ExpertDefinition> expertDefs;
             try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose: null, warnings: Console.Error); }
-            catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
-            catch (ExpertLoadException ex)           { CliDiagnostics.ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
+            catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+            { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
 
             if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
 

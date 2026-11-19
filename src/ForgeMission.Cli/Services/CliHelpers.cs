@@ -50,8 +50,8 @@ internal static class CliHelpers
     {
         if (!Directory.Exists(expertsDir)) CliDiagnostics.Die($"Experts directory not found: {expertsDir}");
         try { return new ExpertLoader(expertsDir).LoadAll(); }
-        catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
-        catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
+        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+        { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
     }
 
     internal static bool TryValidate(
@@ -65,8 +65,8 @@ internal static class CliHelpers
             ExpertLoader.Validate(ast, experts, Console.Error, contractErrorsAreFatal, missionFilePath);
             return true;
         }
-        catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); return false; }
-        catch (ExpertLoadException ex)          { CliDiagnostics.ReportExpertDiagnostic(ex); return false; }
+        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+        { CliDiagnostics.ReportExpertLoadFailure(ex); return false; }
     }
 
     // The lock file lives beside the mission; one place builds its path.

@@ -144,7 +144,7 @@ internal static class MissionDevCommands
     {
         var lockFile = LockFileIO.Read(lockPath);
         try { return ExpertResolver.ResolveAll(lockFile, missionDir, warnings: Console.Error); }
-        catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertDiagnostic(ex); return null; }
+        catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertLoadFailure(ex); return null; }
     }
 
     // ---------------------------------------------------------------------------
