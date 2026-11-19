@@ -352,7 +352,7 @@ public class ExpertLoader(string expertsDirectory)
         // Collect all semantic errors before surfacing them
         var errors = new List<ExpertLoadException>();
         AddMissingFieldErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
-        AddMissingKindFieldErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
+        AddKindErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
 
         if (errors.Count > 0)
             throw new AggregateExpertLoadException(errors);
@@ -375,15 +375,15 @@ public class ExpertLoader(string expertsDirectory)
     // Fields a kind requires, in diagnostic order. Each check runs only for its own kind.
     private static readonly (string Kind, string Field, Func<ExpertFrontmatter, bool> IsMissing)[] KindRequiredFields =
     [
-        ("http", "endpoint",  meta => string.IsNullOrWhiteSpace(meta.Endpoint)),
-        ("rule", "check",     meta => string.IsNullOrWhiteSpace(meta.Check)),
-        ("onnx", "model",     meta => string.IsNullOrWhiteSpace(meta.Model)),
-        ("onnx", "inputs",    meta => meta.Inputs.Count == 0),
-        ("onnx", "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
-        ("onnx", "threshold", meta => string.IsNullOrWhiteSpace(meta.Threshold)),
-        ("exec", "command",   meta => string.IsNullOrWhiteSpace(meta.Command)),
-        ("exec", "inputs",    meta => meta.Inputs.Count == 0),
-        ("exec", "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
+        (ExpertKinds.Http, "endpoint",  meta => string.IsNullOrWhiteSpace(meta.Endpoint)),
+        (ExpertKinds.Rule, "check",     meta => string.IsNullOrWhiteSpace(meta.Check)),
+        (ExpertKinds.Onnx, "model",     meta => string.IsNullOrWhiteSpace(meta.Model)),
+        (ExpertKinds.Onnx, "inputs",    meta => meta.Inputs.Count == 0),
+        (ExpertKinds.Onnx, "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
+        (ExpertKinds.Onnx, "threshold", meta => string.IsNullOrWhiteSpace(meta.Threshold)),
+        (ExpertKinds.Exec, "command",   meta => string.IsNullOrWhiteSpace(meta.Command)),
+        (ExpertKinds.Exec, "inputs",    meta => meta.Inputs.Count == 0),
+        (ExpertKinds.Exec, "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
     ];
 
     private static void AddMissingFieldErrors(
@@ -399,15 +399,24 @@ public class ExpertLoader(string expertsDirectory)
     }
 
     // Kind errors point at the "kind:" line and name the expert, falling back to the file name.
-    private static void AddMissingKindFieldErrors(
+    // An unknown or wrong-case kind is one error; its kind-specific fields are not checked.
+    private static void AddKindErrors(
         List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
     {
         var expertName = string.IsNullOrWhiteSpace(meta.Name) ? Path.GetFileNameWithoutExtension(sourceName) : meta.Name;
         var (line, col, endCol) = FindField(frontmatter, "kind", startLine);
 
+        if (!ExpertKinds.IsKnown(meta.Kind))
+        {
+            errors.Add(new ExpertLoadException(
+                $"Expert '{expertName}' has unknown kind '{meta.Kind}'. Allowed kinds: {string.Join(", ", ExpertKinds.All)}.",
+                sourceName, line, col, endCol));
+            return;
+        }
+
         foreach (var (kind, field, isMissing) in KindRequiredFields)
         {
-            if (!meta.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase) || !isMissing(meta)) continue;
+            if (meta.Kind != kind || !isMissing(meta)) continue;
             errors.Add(new ExpertLoadException(
                 $"Expert '{expertName}' has kind:{kind} but is missing required field '{field}'.", sourceName, line, col, endCol));
         }
@@ -465,7 +474,7 @@ public class ExpertLoader(string expertsDirectory)
         public string       Input     { get; set; } = "";
         public string       Output    { get; set; } = "";
         public string       Role      { get; set; } = "";
-        public string       Kind      { get; set; } = "llm";
+        public string       Kind      { get; set; } = ExpertKinds.Llm;
         public string       Endpoint  { get; set; } = "";
         public string       Check     { get; set; } = "";
         public string       OnFail    { get; set; } = "";

@@ -30,16 +30,31 @@ public class ExpertLoaderDiagnosticsCharacterizationTests : IDisposable
     }
 
     [Fact]
-    public void ParseContent_matches_kind_case_insensitively_and_names_it_lowercase()
+    public void ParseContent_rejects_wrong_case_kind_and_lists_allowed_kinds()
     {
         var errors = ParseErrors("dir/Runner/expert.md", "---\nname: Runner\ninput: a\noutput: b\nkind: EXEC\n---\n");
 
         Assert.Equal(
-        [
-            ("Expert 'Runner' has kind:exec but is missing required field 'command'.", 5, 0, 4),
-            ("Expert 'Runner' has kind:exec but is missing required field 'inputs'.", 5, 0, 4),
-            ("Expert 'Runner' has kind:exec but is missing required field 'outputKey'.", 5, 0, 4),
-        ], errors);
+            [("Expert 'Runner' has unknown kind 'EXEC'. Allowed kinds: llm, rule, json_extract, exec, onnx, http, search.", 5, 0, 4)],
+            errors);
+    }
+
+    [Fact]
+    public void ParseContent_rejects_unknown_kind()
+    {
+        var errors = ParseErrors("dir/Runner/expert.md", "---\nname: Runner\ninput: a\noutput: b\nkind: shell\n---\n");
+
+        Assert.Equal(
+            [("Expert 'Runner' has unknown kind 'shell'. Allowed kinds: llm, rule, json_extract, exec, onnx, http, search.", 5, 0, 4)],
+            errors);
+    }
+
+    [Fact]
+    public void ParseContent_without_kind_loads_as_llm()
+    {
+        var expert = ExpertLoader.ParseContent("dir/Writer/expert.md", "---\nname: Writer\ninput: a\noutput: b\n---\nWrite.");
+
+        Assert.Equal(ExpertKinds.Llm, expert.Kind);
     }
 
     [Fact]
