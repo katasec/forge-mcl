@@ -130,6 +130,46 @@ public class DirectExpertRunnerTests
     }
 
     [Fact]
+    public async Task Judge_ReplyIsNotJson_FailsWithParseError()
+    {
+        var envelope = await RunJudgeAsync("looks good to me");
+
+        Assert.Equal("fail", envelope.Status);
+        Assert.Equal("looks good to me", envelope.Text);
+        Assert.StartsWith("The judge reply was not a valid verdict: ", envelope.Reason);
+        Assert.Contains("invalid", envelope.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("""{"text":"fine"}""")]
+    [InlineData("""{"text":"fine","status":"approved"}""")]
+    [InlineData("""["pass"]""")]
+    public async Task Judge_JsonWithoutVerdictStatus_Fails(string reply)
+    {
+        var envelope = await RunJudgeAsync(reply);
+
+        Assert.Equal("fail", envelope.Status);
+        Assert.Equal("""The judge reply was not a valid verdict: it has no "status" of "pass" or "fail".""", envelope.Reason);
+    }
+
+    [Fact]
+    public async Task NonJudge_ReplyIsNotJson_PassesRawText()
+    {
+        var reply    = new ChatResponse([new ChatMessage(ChatRole.Assistant, "plain answer")]);
+        var runner   = new DirectExpertRunner(new StubChatClient("pass", response: reply));
+        var envelope = await runner.RunAsync(CriticExpert(), EmptyContext());
+
+        Assert.Equal(new StepEnvelope("plain answer"), envelope);
+    }
+
+    private static Task<StepEnvelope> RunJudgeAsync(string reply)
+    {
+        var response = new ChatResponse([new ChatMessage(ChatRole.Assistant, reply)]);
+        return new DirectExpertRunner(new StubChatClient("pass", response: response))
+            .RunAsync(JudgeExpert(), EmptyContext());
+    }
+
+    [Fact]
     public async Task Judge_LlmReturnsPass_RunnerKeepsPass()
     {
         var runner   = new DirectExpertRunner(new StubChatClient("pass"));
