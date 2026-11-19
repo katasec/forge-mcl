@@ -276,7 +276,3 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
 [JsonSourceGenerationOptions]
 [JsonSerializable(typeof(string))]
 internal partial class ExecSerializerContext : JsonSerializerContext { }
-
-[JsonSourceGenerationOptions]
-[JsonSerializable(typeof(ForgeMission.Core.Runtime.StepEnvelope))]
-internal partial class ExecEnvelopeSerializerContext : JsonSerializerContext { }

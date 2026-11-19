@@ -314,11 +314,10 @@ public class ExpertLoaderTests : IDisposable
         WriteDirExpert("KubernetesArchitect", ValidExpertMarkdown());
         var expert = new ExpertLoader(_dir).LoadAll()["KubernetesArchitect"];
         Assert.Equal("llm", expert.Kind);
-        Assert.False(expert.IsHttp);
     }
 
     [Fact]
-    public void ParseFile_KindHttp_IsHttpTrue()
+    public void ParseFile_KindHttp_SetsKind()
     {
         WriteDirExpert("Scorer", """
             ---
@@ -331,7 +330,6 @@ public class ExpertLoaderTests : IDisposable
             """);
         var expert = new ExpertLoader(_dir).LoadAll()["Scorer"];
         Assert.Equal("http", expert.Kind);
-        Assert.True(expert.IsHttp);
     }
 
     [Fact]
@@ -398,7 +396,6 @@ public class ExpertLoaderTests : IDisposable
         Assert.Equal(["cpu", "mem"], def.Inputs);
         Assert.Equal("score", def.OutputKey);
         Assert.Equal("0.85", def.Threshold);
-        Assert.True(def.IsOnnx);
     }
 
     [Fact]
