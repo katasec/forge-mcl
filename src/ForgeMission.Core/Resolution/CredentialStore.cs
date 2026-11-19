@@ -92,21 +92,37 @@ public static class CredentialStore
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-        var existing = ReadCredentials() ?? new();
+        var existing = ReadCredentialsForUpdate();
         change(existing);
         WriteSecretAtomic(CredentialsPath,
             JsonSerializer.Serialize(existing, CredentialsJsonContext.Default.ForgeCredentials));
     }
 
-    // Missing or unreadable/corrupt credentials file — treat as missing.
+    // Missing file — start empty. A file that is not valid JSON is refused rather than treated as
+    // empty: writing over it would silently lose every credential it holds.
+    private static ForgeCredentials ReadCredentialsForUpdate()
+    {
+        if (!File.Exists(CredentialsPath)) return new();
+
+        try
+        {
+            var json = File.ReadAllText(CredentialsPath);
+            return JsonSerializer.Deserialize(json, CredentialsJsonContext.Default.ForgeCredentials) ?? new();
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException($"{CredentialsPath} is not valid JSON; fix or delete it.");
+        }
+    }
+
+    // Reads: a missing or unreadable/corrupt credentials file is treated as missing.
     private static ForgeCredentials? ReadCredentials()
     {
         if (!File.Exists(CredentialsPath)) return null;
 
         try
         {
-            var json = File.ReadAllText(CredentialsPath);
-            return JsonSerializer.Deserialize(json, CredentialsJsonContext.Default.ForgeCredentials);
+            return ReadCredentialsForUpdate();
         }
         catch
         {
