@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using ForgeMission.Core.Resolution;
 using ForgeMission.Parser;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
@@ -266,12 +267,12 @@ public class ExpertLoader(string expertsDirectory)
         string missionName, string expertName, string key, string declaredType, Dictionary<string, string> available)
     {
         if (!available.TryGetValue(key, out var upstreamType))
-            return $"MCL011: expert '{expertName}' in mission '{missionName}' " +
+            return $"{MclErrorCode.InputKeyMissingUpstream.Code()}: expert '{expertName}' in mission '{missionName}' " +
                    $"declares inputKey '{key}: {declaredType}' but no upstream expert declares this outputKey.";
 
         if (string.Equals(upstreamType, declaredType, StringComparison.OrdinalIgnoreCase)) return null;
 
-        return $"MCL012: expert '{expertName}' in mission '{missionName}' " +
+        return $"{MclErrorCode.InputKeyTypeMismatch.Code()}: expert '{expertName}' in mission '{missionName}' " +
                $"expects '{key}: {declaredType}' but upstream declares '{key}: {upstreamType}'.";
     }
 

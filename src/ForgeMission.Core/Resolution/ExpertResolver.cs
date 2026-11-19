@@ -27,7 +27,7 @@ public static class ExpertResolver
 
             if (absPath is null)
                 throw new ExpertLoadException(
-                    $"MCL008 Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
+                    $"{MclErrorCode.ExpertNotFound.Code()} Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
 
             // Warn when a local expert shadows a non-local (OCI/cache) entry in the lock file.
             // Local wins intentionally — but silent shadowing is a reproducibility risk.
@@ -38,7 +38,7 @@ public static class ExpertResolver
                     && File.Exists(recorded))
                 {
                     warnings?.WriteLine(
-                        $"warning MCL010: local expert '{name}' shadows the lock-file entry " +
+                        $"warning {MclErrorCode.LocalExpertShadowsLock.Code()}: local expert '{name}' shadows the lock-file entry " +
                         $"({ToLockPath(recorded)}). Local version will be used. " +
                         $"Run 'forge init' to update the lock file if this is intentional.");
                 }
@@ -54,7 +54,7 @@ public static class ExpertResolver
                 var actualHash = LockFileIO.ComputeHash(absPath);
                 if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
                     throw new ExpertLoadException(
-                        $"MCL009 Expert '{name}' has changed since last 'forge init'. " +
+                        $"{MclErrorCode.ExpertChanged.Code()} Expert '{name}' has changed since last 'forge init'. " +
                         $"Run 'forge init' to update the lock file.");
             }
 

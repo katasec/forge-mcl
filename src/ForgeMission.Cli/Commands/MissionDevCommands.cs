@@ -74,7 +74,7 @@ internal static class MissionDevCommands
             await PullOciExpertAsync(name, ociRef, lockFile, cancellationToken);
     }
 
-    // The caller's own cancellation propagates; any other pull failure stops init with MCL011.
+    // The caller's own cancellation propagates; any other pull failure stops init with MCL013.
     static async Task PullOciExpertAsync(string name, string ociRef, LockFile lockFile, CancellationToken cancellationToken)
     {
         try
@@ -93,7 +93,7 @@ internal static class MissionDevCommands
             Console.Error.WriteLine($"  ✗ {name,-30} failed   {ociRef}");
             Console.Error.WriteLine($"    {ex.Message}");
             Console.Error.WriteLine("    Run 'forge registry login <registry> --token <PAT>' if this is an auth error.");
-            CliDiagnostics.Die($"MCL011 OCI pull failed for '{name}'.");
+            CliDiagnostics.Die($"{MclErrorCode.OciPullFailed.Code()} OCI pull failed for '{name}'.");
         }
     }
 
@@ -131,7 +131,7 @@ internal static class MissionDevCommands
     // No mcl.lock: warn, then load experts straight from ./experts.
     static Dictionary<string, ExpertDefinition> LoadUnlockedExperts(string missionDir)
     {
-        Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold(": MCL006 mcl.lock not found — run 'forge init' to generate it")}");
+        Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold($": {MclErrorCode.LockFileMissing.Code()} mcl.lock not found — run 'forge init' to generate it")}");
         return CliHelpers.LoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
     }
 

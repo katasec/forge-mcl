@@ -43,7 +43,7 @@ internal static class McpCommand
             var missionDir = mission.DirectoryName!;
             var lockPath   = CliHelpers.MclLockPath(missionDir);
 
-            if (!File.Exists(lockPath)) CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first.");
+            if (!File.Exists(lockPath)) CliDiagnostics.Die($"{MclErrorCode.MissionNotInitialised.Code()} Mission not initialised — run 'forge init' first.");
 
             var (ast, manifest) = await CliHelpers.LoadMissionAsync(mission.FullName, ct);
 
