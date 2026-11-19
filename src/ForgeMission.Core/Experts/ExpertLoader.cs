@@ -27,6 +27,7 @@ public class ExpertLoader(string expertsDirectory)
             throw new ExpertLoadException($"Experts directory not found: {expertsDirectory}");
 
         var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal);
+        var sources = new Dictionary<string, string>(StringComparer.Ordinal);
         var errors  = new List<ExpertLoadException>();
 
         void TryLoad(string mdPath)
@@ -34,8 +35,13 @@ public class ExpertLoader(string expertsDirectory)
             try
             {
                 var expert = ParseFile(mdPath);
-                if (!experts.ContainsKey(expert.Name))
-                    experts[expert.Name] = expert;
+                if (sources.TryGetValue(expert.Name, out var firstPath))
+                {
+                    errors.Add(DuplicateNameError(expert.Name, firstPath, mdPath));
+                    return;
+                }
+                experts[expert.Name] = expert;
+                sources[expert.Name] = mdPath;
             }
             catch (AggregateExpertLoadException ex) { errors.AddRange(ex.Errors); }
             catch (ExpertLoadException ex)           { errors.Add(ex); }
@@ -56,6 +62,16 @@ public class ExpertLoader(string expertsDirectory)
             throw new AggregateExpertLoadException(errors);
 
         return experts;
+    }
+
+    // A second file declaring an already-loaded name; points at that file's "name:" line.
+    private static ExpertLoadException DuplicateNameError(string name, string firstPath, string duplicatePath)
+    {
+        var (frontmatter, startLine) = ReadFrontmatter(duplicatePath);
+        var (line, col, endCol) = FindField(frontmatter, "name", startLine);
+        return new ExpertLoadException(
+            $"Duplicate expert name '{name}' in {duplicatePath}; already defined in {firstPath}.",
+            duplicatePath, line, col, endCol);
     }
 
     public static void Validate(

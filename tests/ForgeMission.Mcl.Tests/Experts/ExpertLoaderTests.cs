@@ -122,14 +122,35 @@ public class ExpertLoaderTests : IDisposable
     }
 
     [Fact]
-    public void LoadAll_DirectoryExpert_TakesPrecedenceOverFlatFile()
+    public void LoadAll_DuplicateExpertName_ThrowsNamingBothFiles()
     {
-        // Both formats define the same expert — directory wins
         WriteDirExpert("KubernetesArchitect", ValidExpertMarkdown(body: "From directory"));
-        WriteFlatExpert("KubernetesArchitect.md", ValidExpertMarkdown(body: "From flat file"));
-        var experts = new ExpertLoader(_dir).LoadAll();
-        Assert.Single(experts);
-        Assert.Contains("From directory", experts["KubernetesArchitect"].SystemPrompt);
+        WriteFlatExpert("Duplicate.md", ValidExpertMarkdown(body: "From flat file"));
+        var dirFile  = Path.Combine(_dir, "KubernetesArchitect", "expert.md");
+        var flatFile = Path.Combine(_dir, "Duplicate.md");
+
+        var agg = Assert.Throws<AggregateExpertLoadException>(() => new ExpertLoader(_dir).LoadAll());
+
+        var error = Assert.Single(agg.Errors);
+        Assert.Contains("'KubernetesArchitect'", error.Message);
+        Assert.Contains(dirFile, error.Message);
+        Assert.Contains(flatFile, error.Message);
+        Assert.Equal(flatFile, error.FilePath);
+        Assert.Equal(2, error.Line);
+    }
+
+    [Fact]
+    public void LoadAll_DuplicateExpertName_IsReportedWithOtherErrors()
+    {
+        WriteDirExpert("KubernetesArchitect", ValidExpertMarkdown());
+        WriteFlatExpert("Duplicate.md", ValidExpertMarkdown());
+        WriteFlatExpert("Broken.md", "---\nname: Broken\ninput: x\n---\nBody");
+
+        var agg = Assert.Throws<AggregateExpertLoadException>(() => new ExpertLoader(_dir).LoadAll());
+
+        Assert.Equal(2, agg.Errors.Count);
+        Assert.Contains(agg.Errors, e => e.Message.StartsWith("Duplicate expert name", StringComparison.Ordinal));
+        Assert.Contains(agg.Errors, e => e.Message.Contains("'output'", StringComparison.Ordinal));
     }
 
     [Fact]
