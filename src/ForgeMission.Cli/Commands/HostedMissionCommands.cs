@@ -39,7 +39,7 @@ internal static class HostedMissionCommands
         return cmd;
     }
 
-    private const string DefaultProjectFile = "forge.project.json";
+    internal const string DefaultProjectFile = "forge.project.json";
 
     /// <summary>The run's project file: --project when given, else forge.project.json in
     /// <paramref name="directory"/>.</summary>

@@ -6,7 +6,7 @@ namespace ForgeMission.Cli.Commands;
 
 // forge-client's Projects owner writes forge.project.json; this surface selects the folder and
 // reports the result. It makes no server call, so it needs no sign-in.
-public static class ForgeProject
+internal static class ForgeProject
 {
     internal static Command BuildCommand(IHttpClientFactory clients)
     {
@@ -50,7 +50,7 @@ public static class ForgeProject
             return 1;
         }
 
-        var projectFile = Path.Combine(created.HomePath, "forge.project.json");
+        var projectFile = Path.Combine(created.HomePath, HostedMissionCommands.DefaultProjectFile);
         output.WriteLine($"Project: {projectFile}");
         output.WriteLine(folder is null ? "Run `forge run <mission> \"<prompt>\"`." :
             $"Run `forge run --project '{projectFile.Replace("'", "''")}' <mission> \"<prompt>\"`.");

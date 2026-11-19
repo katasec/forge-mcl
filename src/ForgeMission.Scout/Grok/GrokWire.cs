@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Scout.Grok;
+namespace ForgeMission.Scout.Grok;
 
 // Internal wire DTOs for the xAI Responses API (POST https://api.x.ai/v1/responses), verified live
 // 2026-07-12. These never leak past GrokWebSearch — callers see only the provider-neutral types in

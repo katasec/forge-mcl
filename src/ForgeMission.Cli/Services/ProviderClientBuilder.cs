@@ -1,11 +1,11 @@
-using Scout;
-using Scout.Grok;
+using ForgeMission.Scout;
+using ForgeMission.Scout.Grok;
 using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli.Services;
 
 // Live-retrieval wiring stays in CLI; chat-provider construction lives in ForgeMission.ChatClients.
-public static class ProviderClientBuilder
+internal static class ProviderClientBuilder
 {
     // Live-retrieval backend for kind:search experts. Always Grok.
     // Returns null when no xAI key is present — missions without kind:search are unaffected; a

@@ -160,7 +160,7 @@ internal static class MissionDevCommands
         listExpertsCmd.SetCancellableAction((result, _) =>
         {
             var experts    = result.GetValue(expertsOpt);
-            var expertsDir = experts?.FullName ?? "experts";
+            var expertsDir = experts?.FullName ?? SourceResolver.DefaultExpertsDir;
 
             var expertDefs = CliHelpers.LoadExperts(expertsDir);
             if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return Task.CompletedTask; }
@@ -193,7 +193,7 @@ internal static class MissionDevCommands
         {
             var name       = result.GetValue(nameArg)!;
             var experts    = result.GetValue(expertsOpt);
-            var expertsDir = experts?.FullName ?? "experts";
+            var expertsDir = experts?.FullName ?? SourceResolver.DefaultExpertsDir;
 
             if (string.IsNullOrEmpty(name) || !char.IsUpper(name[0]))
                 CliDiagnostics.Die($"Expert name must be PascalCase (got '{name}').");

@@ -1,6 +1,6 @@
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
-using Scout;
+using ForgeMission.Scout;
 
 namespace ForgeMission.Core.Adapters;
 

@@ -28,7 +28,7 @@ internal static class MissionServerBuilder
         }
 
         // If no "default" profile came from forge.toml, fall back to let-binding context.
-        if (!runners.ContainsKey("default"))
+        if (!runners.ContainsKey(DurableMissionPackageValidator.DefaultProviderProfile))
         {
             var profile = MergeDefaultProfile(manifest, seedContext);
 
@@ -37,7 +37,7 @@ internal static class MissionServerBuilder
             if (string.IsNullOrWhiteSpace(profile.Model))
                 CliDiagnostics.Die("No model found. Add [providers.default] to forge.toml with model = env(\"MCL_MODEL\", \"gpt-4o-mini\").");
 
-            try { runners["default"] = ForgeMission.ChatClients.ChatClients.Build(profile); }
+            try { runners[DurableMissionPackageValidator.DefaultProviderProfile] = ForgeMission.ChatClients.ChatClients.Build(profile); }
             catch (Exception ex) { CliDiagnostics.Die($"Cannot initialise default provider: {ex.Message}"); }
         }
 
@@ -48,7 +48,7 @@ internal static class MissionServerBuilder
     // The result may carry an empty ApiKey/Model; the caller decides how a missing value is reported.
     internal static ProviderProfile MergeDefaultProfile(ForgeManifest? manifest, Dictionary<string, object> seedContext)
     {
-        var declared = manifest?.Providers?.GetValueOrDefault("default");
+        var declared = manifest?.Providers?.GetValueOrDefault(DurableMissionPackageValidator.DefaultProviderProfile);
         return ProviderProfileResolver.ResolveDefault(declared, key => CliHelpers.GetContextString(seedContext, key));
     }
 }

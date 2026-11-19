@@ -2,7 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 
-namespace Scout.Grok;
+namespace ForgeMission.Scout.Grok;
 
 /// <summary>
 /// Grok-backed <see cref="IWebSearch"/> via the xAI Responses API's server-side <c>web_search</c> tool.

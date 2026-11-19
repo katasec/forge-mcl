@@ -1,6 +1,6 @@
 using System.Net;
-using Scout;
-using Scout.Grok;
+using ForgeMission.Scout;
+using ForgeMission.Scout.Grok;
 
 namespace ForgeMission.Tests.Scout;
 

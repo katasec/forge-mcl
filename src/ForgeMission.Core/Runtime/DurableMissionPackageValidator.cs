@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ForgeMission.Core.Experts;
+using ForgeMission.Core.Manifest;
+using ForgeMission.Core.Resolution;
 using ForgeMission.Parser;
 using MclProgram = ForgeMission.Parser.Program;
 
@@ -213,7 +215,7 @@ public static class DurableMissionPackageValidator
 
     private static void ValidateAssets(DurableMissionPackageInput package, Dictionary<string, ExpertDefinition> experts)
     {
-        var files = new HashSet<string>(["mission.mcl", "mcl.lock", "forge.toml"], StringComparer.OrdinalIgnoreCase);
+        var files = new HashSet<string>(["mission.mcl", "mcl.lock", ForgeTomlReader.FileName], StringComparer.OrdinalIgnoreCase);
         foreach (var name in experts.Keys)
             if (!files.Add($"experts/{name}/expert.md")) throw new InvalidOperationException("Expert paths collide.");
         var assets = package.Assets ?? [];
@@ -234,7 +236,7 @@ public static class DurableMissionPackageValidator
     {
         if (string.IsNullOrWhiteSpace(expert.Model) || expert.Model.StartsWith('/') || expert.Model.Contains('\\') || expert.Model.Contains(':'))
             throw new InvalidOperationException("ONNX model must be package-relative.");
-        var segments = new List<string> { "experts", expert.Name };
+        var segments = new List<string> { SourceResolver.DefaultExpertsDir, expert.Name };
         foreach (var segment in expert.Model.Split('/'))
         {
             if (segment == ".") continue;
