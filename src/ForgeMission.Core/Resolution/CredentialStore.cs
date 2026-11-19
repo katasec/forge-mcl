@@ -72,27 +72,6 @@ public static class CredentialStore
     public static void SaveToken(string registry, string token) =>
         Mutate(creds => creds.Credentials[registry] = new RegistryCredential { Token = token });
 
-    // --- Provider credential (Forge Desktop) ----------------------------------------------
-
-    public static ProviderCredential? GetProvider(string provider)
-    {
-        if (!File.Exists(CredentialsPath)) return null;
-
-        try
-        {
-            var json = File.ReadAllText(CredentialsPath);
-            var creds = JsonSerializer.Deserialize(json, CredentialsJsonContext.Default.ForgeCredentials);
-            if (creds?.Providers.TryGetValue(provider, out var credential) == true)
-                return string.IsNullOrWhiteSpace(credential.ApiKey) ? null : credential;
-        }
-        catch { /* corrupt credentials file — treat as missing */ }
-
-        return null;
-    }
-
-    public static void SaveProvider(string provider, string apiKey) =>
-        Mutate(creds => creds.Providers[provider] = new ProviderCredential { ApiKey = apiKey });
-
     // --- Platform credential (42.5) --------------------------------------------------------
 
     public static PlatformCredential? GetPlatform()

@@ -312,55 +312,6 @@ public class DirectExpertRunnerTests
     }
 
     [Fact]
-    public async Task ToolStep_WithConversationAndChatHistory_Throws()
-    {
-        var context = HistoryContext();
-        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "x", "Read") };
-        context["conversation"] = new Conversation([new ChatMessage(ChatRole.User, "client turn")]);
-        var client = new StubChatClient("pass");
-
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new DirectExpertRunner(client).RunAsync(CriticExpert(), context));
-        Assert.Empty(client.Requests);
-    }
-
-    [Fact]
-    public async Task StreamingToolStep_WithConversationAndChatHistory_Throws()
-    {
-        var context = HistoryContext();
-        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "x", "Read") };
-        context["conversation"] = new Conversation([new ChatMessage(ChatRole.User, "client turn")]);
-        var client = new StubChatClient("pass");
-
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-        {
-            await foreach (var _ in new DirectExpertRunner(client).StreamAsync(CriticExpert(), context))
-            {
-            }
-        });
-    }
-
-    [Fact]
-    public async Task ToolStep_WithConversationOnly_SendsSystemPlusConversationUnchanged()
-    {
-        var context = EmptyContext();
-        context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "x", "Read") };
-        context["conversation"] = new Conversation(
-        [
-            new ChatMessage(ChatRole.System, "client system"),
-            new ChatMessage(ChatRole.User, "client turn"),
-        ]);
-        var client = new StubChatClient("pass");
-
-        await new DirectExpertRunner(client).RunAsync(CriticExpert(), context);
-
-        var messages = Assert.Single(client.Requests);
-        Assert.Equal([ChatRole.System, ChatRole.User], messages.Select(m => m.Role));
-        Assert.Equal("You are a critic.", messages[0].Text);
-        Assert.Equal("client turn", messages[1].Text);
-    }
-
-    [Fact]
     public void ChatHistory_RejectsSystemOrToolMessages()
         => Assert.Throws<ArgumentException>(() => new ChatHistory([new ChatMessage(ChatRole.System, "x")]));
 }

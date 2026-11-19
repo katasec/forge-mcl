@@ -51,20 +51,6 @@ public class PipelineStreamingTests
     }
 
     [Fact]
-    public async Task ToolModeStep_DoesNotStream()
-    {
-        var runner = new ChunkedRunner();
-        var events = new List<PipelineTraceEvent>();
-
-        await Run("mission Act = { Enrich -> Respond }", Experts(Llm("Enrich"), Llm("Respond") with { Role = "agent" }),
-            runner, events, tools: ClientTools());
-
-        Assert.Equal(["Enrich"], runner.Streamed);
-        Assert.Equal(["Respond"], runner.Ran);
-        Assert.All(events.OfType<PipelineStepDelta>(), d => Assert.Equal("Enrich", d.ExpertName));
-    }
-
-    [Fact]
     public async Task RootScopedPath_StreamsToolFreeSteps_AndKeepsRunAsyncForTheToolModeAgent()
     {
         var runner = new ChunkedRunner();
@@ -130,13 +116,13 @@ public class PipelineStreamingTests
 
     private static async Task<MissionResult> Run(string source, Dictionary<string, ExpertDefinition> experts,
         ChunkedRunner runner, List<PipelineTraceEvent> events, string? missionName = null, bool stream = true,
-        IList<AITool>? tools = null, IList<AITool>? rootTools = null)
+        IList<AITool>? rootTools = null)
     {
         var ast = MclParser.Parse(source);
         var name = missionName ?? ast.Declarations.OfType<MissionDeclaration>().First().Name;
         return await new PipelineRunner(runner).RunAsync(ast, experts, new PipelineRunOptions(name,
             OnTrace: (evt, _) => { lock (events) events.Add(evt); return Task.CompletedTask; },
-            Tools: tools, RootTools: rootTools) { StreamLlmDeltas = stream });
+            RootTools: rootTools) { StreamLlmDeltas = stream });
     }
 
     private static ExpertDefinition Llm(string name) => new(name, "Input", "Output", $"You are {name}.");

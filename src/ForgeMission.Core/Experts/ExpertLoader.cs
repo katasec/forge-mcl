@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using ForgeMission.Parser;
-using ForgeMission.Core.Resolution;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -19,22 +18,6 @@ public class ExpertLoader(string expertsDirectory)
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
         .Build();
-
-    /// <summary>Load experts from a resolved lock file catalog.</summary>
-    public static Dictionary<string, ExpertDefinition> LoadFromLockFile(LockFile lockFile, string lockFileDirectory)
-    {
-        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal);
-        foreach (var (name, entry) in lockFile.Experts)
-        {
-            var path = entry.Path.StartsWith("~/")
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), entry.Path[2..].Replace('/', Path.DirectorySeparatorChar))
-                : Path.IsPathRooted(entry.Path)
-                ? entry.Path
-                : Path.GetFullPath(Path.Combine(lockFileDirectory, entry.Path));
-            experts[name] = ParseFile(path);
-        }
-        return experts;
-    }
 
     /// <summary>Load experts from a directory, collecting all errors before surfacing them.</summary>
     public Dictionary<string, ExpertDefinition> LoadAll()

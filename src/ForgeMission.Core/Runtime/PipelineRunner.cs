@@ -133,10 +133,7 @@ public class PipelineRunner
         {
             ct.ThrowIfCancellationRequested();
 
-            if (!run.Replaying && options.StepWriter is { } sw && maxLoops > 1)
-                await sw.WriteLineAsync($"(attempt {attempt}/{maxLoops})");
-
-            var context = ContextBuilder.Seed(ast, options.Vars, options.ContextObjects);
+            var context = ContextBuilder.Seed(ast, options.Vars);
             if (options.ChatHistory is not null)
             {
                 context[ChatHistory.ContextKey] = options.ChatHistory;
@@ -160,26 +157,12 @@ public class PipelineRunner
                 .OfType<StepElement>()
                 .Any(e => e.Step.When is ElseWhen);
 
-            // Tool continuation (42.3): pre-agent already ran on the original user turn and its
-            // outputs were restored from the enrichment cache — resume at the agent step.
-            var skipPreAgent = options.StartAtAgent;
-
             var elements = mission.Pipeline.Elements;
             for (var index = 0; index < elements.Count; index++)
             {
                 ct.ThrowIfCancellationRequested();
                 var element = elements[index];
                 var stepKey = StepKey(keyPrefix, options.MissionName, attempt, index);
-
-                if (skipPreAgent)
-                {
-                    if (element is StepElement pre
-                        && experts.TryGetValue(pre.Step.ExpertName, out var preExpert)
-                        && preExpert.IsAgent)
-                        skipPreAgent = false;   // reached the agent segment — run from here
-                    else
-                        continue;               // pre-agent element: skip (cache restored its outputs)
-                }
 
                 if (element is ParallelElement parallel)
                 {
@@ -219,22 +202,6 @@ public class PipelineRunner
                     if (outcome.Halt is { } halt) return halt;
                     failReason = outcome.FailReason;
                     if (failReason is not null) break;
-
-                    // Per-call client tools (42.3): a tool call ends the run; the caller continues it.
-                    if (context.TryGetValue("tool_calls", out var tc)
-                        && tc is IReadOnlyList<FunctionCallContent> toolCalls)
-                    {
-                        if (options.OnTrace is { } onToolRequested
-                            && experts.TryGetValue(step.ExpertName, out var toolExpert))
-                        {
-                            await onToolRequested(new PipelineToolRequested(
-                                options.MissionName, missionPath, step.ExpertName, toolExpert.Kind,
-                                attempt, ToPipelineToolCalls(toolCalls)) { StepKey = stepKey }, ct);
-                        }
-
-                        var toolText = context.TryGetValue("output", out var o) ? o?.ToString() ?? string.Empty : string.Empty;
-                        return new MissionResult(options.MissionName, toolText, MissionStatus.Pass, null, attempt, toolCalls);
-                    }
                 }
             }
 
@@ -278,9 +245,6 @@ public class PipelineRunner
                 b => b.Key,
                 b => ContextBuilder.ResolveBindingValue(b.Value, context),
                 StringComparer.Ordinal);
-
-            if (!run.Replaying && options.StepWriter is { } msw)
-                await msw.WriteLineAsync($"→ {step.ExpertName} (mission)...");
 
             var subResult = await RunCoreAsync(ast, experts,
                 CreateChildOptions(options, step.ExpertName, childVars, missionPath), run, ChildPrefix(key), ct);
@@ -342,9 +306,6 @@ public class PipelineRunner
         int attempt,
         CancellationToken ct)
     {
-        if (!run.Replaying && options.StepWriter is { } writer)
-            await writer.WriteLineAsync($"→ parallel {{ {string.Join(", ", parallel.Steps.Select(s => s.ExpertName))} }}");
-
         var snapshot = new Dictionary<string, object>(context, StringComparer.Ordinal);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var branches = parallel.Steps.Select((step, branch) => (step, key: $"{key}.{branch}")).ToList();
@@ -361,9 +322,6 @@ public class PipelineRunner
 
         foreach (var result in results)
             context[result.NamedKey] = result.Output;
-
-        if (!run.Replaying && options.StepWriter is { } endWriter)
-            await endWriter.WriteLineAsync();
 
         var failReason = results.Select(result => result.FailReason).FirstOrDefault(reason => reason is not null)
             ?? (results.Count < parallel.Steps.Count ? "a parallel step was cancelled" : null);
@@ -494,18 +452,10 @@ public class PipelineRunner
         if (options.OnTrace is { } onStarted)
             await onStarted(new PipelineStepStarted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt) { StepKey = key }, ct);
 
-        if (!inParallel && options.StepWriter is { } sw)
-            await sw.WriteLineAsync($"→ {step.ExpertName}...");
-
-        // Reached the agent segment on a fresh user turn: hand the caller the pre-agent output
-        // for the enrichment cache (42.3 §3) — continuations restore it instead of re-running.
-        if (!inParallel && expert.IsAgent && !options.StartAtAgent)
-            options.OnPreAgentComplete?.Invoke(StringSnapshot(context));
-
         // Taken after bindings and before tools: the log holds only what the expert itself wrote.
         var before = new Dictionary<string, object>(context, StringComparer.Ordinal);
         var turn = run.ResumeTurnFor(key);
-        AttachTools(expert, context, options, run, turn, inParallel);
+        AttachTools(expert, context, run, turn);
 
         StepEnvelope envelope;
         object? responseMessages = null;
@@ -542,33 +492,21 @@ public class PipelineRunner
         [.. turn ?? [], .. responseMessages is IReadOnlyList<ChatMessage> messages
             ? messages : [new ChatMessage(ChatRole.Assistant, [.. calls])]];
 
-    // Tools attach to the agent expert's call only (42.3) — enrichment and verification experts
-    // never see them. Root tools (and a resumed tool turn) reach agents at every depth; per-call
-    // client tools reach only a sequence step of the mission they were passed to.
+    // Root tools (and a resumed tool turn) attach to agent experts' calls only, at every depth —
+    // enrichment and verification experts never see them.
     private static void AttachTools(
         ExpertDefinition expert,
         Dictionary<string, object> context,
-        PipelineRunOptions options,
         RunState run,
-        IReadOnlyList<ChatMessage>? turn,
-        bool inParallel)
+        IReadOnlyList<ChatMessage>? turn)
     {
-        if (!expert.IsAgent) return;
+        if (!expert.IsAgent || run.Scope is not { } scope) return;
 
-        if (run.Scope is { } scope)
-        {
-            context["tools"] = scope.Tools;
-            // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
-            context[PipelineRuntimeInstructions.AllowMultipleToolCalls] = false;
-            if (turn is not null)
-                context[PipelineToolContinuationInstructions.TurnMessages] = turn;
-            return;
-        }
-
-        if (inParallel || options.Tools is not { Count: > 0 }) return;
-        context["tools"] = options.Tools;
-        if (options.AllowMultipleToolCalls is { } allowMultiple)
-            context[PipelineRuntimeInstructions.AllowMultipleToolCalls] = allowMultiple;
+        context["tools"] = scope.Tools;
+        // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
+        context[PipelineRuntimeInstructions.AllowMultipleToolCalls] = false;
+        if (turn is not null)
+            context[PipelineToolContinuationInstructions.TurnMessages] = turn;
     }
 
     // A root tool call ends the whole run. The checkpoint holds the log of completed steps, this
@@ -611,10 +549,10 @@ public class PipelineRunner
 
     // One small helper (Phase 43.16 Task 3) replacing the two ad-hoc child `new
     // PipelineRunOptions(...)` calls in ExecuteStepAsync/ExecuteParallelStepAsync. Deliberately
-    // does not inherit ContextObjects, Tools, StartAtAgent, or OnPreAgentComplete — preserving
-    // today's isolated sub-mission/tool semantics (the essential Janus fix: Proposer/Approver run
-    // under [Janus, Negotiate], Implementer under [Janus, Implement]). Root tools are not options
-    // state: they reach a child through the run's pause scope.
+    // inherits only the trace sink, delta streaming and the execution workspace — preserving today's isolated
+    // sub-mission semantics (the essential Janus fix: Proposer/Approver run under [Janus,
+    // Negotiate], Implementer under [Janus, Implement]). Root tools are not options state: they
+    // reach a child through the run's pause scope.
     private static PipelineRunOptions CreateChildOptions(
         PipelineRunOptions parent,
         string childMissionName,
@@ -623,9 +561,6 @@ public class PipelineRunner
         => new(
             childMissionName,
             childVars,
-            parent.StepWriter,
-            parent.ContentWriter,
-            OnSearchProgress: parent.OnSearchProgress,
             OnTrace: parent.OnTrace,
             MissionPath: [.. parentPath, childMissionName])
         {
@@ -715,8 +650,7 @@ public class PipelineRunner
         "search"       => new SearchExpertRunner(_webSearch
                               ?? throw new InvalidOperationException(
                                   "kind: search requires a configured IWebSearch (Scout). " +
-                                  "Pass one to the PipelineRunner constructor."),
-                              options.OnSearchProgress),
+                                  "Pass one to the PipelineRunner constructor.")),
         _              => ResolveRunner(step.Using)
     };
 
@@ -865,12 +799,6 @@ public class PipelineRunner
         }
     }
 
-    // The restorable slice of the context bag: string values only. Structured objects
-    // (conversation/system/tools) are re-derived from the request on every call.
-    private static Dictionary<string, string> StringSnapshot(Dictionary<string, object> context)
-        => context.Where(kv => kv.Value is string)
-                  .ToDictionary(kv => kv.Key, kv => (string)kv.Value, StringComparer.Ordinal);
-
     private static bool TryParseDouble(object? value, out double result)
     {
         result = 0;
@@ -900,11 +828,10 @@ public class PipelineRunner
     // Expert invocation and streaming
     // ------------------------------------------------------------------
 
-    // The one place a sequence step's expert is invoked (Phase 53.8). It streams only when a caller
-    // asked for text as it is written: a step or content writer (CLI, serve), or the durable
-    // executor's StreamLlmDeltas for a tool-free, non-judge llm step. OnTrace alone never forces
-    // streaming: several non-LLM runners expose a text-only streaming adapter that cannot preserve
-    // a failing StepEnvelope.
+    // The one place a sequence step's expert is invoked (Phase 53.8). It streams only when the
+    // durable executor sets StreamLlmDeltas and the step is a tool-free, non-judge llm step.
+    // OnTrace alone never forces streaming: several non-LLM runners expose a text-only streaming
+    // adapter that cannot preserve a failing StepEnvelope.
     private static async Task<StepEnvelope> InvokeExpertAsync(
         IExpertRunner runner,
         ExpertDefinition expert,
@@ -922,43 +849,21 @@ public class PipelineRunner
         var text = new StringBuilder();
         await foreach (var chunk in runner.StreamAsync(expert, context, ct))
         {
-            if (options.StepWriter is { } stepWriter)
-                await stepWriter.WriteAsync(chunk);
-            if (options.ContentWriter is { } contentWriter)
-                await contentWriter.WriteAsync(chunk);
             text.Append(chunk);
 
             if (options.OnTrace is { } onDelta && !string.IsNullOrEmpty(chunk))
                 await onDelta(new PipelineStepDelta(options.MissionName, missionPath, expertName, expert.Kind, attempt, chunk) { StepKey = key }, ct);
         }
-        if (options.StepWriter is { } endWriter)
-            await endWriter.WriteLineAsync("\n");
 
-        // A non-judge llm step streams plain text (no envelope instruction) and always passes; a
-        // judge and every non-llm kind still stream the envelope they always have.
-        return IsPlainTextLlm(expert) ? new StepEnvelope(text.ToString()) : ParseStreamedEnvelope(text.ToString());
+        // A non-judge llm step streams plain text (no envelope instruction) and always passes.
+        return new StepEnvelope(text.ToString());
     }
 
     private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
-        options.StepWriter is not null
-        || options.ContentWriter is not null
-        || (options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey("tools"));
+        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey("tools");
 
     private static bool IsPlainTextLlm(ExpertDefinition expert) =>
         expert.Kind.Equals("llm", StringComparison.OrdinalIgnoreCase) && !expert.IsJudge;
-
-    private static StepEnvelope ParseStreamedEnvelope(string raw)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize(raw.Trim(), StepEnvelopeContext.Default.StepEnvelope)
-                ?? new StepEnvelope(raw);
-        }
-        catch (JsonException)
-        {
-            return new StepEnvelope(raw);
-        }
-    }
 
     // ------------------------------------------------------------------
     // Run state

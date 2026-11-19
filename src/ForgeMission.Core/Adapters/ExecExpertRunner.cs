@@ -62,8 +62,7 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         // Process backend produces output only on exit; no true streaming for exec.
-        // Yield only envelope.Text — not the JSON envelope — so content writers receive plain
-        // text. ParseStreamedEnvelope handles non-JSON as a pass envelope.
+        // Yield only envelope.Text — not the JSON envelope.
         var envelope = await RunAsync(expert, context, ct);
         yield return envelope.Text ?? string.Empty;
     }

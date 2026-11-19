@@ -6,8 +6,7 @@ namespace ForgeMission.Core.Runtime;
 /// root mission's step context carries it, <see cref="Adapters.DirectExpertRunner"/> sends every
 /// llm step <c>system + these messages + user(step input)</c>. It never renders as text: there is
 /// deliberately no transcript <c>ToString</c>, so earlier turns cannot reach a prompt as
-/// role-labelled text. Distinct from <see cref="Conversation"/> (the full client conversation of
-/// <c>forge serve</c>) and <see cref="SpeakerTranscript"/> (loop(N) dialogue).</summary>
+/// role-labelled text. Distinct from <see cref="SpeakerTranscript"/> (loop(N) dialogue).</summary>
 public sealed class ChatHistory
 {
     /// <summary>Core-owned context-bag key; never a mission variable.</summary>

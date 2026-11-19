@@ -1,6 +1,5 @@
 using ForgeMission.Core.Experts;
 using ForgeMission.Parser;
-using ForgeMission.Core.Resolution;
 
 namespace ForgeMission.Tests.Experts;
 
@@ -432,28 +431,6 @@ public class ExpertLoaderTests : IDisposable
         WriteDirExpert("AnomalyDetector", OnnxExpertMarkdown(threshold: null));
         var agg = Assert.Throws<AggregateExpertLoadException>(() => new ExpertLoader(_dir).LoadAll());
         Assert.Contains("threshold", agg.Errors[0].Message);
-    }
-
-    // ---------------------------------------------------------------------------
-    // Lock file loading
-
-    [Fact]
-    public void LoadFromLockFile_ReadsExpertsByPath()
-    {
-        WriteDirExpert("KubernetesArchitect", ValidExpertMarkdown());
-        var relativePath = Path.Combine("KubernetesArchitect", "expert.md");
-
-        var lockFile = new LockFile
-        {
-            Experts = new Dictionary<string, LockFileExpert>
-            {
-                ["KubernetesArchitect"] = new() { Source = "experts", Path = relativePath }
-            }
-        };
-
-        var experts = ExpertLoader.LoadFromLockFile(lockFile, _dir);
-        Assert.Single(experts);
-        Assert.Equal("KubernetesArchitect", experts["KubernetesArchitect"].Name);
     }
 
     // ---------------------------------------------------------------------------

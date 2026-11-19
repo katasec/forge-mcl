@@ -16,13 +16,8 @@ namespace ForgeMission.Core.Adapters;
 /// OpenAI later) is chosen where the <see cref="PipelineRunner"/> is built, keeping this AOT-clean and
 /// provider-agnostic.</para>
 /// </summary>
-public sealed class SearchExpertRunner(IWebSearch search, Action<WebSearchProgress>? onProgress = null) : IExpertRunner
+public sealed class SearchExpertRunner(IWebSearch search) : IExpertRunner
 {
-    // Report sub-search steps synchronously and in order (not Progress<T>, which posts asynchronously
-    // and can reorder). Null when no consumer is listening ⇒ the backend takes its buffered path.
-    private readonly IProgress<WebSearchProgress>? _progress =
-        onProgress is null ? null : new SyncProgress(onProgress);
-
     public async Task<StepEnvelope> RunAsync(
         ExpertDefinition expert,
         Dictionary<string, object> context,
@@ -33,7 +28,7 @@ public sealed class SearchExpertRunner(IWebSearch search, Action<WebSearchProgre
             throw new InvalidOperationException(
                 $"kind: search ({expert.Name}) has no query — set a 'query' binding or upstream 'output'.");
 
-        var result = await search.SearchAsync(new WebSearchRequest(query), _progress, ct);
+        var result = await search.SearchAsync(new WebSearchRequest(query), progress: null, ct);
 
         // Publish retrieval into context (the json_extract pattern) for downstream {{search_results}} / {{search_sources}}.
         context["search_results"] = result.Answer ?? string.Empty;
@@ -55,11 +50,4 @@ public sealed class SearchExpertRunner(IWebSearch search, Action<WebSearchProgre
 
     private static string? Resolve(Dictionary<string, object> context, string key) =>
         context.TryGetValue(key, out var v) ? v?.ToString() : null;
-
-    // Synchronous IProgress — invokes the callback on the reporting thread so sub-search events reach
-    // the room in the order Grok emits them.
-    private sealed class SyncProgress(Action<WebSearchProgress> report) : IProgress<WebSearchProgress>
-    {
-        public void Report(WebSearchProgress value) => report(value);
-    }
 }

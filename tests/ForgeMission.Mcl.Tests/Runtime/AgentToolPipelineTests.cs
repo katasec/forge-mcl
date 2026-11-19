@@ -196,116 +196,18 @@ public sealed class AgentToolPipelineTests
         [AIFunctionFactory.Create((string file_path) => "", "Read", "Reads a file")];
 
     // ------------------------------------------------------------------
-    // Agent calls a tool → run ends at the agent segment, Verify never runs
+    // Root tools attach to the agent expert's call only
     // ------------------------------------------------------------------
-    [Fact]
-    public async Task AgentToolCall_ShortCircuits_BeforePostAgentSteps()
-    {
-        var client = new ScriptedPipelineClient(onToolCapableCall: ToolCallReply);
-        var result = await RunAsync(client);
-
-        Assert.Equal(MissionStatus.Pass, result.Status);
-        var call = Assert.Single(result.ToolCalls!);
-        Assert.Equal("Read", call.Name);
-        Assert.Equal("toolu_pipeline_1", call.CallId);
-
-        // Enrich + Respond ran; Verify did NOT (post-agent waits for the final continuation).
-        Assert.Equal(2, client.Calls.Count);
-    }
-
     [Fact]
     public async Task ToolsAttach_OnlyToTheAgentExpertsCall()
     {
         var client = new ScriptedPipelineClient(onToolCapableCall: ToolCallReply);
         await RunAsync(client);
 
-        Assert.Null(client.Calls[0].Options?.Tools);          // Enrich never sees client tools
+        Assert.Null(client.Calls[0].Options?.Tools);          // Enrich never sees root tools
         var agentTools = client.Calls[1].Options?.Tools;      // Respond does
         Assert.NotNull(agentTools);
         Assert.Equal("Read", Assert.Single(agentTools!).Name);
-    }
-
-    // ------------------------------------------------------------------
-    // Agent answers in text → pipeline continues; Verify runs; no ToolCalls
-    // ------------------------------------------------------------------
-    [Fact]
-    public async Task AgentTextAnswer_ContinuesIntoPostAgentSteps()
-    {
-        var client = new ScriptedPipelineClient(
-            onToolCapableCall: _ => new ChatResponse([new ChatMessage(ChatRole.Assistant, "final answer")]));
-        var result = await RunAsync(client);
-
-        Assert.Equal(MissionStatus.Pass, result.Status);
-        Assert.Null(result.ToolCalls);
-        Assert.Equal(3, client.Calls.Count);                  // Enrich, Respond, Verify all ran
-    }
-
-    // ------------------------------------------------------------------
-    // PipelineRunOptions.AllowMultipleToolCalls (Phase 43.16 Task 8b) — proves the closed
-    // context-bag seam end-to-end: PipelineRunOptions -> PipelineRunner's context write ->
-    // DirectExpertRunner's read -> the real ChatOptions the provider client receives.
-    // ------------------------------------------------------------------
-    [Fact]
-    public async Task AllowMultipleToolCalls_False_IsAppliedToTheAgentExpertsChatOptions()
-    {
-        var client = new ScriptedPipelineClient(
-            onToolCapableCall: _ => new ChatResponse([new ChatMessage(ChatRole.Assistant, "final answer")]));
-
-        await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(
-            Ast, Experts(),
-            new PipelineRunOptions("Task",
-                new Dictionary<string, string> { ["goal"] = "read the probe file" },
-                Tools: ClientTools(),
-                AllowMultipleToolCalls: false));
-
-        Assert.False(client.Calls[1].Options?.AllowMultipleToolCalls);
-    }
-
-    [Fact]
-    public async Task AllowMultipleToolCalls_Default_LeavesTheAgentExpertsChatOptionsUnset()
-    {
-        var client = new ScriptedPipelineClient(
-            onToolCapableCall: _ => new ChatResponse([new ChatMessage(ChatRole.Assistant, "final answer")]));
-        await RunAsync(client); // AllowMultipleToolCalls left at its null default
-
-        Assert.Null(client.Calls[1].Options?.AllowMultipleToolCalls);
-    }
-
-    [Fact]
-    public async Task AllowMultipleToolCalls_False_IsAppliedOnTheStreamingPath()
-    {
-        var client = new ScriptedPipelineClient(
-            onToolCapableCall: _ => new ChatResponse([new ChatMessage(ChatRole.Assistant, "final answer")]));
-
-        // A non-null StepWriter forces DirectExpertRunner.StreamAsync instead of RunAsync
-        // (PipelineRunner's streaming-trigger condition) — proves the seam on the streaming path
-        // through the public API only, without reaching into the internal instruction key.
-        await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(
-            Ast, Experts(),
-            new PipelineRunOptions("Task",
-                new Dictionary<string, string> { ["goal"] = "read the probe file" },
-                StepWriter: TextWriter.Null,
-                Tools: ClientTools(),
-                AllowMultipleToolCalls: false));
-
-        Assert.False(client.Calls[1].Options?.AllowMultipleToolCalls);
-    }
-
-    // ------------------------------------------------------------------
-    // Through MissionChatClient: tool calls surface as FunctionCallContent on the reply
-    // ------------------------------------------------------------------
-    [Fact]
-    public async Task MissionChatClient_SurfacesToolCalls_OnTheReplyMessage()
-    {
-        var client  = new ScriptedPipelineClient(onToolCapableCall: ToolCallReply);
-        var mission = new MissionChatClient(Ast, Experts(), new DirectExpertRunner(client), fullConversation: true);
-
-        var response = await mission.GetResponseAsync(
-            [new ChatMessage(ChatRole.User, "read the probe file")],
-            new ChatOptions { Tools = ClientTools() });
-
-        var call = Assert.Single(response.Messages.Single().Contents.OfType<FunctionCallContent>());
-        Assert.Equal("Read", call.Name);
     }
 
     // ------------------------------------------------------------------
@@ -798,9 +700,9 @@ public sealed class AgentToolPipelineTests
         finally { Environment.SetEnvironmentVariable(variable, previous); }
     }
 
-    // Replayed steps publish nothing: no trace fact and no StepWriter line (R4).
+    // Replayed steps publish nothing: no trace fact (R4).
     [Fact]
-    public async Task Replay_EmitsNoTraceOrStepWriterOutputForLoggedSteps()
+    public async Task Replay_EmitsNoTraceForLoggedSteps()
     {
         var ast = MclParser.Parse("mission Root = { Enrich -> Respond -> Verify }");
         var runner = new StubExpertRunner(Scripted);
@@ -808,18 +710,15 @@ public sealed class AgentToolPipelineTests
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
 
         var events = new List<PipelineTraceEvent>();
-        var steps = new StringWriter();
         await new PipelineRunner(runner).ResumeAsync(ast, Experts(),
             new PipelineResumeRequest(pause.Continuation,
                 new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "probe content")),
-            new PipelineRunOptions("ignored", StepWriter: steps,
+            new PipelineRunOptions("ignored",
                 OnTrace: (trace, _) => { events.Add(trace); return Task.CompletedTask; }));
 
         Assert.DoesNotContain(events, trace => trace is PipelineStepStarted { ExpertName: "Enrich" }
             or PipelineStepCompleted { ExpertName: "Enrich" });
         Assert.Equal(["Respond", "Verify"], events.OfType<PipelineStepStarted>().Select(trace => trace.ExpertName));
-        Assert.DoesNotContain("Enrich", steps.ToString(), StringComparison.Ordinal);
-        Assert.Contains("→ Respond...", steps.ToString(), StringComparison.Ordinal);
     }
 
     // An exec step before the agent runs once across two pauses in one turn; its context write
@@ -1049,7 +948,7 @@ public sealed class AgentToolPipelineTests
             Ast, Experts(),
             new PipelineRunOptions("Task",
                 new Dictionary<string, string> { ["goal"] = "read the probe file" },
-                Tools: ClientTools()));
+                RootTools: ClientTools()));
 
     // Envelope JSON for ordinary experts; delegates to the script when tools are attached.
     private sealed class ScriptedPipelineClient(Func<ChatOptions?, ChatResponse> onToolCapableCall) : IChatClient
