@@ -3,38 +3,36 @@ using ForgeMission.MissionRegistry;
 
 namespace ForgeMission.Cli.Commands;
 
-// forge clean — remove cached OCI experts from ~/.forge/experts, optionally scoped to one
-// registry host. Self-contained: the cache root lives in ForgeMission.MissionRegistry and the
-// only side effect is the recursive delete of that directory.
+// forge clean — remove the cached OCI experts and missions under ~/.forge, optionally scoped to
+// one registry host. ForgeCache owns the eviction; this command only reports the result.
 internal static class CleanCommand
 {
     internal static Command Build()
     {
         var registryOpt = new Option<string?>("--registry") { Description = "Limit to a specific registry host (e.g. ghcr.io)" };
 
-        var cmd = new Command("clean", "Remove cached OCI experts from ~/.forge/experts");
+        var cmd = new Command("clean", "Remove cached OCI experts and missions from ~/.forge/experts and ~/.forge/missions");
         cmd.Add(registryOpt);
 
-        cmd.SetCancellableAction((result, _) =>
-        {
-            var registry = result.GetValue(registryOpt);
-            var target   = registry is not null
-                ? Path.Combine(ForgeCache.ExpertsRoot, registry)
-                : ForgeCache.ExpertsRoot;
-
-            if (!Directory.Exists(target))
-            {
-                Console.WriteLine($"Nothing to clean ({target} does not exist).");
-                return Task.CompletedTask;
-            }
-
-            var count = Directory.EnumerateFiles(target, "*", SearchOption.AllDirectories).Count();
-            Directory.Delete(target, recursive: true);
-
-            Console.WriteLine($"Removed {count} cached expert file(s) from {target}");
-            return Task.CompletedTask;
-        });
+        cmd.SetCancellableAction((result, _) => Task.FromResult(Run(result.GetValue(registryOpt))));
 
         return cmd;
+    }
+
+    static int Run(string? registry)
+    {
+        int count;
+        try { count = ForgeCache.Clear(registry); }
+        catch (ArgumentException failure)
+        {
+            Console.Error.WriteLine($"clean failed: {failure.Message}");
+            return 1;
+        }
+
+        var scope = registry is null ? "" : $" for {registry}";
+        Console.WriteLine(count == 0
+            ? $"Nothing to clean (no cached experts or missions{scope})."
+            : $"Removed {count} cached file(s) from the experts and missions caches{scope}.");
+        return 0;
     }
 }

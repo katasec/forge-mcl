@@ -24,7 +24,7 @@ apart from mission execution and from any user interface.
 - OCI locator parsing and normalization: [`OciReference`](OciReference.cs).
 - Pulling one expert document: [`OciExpertPuller`](OciExpertPuller.cs).
 - Pulling and safely extracting a mission bundle: [`OciMissionPuller`](OciMissionPuller.cs).
-- The cache layout under `~/.forge/experts` and `~/.forge/missions`: [`ForgeCache`](ForgeCache.cs).
+- The cache layout under `~/.forge/experts` and `~/.forge/missions`, and its only eviction (`Clear`): [`ForgeCache`](ForgeCache.cs).
 
 ## Does not own
 

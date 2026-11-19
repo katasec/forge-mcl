@@ -387,7 +387,7 @@ forge init                                    # resolve experts, write mcl.lock
 forge validate                                # parse and validate the mission file
 forge run ./mission.mcl "<prompt>"            # run a local mission in the cloud
 forge run <oci-ref> "<prompt>"                # run a published mission
-forge clean                                   # purge ~/.forge/experts cache
+forge clean                                   # purge ~/.forge/experts and ~/.forge/missions caches
 forge registry login ghcr.io --token <pat>   # save registry credentials
 forge list experts                           # list local experts
 forge provider list                          # list supported providers
