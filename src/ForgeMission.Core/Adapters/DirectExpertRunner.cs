@@ -51,7 +51,7 @@ Or on failure:
         Dictionary<string, object> context,
         CancellationToken ct = default)
     {
-        var (messages, systemPrompt) = BuildMessages(expert, context);
+        var (messages, _) = BuildMessages(expert, context);
         AddToolTurn(messages, context);
         // Non-generic call with an explicit closed schema (see _stepFormat) rather than
         // GetResponseAsync<StepEnvelope>, whose derived schema is rejected by Anthropic. Deserialize
@@ -59,25 +59,19 @@ Or on failure:
         // non-JSON for any reason.
         var options = new ChatOptions { ResponseFormat = _stepFormat };
 
-        // Tool-capable agent expert (42.3): the PipelineRunner put the client's (allowlist-filtered)
-        // tools in the bag for this step only. Free-form reply instead of the forced envelope —
-        // the model must be able to answer OR call a tool; the raw-text fallback below still applies.
+        // Tool-capable agent expert: the PipelineRunner put the root tools in the bag for this step
+        // only. Free-form reply instead of the forced envelope — the model must be able to answer
+        // OR call a tool; the raw-text fallback below still applies.
         if (context.TryGetValue("tools", out var t) && t is IList<AITool> tools)
         {
             options.Tools          = tools;
             options.ResponseFormat = null;
 
-            // Closed runtime instruction (Phase 43.16 Task 8b) — set only by callers that opted
-            // into it (Janus's Implement step); never a mission-authorable variable.
+            // Closed runtime instruction (Phase 43.16 Task 8b) — set only by PipelineRunner;
+            // never a mission-authorable variable.
             if (context.TryGetValue(PipelineRuntimeInstructions.AllowMultipleToolCalls, out var amtc)
                 && amtc is bool allowMultiple)
                 options.AllowMultipleToolCalls = allowMultiple;
-
-            // Drive the tool loop on the NATIVE conversation (prior tool_use/tool_result included)
-            // so the provider model can continue its own loop across continuations. The client's
-            // system prompt is replaced by the expert's — the mission is the brain.
-            if (ToolConversation(context) is { } conversation)
-                messages = ConversationMessages(systemPrompt, conversation);
         }
 
         var response = await chatClient.GetResponseAsync(messages, options, cancellationToken: ct);
@@ -126,9 +120,6 @@ Or on failure:
             if (context.TryGetValue(PipelineRuntimeInstructions.AllowMultipleToolCalls, out var amtc)
                 && amtc is bool allowMultiple)
                 options.AllowMultipleToolCalls = allowMultiple;
-
-            if (ToolConversation(context) is { } conversation)
-                messages = ConversationMessages(systemPrompt, conversation);
         }
         else if (expert.IsJudge)
         {
@@ -201,25 +192,4 @@ Or on failure:
         messages.Add(new ChatMessage(ChatRole.User, userMessage));
         return (messages, systemPrompt);
     }
-
-    // Tool mode drives the NATIVE client conversation (forge serve / forge claude). A step that
-    // also carries durable chat history has two competing message sources — refuse it rather
-    // than silently dropping one (Phase 58).
-    private static Conversation? ToolConversation(Dictionary<string, object> context)
-    {
-        if (!context.TryGetValue("conversation", out var c) || c is not Conversation conversation)
-            return null;
-        if (context.ContainsKey(ChatHistory.ContextKey))
-            throw new InvalidOperationException(
-                "A tool step cannot carry both a client conversation and durable chat history.");
-        return conversation;
-    }
-
-    private static List<ChatMessage> ConversationMessages(string systemPrompt, Conversation conversation)
-    {
-        List<ChatMessage> messages = [new(ChatRole.System, systemPrompt)];
-        messages.AddRange(conversation.Messages.Where(m => m.Role != ChatRole.System));
-        return messages;
-    }
-
 }

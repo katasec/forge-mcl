@@ -14,19 +14,6 @@ public record PipelineRunOptions(
     // existing synchronous callback imposed by Scout's IProgress backend, not a pipeline lifecycle
     // fact — left unchanged by Task 3.
     Action<WebSearchProgress>? OnSearchProgress = null,
-    // Structured objects seeded into the context bag alongside Vars (Phase 42.1) — e.g. the full
-    // client Conversation. The bag is untyped but not stringly-typed: real objects go in as-is.
-    IReadOnlyDictionary<string, object>? ContextObjects = null,
-    // Client-declared tools (Phase 42.3), already allowlist-filtered at the wire. They attach to
-    // the `role: agent` expert's provider call ONLY; a tool call from it ends the run immediately
-    // (the client executes and continues with a fresh request).
-    IList<AITool>? Tools = null,
-    // Tool continuation (42.3 three-segment rule): skip the pre-agent segment and start at the
-    // `role: agent` step — its enrichment context was restored from the cache into Vars.
-    bool StartAtAgent = false,
-    // Fired once per run, just before the agent step, with the string-valued context snapshot —
-    // the caller (MissionChatClient) stores it in the enrichment cache keyed by prefix hash P.
-    Action<IReadOnlyDictionary<string, string>>? OnPreAgentComplete = null,
     // Mission names, root to current, for the currently executing mission (Phase 43.16 Task 3).
     // Null at a fresh top-level call — the runner defaults it to [MissionName]; CreateChildOptions
     // appends the child's declared mission name for a nested sub-mission invocation.
@@ -36,17 +23,8 @@ public record PipelineRunOptions(
     // throwing sink fails the run rather than silently dropping a fact. No caller is required to
     // supply it, so a normal CLI/API run has unchanged trace overhead and behavior.
     Func<PipelineTraceEvent, CancellationToken, Task>? OnTrace = null,
-    // Constrains the agent expert's provider request to at most one tool call per turn (Phase
-    // 43.16 Task 8b). Null preserves today's unrestricted behavior for every caller that doesn't
-    // set it — only Janus's Implement step (ConversationHost/Worker) opts into `false`, matching
-    // JanusPipelineProgressMapper's "exactly one tool call per request" invariant. Threaded to
-    // DirectExpertRunner through a closed, Core-internal context-bag instruction (see
-    // PipelineRuntimeInstructions) — never a mission-authorable variable, and deliberately not
-    // inherited by CreateChildOptions, matching Tools' own non-inheritance rule (it is meaningless
-    // without Tools alongside it).
-    bool? AllowMultipleToolCalls = null,
-    // Explicit opt-in for a root-scoped, generic tool pause. Unlike Tools, this declaration scope
-    // is retained by Core while declared child missions run; a child receives neither a dispatcher
+    // Explicit opt-in for a root-scoped, generic tool pause. This declaration scope is retained
+    // by Core while declared child missions run; a child receives neither a dispatcher
     // nor a capability handle. A call pauses the root run and must be resumed through
     // PipelineRunner.ResumeAsync.
     IList<AITool>? RootTools = null)

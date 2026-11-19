@@ -5,7 +5,7 @@ using Microsoft.Extensions.AI;
 namespace ForgeMission.Core.Tools;
 
 // The Read/Edit/Write/Bash tool declarations Forge Desktop's terminal agent expert attaches via
-// PipelineRunOptions.Tools (Phase 43.1). Forge Desktop has no upstream client to relay a tool
+// PipelineRunOptions.RootTools (Phase 43.1). Forge Desktop has no upstream client to relay a tool
 // list from (unlike Katasec.AnthropicServer's ToolMapping, which relays whatever the real
 // `claude` CLI declared) — forge originates these itself.
 //

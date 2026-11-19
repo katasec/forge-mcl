@@ -55,18 +55,6 @@ public sealed record PipelineStepCompleted(
     StepEnvelope Envelope)
     : PipelineTraceEvent(MissionName, MissionPath, ExpertName, ExpertKind, Attempt);
 
-/// <summary>The agent expert's non-empty set of client tool calls that makes
-/// <c>PipelineRunner</c> return early. Emitted once, after that step's
-/// <see cref="PipelineStepCompleted"/> fact.</summary>
-public sealed record PipelineToolRequested(
-    string MissionName,
-    IReadOnlyList<string> MissionPath,
-    string ExpertName,
-    string ExpertKind,
-    int Attempt,
-    IReadOnlyList<PipelineToolCall> Calls)
-    : PipelineTraceEvent(MissionName, MissionPath, ExpertName, ExpertKind, Attempt);
-
 /// <summary>Core checkpoint provenance for a root-scoped pause. The opaque payload and any durable
 /// correlation remain outside the trace; this fact identifies only the paused declared call.</summary>
 public sealed record PipelineRootToolCheckpointed(
