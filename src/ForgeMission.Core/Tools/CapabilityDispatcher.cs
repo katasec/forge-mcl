@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace ForgeMission.Core.Tools;
 
 public sealed class CapabilityDispatcher(
@@ -67,11 +69,8 @@ public sealed class CapabilityDispatcher(
         CancellationToken ct,
         Action providerInvoked)
     {
-        if (!capabilities.TryGetProvider<IFileProvider>(out var files) || files is null)
-            return ToolExecutionResult.Error("File capability is unavailable.");
-        providerInvoked();
-        if (!files.TryResolvePath(request.FilePath, out var resolved, out var pathError))
-            return ToolExecutionResult.Error(pathError!);
+        if (!TryResolveFile(request.FilePath, providerInvoked, out var files, out var resolved, out var error))
+            return error;
 
         if (!await files.ExistsAsync(resolved, ct))
             return ToolExecutionResult.Error($"File not found: {request.FilePath}");
@@ -94,11 +93,8 @@ public sealed class CapabilityDispatcher(
         CancellationToken ct,
         Action providerInvoked)
     {
-        if (!capabilities.TryGetProvider<IFileProvider>(out var files) || files is null)
-            return ToolExecutionResult.Error("File capability is unavailable.");
-        providerInvoked();
-        if (!files.TryResolvePath(request.FilePath, out var resolved, out var pathError))
-            return ToolExecutionResult.Error(pathError!);
+        if (!TryResolveFile(request.FilePath, providerInvoked, out var files, out var resolved, out var error))
+            return error;
 
         if (!await files.ExistsAsync(resolved, ct))
             return ToolExecutionResult.Error($"File not found: {request.FilePath}. Use Write to create a new file.");
@@ -133,11 +129,8 @@ public sealed class CapabilityDispatcher(
         CancellationToken ct,
         Action providerInvoked)
     {
-        if (!capabilities.TryGetProvider<IFileProvider>(out var files) || files is null)
-            return ToolExecutionResult.Error("File capability is unavailable.");
-        providerInvoked();
-        if (!files.TryResolvePath(request.FilePath, out var resolved, out var pathError))
-            return ToolExecutionResult.Error(pathError!);
+        if (!TryResolveFile(request.FilePath, providerInvoked, out var files, out var resolved, out var error))
+            return error;
 
         try
         {
@@ -148,6 +141,30 @@ public sealed class CapabilityDispatcher(
         {
             return ToolExecutionResult.Error($"Failed to write {request.FilePath}: {ex.Message}");
         }
+    }
+
+    // Shared file preamble: the file provider must be registered, and the path must resolve inside it.
+    private bool TryResolveFile(
+        string filePath,
+        Action providerInvoked,
+        [NotNullWhen(true)] out IFileProvider? files,
+        out string resolved,
+        [NotNullWhen(false)] out ToolExecutionResult? error)
+    {
+        resolved = string.Empty;
+        error = null;
+        if (!capabilities.TryGetProvider(out files) || files is null)
+        {
+            error = ToolExecutionResult.Error("File capability is unavailable.");
+            return false;
+        }
+
+        providerInvoked();
+        if (files.TryResolvePath(filePath, out resolved, out var pathError))
+            return true;
+
+        error = ToolExecutionResult.Error(pathError!);
+        return false;
     }
 
     private async Task<ToolExecutionResult> ExecuteTerminalAsync(

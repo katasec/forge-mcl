@@ -34,6 +34,28 @@ public sealed class CapabilityDispatcherTests
         Assert.False(audit.Succeeded);
     }
 
+    [Theory]
+    [MemberData(nameof(FileRequests))]
+    public async Task FileRequest_WithoutFileProvider_ReturnsUnavailable_AndDoesNotInvokeProvider(ICapabilityRequest request)
+    {
+        var auditLog = new InMemoryCapabilityAuditLog();
+        var dispatcher = new CapabilityDispatcher(new CapabilityRegistry([]),
+            new PolicyCapabilityAuthorizer(CapabilityAuthorizationPolicy.Default), auditLog);
+
+        var result = await dispatcher.DispatchAsync("file", request, default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("File capability is unavailable.", result.Content);
+        Assert.False(Assert.Single(auditLog.Records).ProviderInvoked);
+    }
+
+    public static TheoryData<ICapabilityRequest> FileRequests() =>
+    [
+        new ReadFileCapabilityRequest("notes.txt", 0, null),
+        new EditFileCapabilityRequest("notes.txt", "a", "b", ReplaceAll: false),
+        new WriteFileCapabilityRequest("notes.txt", "x"),
+    ];
+
     [Fact]
     public async Task DefaultPolicy_RequestInvokesProvider_AndIsAudited()
     {
