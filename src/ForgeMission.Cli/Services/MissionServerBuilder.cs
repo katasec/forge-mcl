@@ -11,7 +11,7 @@ internal static class MissionServerBuilder
 {
     // Builds the full runner dictionary from forge.toml profiles.
     // Falls back to let-binding context for the "default" runner if no forge.toml.
-    internal static IReadOnlyDictionary<string, IExpertRunner>? BuildRunners(
+    internal static IReadOnlyDictionary<string, IExpertRunner> BuildRunners(
         ForgeManifest? manifest,
         Dictionary<string, object> seedContext)
     {
@@ -23,7 +23,7 @@ internal static class MissionServerBuilder
             foreach (var (name, profile) in profiles)
             {
                 try { runners[name] = ForgeMission.ChatClients.ChatClients.Build(profile); }
-                catch (Exception ex) { CliDiagnostics.Die($"Cannot initialise provider profile '{name}': {ex.Message}"); return null; }
+                catch (Exception ex) { CliDiagnostics.Die($"Cannot initialise provider profile '{name}': {ex.Message}"); }
             }
         }
 
@@ -33,18 +33,12 @@ internal static class MissionServerBuilder
             var profile = MergeDefaultProfile(manifest, seedContext);
 
             if (string.IsNullOrWhiteSpace(profile.ApiKey))
-            {
                 CliDiagnostics.Die("No API key found. Add [providers.default] to forge.toml with apiKey = env(\"MCL_API_KEY\").");
-                return null;
-            }
             if (string.IsNullOrWhiteSpace(profile.Model))
-            {
                 CliDiagnostics.Die("No model found. Add [providers.default] to forge.toml with model = env(\"MCL_MODEL\", \"gpt-4o-mini\").");
-                return null;
-            }
 
             try { runners["default"] = ForgeMission.ChatClients.ChatClients.Build(profile); }
-            catch (Exception ex) { CliDiagnostics.Die($"Cannot initialise default provider: {ex.Message}"); return null; }
+            catch (Exception ex) { CliDiagnostics.Die($"Cannot initialise default provider: {ex.Message}"); }
         }
 
         return runners;

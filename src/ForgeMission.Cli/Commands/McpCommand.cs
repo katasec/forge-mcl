@@ -43,7 +43,7 @@ internal static class McpCommand
             var missionDir = mission.DirectoryName!;
             var lockPath   = CliHelpers.MclLockPath(missionDir);
 
-            if (!File.Exists(lockPath)) { CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first."); return; }
+            if (!File.Exists(lockPath)) CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first.");
 
             var source = await CliHelpers.TryReadFile(mission.FullName, ct);
             if (source is null) return;
@@ -53,7 +53,7 @@ internal static class McpCommand
 
             ForgeManifest? manifest = null;
             try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
-            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); return; }
+            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); }
 
             LockFile lockFile;
             try { lockFile = LockFileIO.Read(lockPath); }
@@ -67,7 +67,7 @@ internal static class McpCommand
             if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
 
             var firstMission = ast.Declarations.OfType<ForgeMission.Parser.MissionDeclaration>().FirstOrDefault();
-            if (firstMission is null) { CliDiagnostics.Die("No mission declaration found in mission file."); return; }
+            if (firstMission is null) CliDiagnostics.Die("No mission declaration found in mission file.");
 
             await ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName,
                 callSeedContext => MissionServerBuilder.BuildRunners(manifest, callSeedContext), ct);
@@ -89,7 +89,7 @@ internal static class McpCommand
         Dictionary<string, ExpertDefinition> expertDefs,
         ForgeManifest? manifest,
         string missionPath,
-        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>?> buildRunners,
+        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>> buildRunners,
         CancellationToken cancellationToken)
     {
         var toolName    = firstMission.Name;
@@ -135,8 +135,6 @@ internal static class McpCommand
             catch (InvalidOperationException ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
 
             var callRunners = buildRunners(callSeedContext);
-            if (callRunners is null)
-                return new CallToolResult { Content = [new McpTextContent { Text = "Cannot initialise provider — check API key env vars in claude_desktop_config.json" }], IsError = true };
 
             var runOptions = new PipelineRunOptions(toolName, callVars);
 

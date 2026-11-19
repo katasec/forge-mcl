@@ -28,9 +28,9 @@ internal static class CliHelpers
         return result.Ast!;
     }
 
-    internal static Dictionary<string, ExpertDefinition>? TryLoadExperts(string expertsDir)
+    internal static Dictionary<string, ExpertDefinition> TryLoadExperts(string expertsDir)
     {
-        if (!Directory.Exists(expertsDir)) { CliDiagnostics.Die($"Experts directory not found: {expertsDir}"); return null; }
+        if (!Directory.Exists(expertsDir)) CliDiagnostics.Die($"Experts directory not found: {expertsDir}");
         try { return new ExpertLoader(expertsDir).LoadAll(); }
         catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
         catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }

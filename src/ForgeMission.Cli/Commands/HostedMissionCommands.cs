@@ -67,7 +67,7 @@ internal static class HostedMissionCommands
             var desc      = result.GetValue(descOpt);
 
             if (!File.Exists(Path.Combine(dir.FullName, "mission.mcl")))
-            { CliDiagnostics.Die($"No mission.mcl in {dir.FullName} — point at a mission directory."); return; }
+                CliDiagnostics.Die($"No mission.mcl in {dir.FullName} — point at a mission directory.");
 
             // registry/name:tag parsing is owned by OciReference (MissionRegistry).
             string registry, name, tag;

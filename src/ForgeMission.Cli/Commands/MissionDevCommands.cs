@@ -45,7 +45,7 @@ internal static class MissionDevCommands
 
         ForgeManifest? manifest = null;
         try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
-        catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); return; }
+        catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); }
 
         Console.WriteLine("Resolving experts...\n");
 
@@ -131,7 +131,7 @@ internal static class MissionDevCommands
 
             // Validate forge.toml if present
             try { ForgeTomlReader.TryRead(mission.FullName); }
-            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); return; }
+            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); }
 
             // Warn if lock file is absent or stale
             if (!File.Exists(lockPath))
@@ -141,7 +141,6 @@ internal static class MissionDevCommands
             if (!File.Exists(lockPath))
             {
                 var expertDefs = CliHelpers.TryLoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
-                if (expertDefs is null) return;
                 if (CliHelpers.TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
                     Console.WriteLine("OK — mission is valid.");
                 else
@@ -179,8 +178,6 @@ internal static class MissionDevCommands
             var expertsDir = experts?.FullName ?? "experts";
 
             var expertDefs = CliHelpers.TryLoadExperts(expertsDir);
-            if (expertDefs is null) return Task.CompletedTask;
-
             if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return Task.CompletedTask; }
 
             Console.WriteLine($"Experts in {expertsDir}:");
@@ -214,19 +211,13 @@ internal static class MissionDevCommands
             var expertsDir = experts?.FullName ?? "experts";
 
             if (string.IsNullOrEmpty(name) || !char.IsUpper(name[0]))
-            {
                 CliDiagnostics.Die($"Expert name must be PascalCase (got '{name}').");
-                return;
-            }
 
             var expertDir = Path.Combine(expertsDir, name);
             var expertMd  = Path.Combine(expertDir, "expert.md");
 
             if (File.Exists(expertMd))
-            {
                 CliDiagnostics.Die($"Expert '{name}' already exists at {expertMd}");
-                return;
-            }
 
             Directory.CreateDirectory(expertDir);
             await File.WriteAllTextAsync(expertMd, CliHelpers.ExpertTemplate(name), cancellationToken);

@@ -57,10 +57,7 @@ internal static class ProviderCommand
             var block = ForgeMission.ChatClients.ProviderCatalog.Find(name)?.ScaffoldBlock;
 
             if (block is null)
-            {
                 CliDiagnostics.Die($"Unknown provider '{name}'. Run 'forge provider list' to see known providers.");
-                return;
-            }
 
             if (write)
             {
