@@ -28,7 +28,7 @@ public sealed class SearchExpertRunner(IWebSearch search) : IExpertRunner
             throw new InvalidOperationException(
                 $"kind: search ({expert.Name}) has no query — set a 'query' binding or upstream 'output'.");
 
-        var result = await search.SearchAsync(new WebSearchRequest(query), progress: null, ct);
+        var result = await search.SearchAsync(new WebSearchRequest(query), ct);
 
         // Publish retrieval into context (the json_extract pattern) for downstream {{search_results}} / {{search_sources}}.
         context["search_results"] = result.Answer ?? string.Empty;
