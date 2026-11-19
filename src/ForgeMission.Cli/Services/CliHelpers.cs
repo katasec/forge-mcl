@@ -1,4 +1,5 @@
 using ForgeMission.Core.Experts;
+using ForgeMission.Core.Manifest;
 using ForgeMission.Parser;
 using MclProgram = ForgeMission.Parser.Program;
 
@@ -14,6 +15,23 @@ internal static class CliHelpers
     {
         try { return await File.ReadAllTextAsync(path, cancellationToken); }
         catch (Exception ex) when (ex is not OperationCanceledException) { CliDiagnostics.Die($"Cannot read file '{path}': {ex.Message}"); return null; }
+    }
+
+    // The mission-load opening shared by `forge init`, `forge validate` and `forge mcp`: read the
+    // mission file, parse it, then read forge.toml beside it. Each step reports its own failure.
+    internal static async Task<(MclProgram Ast, ForgeManifest? Manifest)?> TryLoadMissionAsync(string missionPath, CancellationToken cancellationToken)
+    {
+        var source = await TryReadFile(missionPath, cancellationToken);
+        if (source is null) return null;
+
+        var ast = TryParse(source, missionPath);
+        if (ast is null) return null;
+
+        ForgeManifest? manifest = null;
+        try { manifest = ForgeTomlReader.TryRead(missionPath); }
+        catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); }
+
+        return (ast, manifest);
     }
 
     internal static MclProgram? TryParse(string source, string filePath)

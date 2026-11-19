@@ -45,15 +45,7 @@ internal static class McpCommand
 
             if (!File.Exists(lockPath)) CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first.");
 
-            var source = await CliHelpers.TryReadFile(mission.FullName, ct);
-            if (source is null) return;
-
-            var ast = CliHelpers.TryParse(source, mission.FullName);
-            if (ast is null) return;
-
-            ForgeManifest? manifest = null;
-            try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
-            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); }
+            if (await CliHelpers.TryLoadMissionAsync(mission.FullName, ct) is not (var ast, var manifest)) return;
 
             LockFile lockFile;
             try { lockFile = LockFileIO.Read(lockPath); }
