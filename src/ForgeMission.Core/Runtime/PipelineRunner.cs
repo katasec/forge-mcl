@@ -73,13 +73,7 @@ public class PipelineRunner
 
         var root = checkpoint.RootMissionName;
         var admittedNames = DurableMissionInputPolicy.AdmittedNames(ast, experts, root);
-        var pending = PipelineCheckpointCodec.PendingCall(checkpoint);
-        if (!checkpoint.AdmittedInputNames.SequenceEqual(admittedNames, StringComparer.Ordinal)
-            || checkpoint.RootInputs.Keys.Any(name => !admittedNames.Contains(name, StringComparer.Ordinal))
-            || !string.Equals(pending.CallId, request.Result.CallId, StringComparison.Ordinal)
-            || !checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, pending.Name, StringComparison.Ordinal))
-            || !string.Equals(checkpoint.RootToolScopeFingerprint, ScopeFingerprint(checkpoint.ToolDeclarations), StringComparison.Ordinal)
-            || !string.Equals(checkpoint.RootDefinitionFingerprint, RootDefinitionFingerprint(ast, experts, root), StringComparison.Ordinal))
+        if (!IsResumable(checkpoint, admittedNames, request.Result.CallId, ast, experts))
             return Failure(root, PipelineFailure.InvalidContinuation);
 
         if (ConsumeLocalContinuation(checkpoint) is { } localFailure)
@@ -105,6 +99,25 @@ public class PipelineRunner
         {
             return Failure(root, PipelineFailure.InvalidContinuation);
         }
+    }
+
+    // A checkpoint resumes only when its inputs, pending call, tool scope and mission definition
+    // all still match what this runner was composed with. Clauses short-circuit cheapest first.
+    private static bool IsResumable(
+        PipelineContinuationCheckpoint checkpoint,
+        IReadOnlyList<string> admittedNames,
+        string resultCallId,
+        Program ast,
+        Dictionary<string, ExpertDefinition> experts)
+    {
+        var pending = PipelineCheckpointCodec.PendingCall(checkpoint);
+        return checkpoint.AdmittedInputNames.SequenceEqual(admittedNames, StringComparer.Ordinal)
+            && checkpoint.RootInputs.Keys.All(name => admittedNames.Contains(name, StringComparer.Ordinal))
+            && string.Equals(pending.CallId, resultCallId, StringComparison.Ordinal)
+            && checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, pending.Name, StringComparison.Ordinal))
+            && string.Equals(checkpoint.RootToolScopeFingerprint, ScopeFingerprint(checkpoint.ToolDeclarations), StringComparison.Ordinal)
+            && string.Equals(checkpoint.RootDefinitionFingerprint,
+                RootDefinitionFingerprint(ast, experts, checkpoint.RootMissionName), StringComparison.Ordinal);
     }
 
     private async Task<MissionResult> RunCoreAsync(
