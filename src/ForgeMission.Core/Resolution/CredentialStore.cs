@@ -9,7 +9,7 @@ public class ForgeCredentials
 
     public Dictionary<string, ProviderCredential> Providers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Platform sign-in (42.5): the forge platform key + who/where it came from.</summary>
+    /// <summary>Platform sign-in: the forge platform key + who/where it came from.</summary>
     public PlatformCredential? Platform { get; set; }
 }
 
@@ -55,36 +55,24 @@ public static class CredentialStore
         var envToken = Environment.GetEnvironmentVariable("FORGE_REGISTRY_TOKEN");
         if (!string.IsNullOrWhiteSpace(envToken)) return envToken;
 
-        if (!File.Exists(CredentialsPath)) return null;
+        // A null registry has always resolved to "no token" rather than throwing.
+        if (registry is null) return null;
 
-        try
-        {
-            var json = File.ReadAllText(CredentialsPath);
-            var creds = JsonSerializer.Deserialize(json, CredentialsJsonContext.Default.ForgeCredentials);
-            if (creds?.Credentials.TryGetValue(registry, out var cred) == true)
-                return string.IsNullOrWhiteSpace(cred.Token) ? null : cred.Token;
-        }
-        catch { /* corrupt credentials file — treat as missing */ }
+        var creds = ReadCredentials();
+        if (creds?.Credentials?.TryGetValue(registry, out var cred) != true) return null;
 
-        return null;
+        return string.IsNullOrWhiteSpace(cred?.Token) ? null : cred.Token;
     }
 
     public static void SaveToken(string registry, string token) =>
         Mutate(creds => creds.Credentials[registry] = new RegistryCredential { Token = token });
 
-    // --- Platform credential (42.5) --------------------------------------------------------
+    // --- Platform credential ---------------------------------------------------------------
 
     public static PlatformCredential? GetPlatform()
     {
-        if (!File.Exists(CredentialsPath)) return null;
-
-        try
-        {
-            var json = File.ReadAllText(CredentialsPath);
-            var creds = JsonSerializer.Deserialize(json, CredentialsJsonContext.Default.ForgeCredentials);
-            return string.IsNullOrWhiteSpace(creds?.Platform?.Key) ? null : creds!.Platform;
-        }
-        catch { return null; /* corrupt credentials file — treat as missing */ }
+        var creds = ReadCredentials();
+        return string.IsNullOrWhiteSpace(creds?.Platform?.Key) ? null : creds!.Platform;
     }
 
     public static void SavePlatform(PlatformCredential platform) =>
@@ -104,18 +92,26 @@ public static class CredentialStore
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-        ForgeCredentials existing;
-        try
-        {
-            existing = File.Exists(CredentialsPath)
-                ? JsonSerializer.Deserialize(File.ReadAllText(CredentialsPath), CredentialsJsonContext.Default.ForgeCredentials) ?? new()
-                : new();
-        }
-        catch { existing = new(); }
-
+        var existing = ReadCredentials() ?? new();
         change(existing);
         WriteSecretAtomic(CredentialsPath,
             JsonSerializer.Serialize(existing, CredentialsJsonContext.Default.ForgeCredentials));
+    }
+
+    // Missing or unreadable/corrupt credentials file — treat as missing.
+    private static ForgeCredentials? ReadCredentials()
+    {
+        if (!File.Exists(CredentialsPath)) return null;
+
+        try
+        {
+            var json = File.ReadAllText(CredentialsPath);
+            return JsonSerializer.Deserialize(json, CredentialsJsonContext.Default.ForgeCredentials);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // Atomic owner-only write: stage into a temp file in the SAME directory, set

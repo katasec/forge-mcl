@@ -8,7 +8,7 @@ namespace ForgeMission.Cli.Services;
 // what it uses: the hosted commands the API endpoint (ForgeApiSettings), forge run the OCI base for a
 // short mission selector (ForgeOciSettings). A missing file or key means the hosted API endpoint and
 // ghcr.io/katasec. On first use forge writes the two endpoint defaults into the file and keeps
-// whatever is already there (Phase 76 decision 8).
+// whatever is already there.
 internal static class ForgeSettings
 {
     public static string DefaultPath { get; } = Path.Combine(

@@ -4,7 +4,7 @@ using ForgeMission.Conversations.Contracts;
 namespace ForgeMission.Cli.Commands;
 
 /// <summary>
-/// `forge run --input` values (Phase 76 decision 7): <c>name=value</c> is a text input and
+/// `forge run --input` values: <c>name=value</c> is a text input and
 /// <c>name=@path</c> is one file: a text file's contents become the input, a binary file is uploaded.
 /// A folder is refused. The prompt fills the root mission's own
 /// input, so that name cannot also be given here.

@@ -8,7 +8,7 @@ namespace ForgeMission.Cli.Commands;
 // forge run: a mission run kept as a cloud conversation in the project. The
 // Conversation Host owns the history; this surface prepares the package and prints. Starting the
 // new conversation (with Hands attached), the one turn and its follow are forge-client's shared
-// path (Phase 76 decision 2).
+// path.
 internal static class ForgeDurableRun
 {
     internal static async Task<int> RunAsync(IHttpClientFactory clients, string projectPath, string selector,

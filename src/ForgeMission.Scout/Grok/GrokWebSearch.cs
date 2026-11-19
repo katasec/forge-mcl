@@ -9,8 +9,7 @@ namespace Scout.Grok;
 /// Grok-backed <see cref="IWebSearch"/> via the xAI Responses API's server-side <c>web_search</c> tool.
 /// Grok is an <b>answer engine</b>: it runs a server-side search+reason loop and returns a synthesized
 /// answer plus URL citations (no raw page content). So this populates <see cref="WebSearchResult.Answer"/>
-/// and fills <see cref="WebSearchResult.Sources"/> from the citation URLs. The "raw hits → MCL synthesizes"
-/// path arrives with a raw-search backend (Tavily/Exa, Phase 41.3).
+/// and fills <see cref="WebSearchResult.Sources"/> from the citation URLs.
 /// <para>Direct <see cref="HttpClient"/> + STJ source-gen — the OpenAI SDK cannot emit a
 /// <c>{"type":"web_search"}</c> server-side tool, and this keeps the path AOT-clean.</para>
 /// </summary>
@@ -33,7 +32,7 @@ public sealed class GrokWebSearch(HttpClient http, string apiKey, string model =
         return Map(parsed);
     }
 
-    // Streaming path (Phase 41.7 Task 2) — narrate the server-side search loop. Grok emits one
+    // Streaming path — narrate the server-side search loop. Grok emits one
     // web_search_call item per sub-search; its completed `action` (on response.output_item.done) is
     // reported as a WebSearchProgress. The terminal response.completed carries the full final response,
     // so the answer + citations reuse the buffered Map(). One HTTP call — the search never re-runs.

@@ -7,6 +7,9 @@ namespace ForgeMission.MissionRegistry;
 /// <summary>Pulls a self-contained OCI mission bundle into the local Forge cache.</summary>
 public static class OciMissionPuller
 {
+    private const int MaxBundleBytes = 32 * 1024 * 1024;
+    private const int MaxBundleEntries = 4096;
+
     public static Task<(string Directory, string Status)> PullAsync(string ociReference, bool refresh,
         CancellationToken cancellationToken = default) => PullVerifiedAsync(OciReference.Parse(ociReference),
             RegistryCredentialStore.GetToken(OciReference.Parse(ociReference).Registry), cancellationToken);
@@ -36,8 +39,7 @@ public static class OciMissionPuller
 
     internal static async Task ExtractBundleAsync(byte[] bundle, string directory, CancellationToken ct)
     {
-        const int maxBytes = 33554432;
-        if (bundle.Length > maxBytes) throw new InvalidDataException("Mission bundle exceeds 32 MiB.");
+        if (bundle.Length > MaxBundleBytes) throw new InvalidDataException("Mission bundle exceeds 32 MiB.");
         using var input = new MemoryStream(bundle, writable: false);
         using var reader = new TarReader(input);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -45,25 +47,53 @@ public static class OciMissionPuller
         Directory.CreateDirectory(directory);
         while (await reader.GetNextEntryAsync(copyData: false, cancellationToken: ct) is { } entry)
         {
+            var parts = EntryPathParts(entry);
+            if (!IsAllowedEntry(entry, parts))
+                throw InvalidBundle();
+
             // Standard tar writes directory entries; their directories are created from file paths.
-            var isDirectory = entry.EntryType == TarEntryType.Directory;
-            var parts = (isDirectory && entry.Name.EndsWith('/') ? entry.Name[..^1] : entry.Name).Split('/');
-            if (!(isDirectory || entry.EntryType is TarEntryType.RegularFile or TarEntryType.V7RegularFile) ||
-                parts.Any(part => part is "" or "." or "..") || entry.Name.IndexOfAny(['\\', ':', '\0']) >= 0)
-                throw new InvalidDataException("Mission bundle contains an invalid path, duplicate, non-regular entry or exceeds its budget.");
-            if (isDirectory) continue;
-            if (!names.Add(entry.Name) || names.Count > 4096 || entry.Length < 0 || (total += entry.Length) > maxBytes)
-                throw new InvalidDataException("Mission bundle contains an invalid path, duplicate, non-regular entry or exceeds its budget.");
-            var path = Path.Combine(directory, Path.Combine(parts));
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await using var output = new FileStream(path, NewFileOptions());
-            if (entry.DataStream is not null) await entry.DataStream.CopyToAsync(output, ct);
-            if (output.Length != entry.Length) throw new InvalidDataException("Mission bundle entry length mismatch.");
+            if (entry.EntryType == TarEntryType.Directory) continue;
+
+            if (!names.Add(entry.Name) || names.Count > MaxBundleEntries || entry.Length < 0)
+                throw InvalidBundle();
+            total += entry.Length;
+            if (total > MaxBundleBytes)
+                throw InvalidBundle();
+
+            await ExtractFileAsync(entry, Path.Combine(directory, Path.Combine(parts)), ct);
         }
         if (!names.Any(name => name == "mission.mcl")) throw new InvalidDataException("Mission bundle does not contain mission.mcl.");
     }
 
-    // Extracted files are never executable (Phase 76 decision 5): the entry's mode is ignored and every
+    private static string[] EntryPathParts(TarEntry entry)
+    {
+        var name = entry.EntryType == TarEntryType.Directory && entry.Name.EndsWith('/')
+            ? entry.Name[..^1]
+            : entry.Name;
+        return name.Split('/');
+    }
+
+    // Only directories and regular files, with relative paths free of empty, dot and reserved segments.
+    private static bool IsAllowedEntry(TarEntry entry, string[] parts)
+    {
+        var allowedType = entry.EntryType is TarEntryType.Directory or TarEntryType.RegularFile or TarEntryType.V7RegularFile;
+        var safeParts = !parts.Any(part => part is "" or "." or "..");
+        var safeCharacters = entry.Name.IndexOfAny(['\\', ':', '\0']) < 0;
+        return allowedType && safeParts && safeCharacters;
+    }
+
+    private static async Task ExtractFileAsync(TarEntry entry, string path, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await using var output = new FileStream(path, NewFileOptions());
+        if (entry.DataStream is not null) await entry.DataStream.CopyToAsync(output, ct);
+        if (output.Length != entry.Length) throw new InvalidDataException("Mission bundle entry length mismatch.");
+    }
+
+    private static InvalidDataException InvalidBundle() =>
+        new("Mission bundle contains an invalid path, duplicate, non-regular entry or exceeds its budget.");
+
+    // Extracted files are never executable: the entry's mode is ignored and every
     // file is created owner read/write, others read-only, still reduced by the process umask.
     private static FileStreamOptions NewFileOptions() => OperatingSystem.IsWindows()
         ? new() { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None }

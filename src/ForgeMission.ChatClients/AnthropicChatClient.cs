@@ -9,7 +9,7 @@ namespace ForgeMission.ChatClients;
 
 /// <summary>
 /// Calls Anthropic's <c>POST /v1/messages</c>, plain and streamed, with source-generated wire types
-/// (Phase 77). Translation lives in <see cref="AnthropicMessageMapping"/> and <see cref="AnthropicStream"/>.
+/// Translation lives in <see cref="AnthropicMessageMapping"/> and <see cref="AnthropicStream"/>.
 /// </summary>
 internal sealed class AnthropicChatClient(ProviderProfile profile) : IChatClient
 {

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using ForgeMission.Core.Experts;
 using ForgeMission.Parser;
 
@@ -21,7 +22,7 @@ internal static class CliDiagnostics
     internal static void ReportExpertDiagnostic(ExpertLoadException ex)
     {
         // No file path — fall back to plain Die-style output
-        if (ex.FilePath is null || ex.Line == 0) { Die(ex.Message); return; }
+        if (ex.FilePath is null || ex.Line == 0) Die(ex.Message);
 
         var sourceLine = File.Exists(ex.FilePath)
             ? File.ReadLines(ex.FilePath).ElementAtOrDefault(ex.Line - 1) ?? string.Empty
@@ -60,6 +61,7 @@ internal static class CliDiagnostics
     internal static string BoldYellow(string s) => UseAnsi() ? $"\x1b[1;33m{s}\x1b[0m" : s;
     internal static string BoldBlue(string s)   => UseAnsi() ? $"\x1b[1;34m{s}\x1b[0m" : s;
 
+    [DoesNotReturn]
     internal static void Die(string message)
     {
         Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");

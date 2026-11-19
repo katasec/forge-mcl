@@ -37,7 +37,7 @@ public record Step(
     WhenClause? When,                 // when() guard — null means unconditional
     SourceSpan? Span = null);
 
-// When guard — abstract so new expression types are additive (Phase 22+)
+// When guard — abstract so new expression types are additive
 public abstract record WhenClause;
 public record StringEqualsWhen(string Key, string Value) : WhenClause;
 public record NumericCompareWhen(string Key, CompOp Op, double Threshold) : WhenClause;

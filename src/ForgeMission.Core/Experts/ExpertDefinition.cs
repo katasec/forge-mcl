@@ -22,7 +22,7 @@ public record ExpertDefinition(
     IReadOnlyDictionary<string, string>? InputKeys  = null)
 {
     public bool IsJudge       => Role.Equals("judge",       StringComparison.OrdinalIgnoreCase);
-    // The tool-capable terminal expert (Phase 42.3): client tools attach to THIS expert's
+    // The tool-capable terminal expert: client tools attach to THIS expert's
     // provider call only; a tool call from it returns to the client (the agent segment).
     public bool IsAgent       => Role.Equals("agent",       StringComparison.OrdinalIgnoreCase);
     public bool IsHttp        => Kind.Equals("http",        StringComparison.OrdinalIgnoreCase);

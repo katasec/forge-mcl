@@ -14,7 +14,7 @@ namespace ForgeMission.Cli.Commands;
 internal static class MissionDevCommands
 {
     // ---------------------------------------------------------------------------
-    // fms init
+    // forge init
 
     internal static Command BuildInitCommand()
     {
@@ -37,15 +37,7 @@ internal static class MissionDevCommands
     {
         var missionDir = mission.DirectoryName!;
 
-        var source = await CliHelpers.TryReadFile(mission.FullName, cancellationToken);
-        if (source is null) return;
-
-        var ast = CliHelpers.TryParse(source, mission.FullName);
-        if (ast is null) return;
-
-        ForgeManifest? manifest = null;
-        try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
-        catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); return; }
+        if (await CliHelpers.TryLoadMissionAsync(mission.FullName, cancellationToken) is not (_, var manifest)) return;
 
         Console.WriteLine("Resolving experts...\n");
 
@@ -108,7 +100,7 @@ internal static class MissionDevCommands
     }
 
     // ---------------------------------------------------------------------------
-    // fms validate
+    // forge validate
 
     internal static Command BuildValidateCommand()
     {
@@ -123,48 +115,40 @@ internal static class MissionDevCommands
             var missionDir = mission.DirectoryName!;
             var lockPath   = CliHelpers.MclLockPath(missionDir);
 
-            var source = await CliHelpers.TryReadFile(mission.FullName, cancellationToken);
-            if (source is null) return;
+            // forge.toml is read only to validate it.
+            if (await CliHelpers.TryLoadMissionAsync(mission.FullName, cancellationToken) is not (var ast, _)) return;
 
-            var ast = CliHelpers.TryParse(source, mission.FullName);
-            if (ast is null) return;
+            var expertDefs = File.Exists(lockPath)
+                ? ResolveLockedExperts(lockPath, missionDir)
+                : LoadUnlockedExperts(missionDir);
+            if (expertDefs is null) return;
 
-            // Validate forge.toml if present
-            try { ForgeTomlReader.TryRead(mission.FullName); }
-            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); return; }
-
-            // Warn if lock file is absent or stale
-            if (!File.Exists(lockPath))
-            {
-                Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold(": MCL006 mcl.lock not found — run 'forge init' to generate it")}");
-            }
-            if (!File.Exists(lockPath))
-            {
-                var expertDefs = CliHelpers.TryLoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
-                if (expertDefs is null) return;
-                if (CliHelpers.TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
-                    Console.WriteLine("OK — mission is valid.");
-                else
-                    throw new ForgeExitException(1);
-            }
-            else
-            {
-                var lockFile   = LockFileIO.Read(lockPath);
-                Dictionary<string, ExpertDefinition> expertDefs;
-                try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, warnings: Console.Error); }
-                catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertDiagnostic(ex); return; }
-                if (CliHelpers.TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
-                    Console.WriteLine("OK — mission is valid.");
-                else
-                    throw new ForgeExitException(1);
-            }
+            if (!CliHelpers.TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
+                throw new ForgeExitException(1);
+            Console.WriteLine("OK — mission is valid.");
         });
 
         return cmd;
     }
 
+    // No mcl.lock: warn, then load experts straight from ./experts.
+    static Dictionary<string, ExpertDefinition> LoadUnlockedExperts(string missionDir)
+    {
+        Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold(": MCL006 mcl.lock not found — run 'forge init' to generate it")}");
+        return CliHelpers.TryLoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
+    }
+
+    // mcl.lock present: resolve the locked experts. A single expert-load failure is reported and
+    // ends validate (null) without a non-zero exit — existing behaviour, kept as is.
+    static Dictionary<string, ExpertDefinition>? ResolveLockedExperts(string lockPath, string missionDir)
+    {
+        var lockFile = LockFileIO.Read(lockPath);
+        try { return ExpertResolver.ResolveAll(lockFile, missionDir, warnings: Console.Error); }
+        catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertDiagnostic(ex); return null; }
+    }
+
     // ---------------------------------------------------------------------------
-    // fms list
+    // forge list
 
     internal static Command BuildListCommand()
     {
@@ -179,8 +163,6 @@ internal static class MissionDevCommands
             var expertsDir = experts?.FullName ?? "experts";
 
             var expertDefs = CliHelpers.TryLoadExperts(expertsDir);
-            if (expertDefs is null) return Task.CompletedTask;
-
             if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return Task.CompletedTask; }
 
             Console.WriteLine($"Experts in {expertsDir}:");
@@ -195,7 +177,7 @@ internal static class MissionDevCommands
     }
 
     // ---------------------------------------------------------------------------
-    // fms expert
+    // forge expert
 
     internal static Command BuildExpertCommand()
     {
@@ -214,19 +196,13 @@ internal static class MissionDevCommands
             var expertsDir = experts?.FullName ?? "experts";
 
             if (string.IsNullOrEmpty(name) || !char.IsUpper(name[0]))
-            {
                 CliDiagnostics.Die($"Expert name must be PascalCase (got '{name}').");
-                return;
-            }
 
             var expertDir = Path.Combine(expertsDir, name);
             var expertMd  = Path.Combine(expertDir, "expert.md");
 
             if (File.Exists(expertMd))
-            {
                 CliDiagnostics.Die($"Expert '{name}' already exists at {expertMd}");
-                return;
-            }
 
             Directory.CreateDirectory(expertDir);
             await File.WriteAllTextAsync(expertMd, CliHelpers.ExpertTemplate(name), cancellationToken);

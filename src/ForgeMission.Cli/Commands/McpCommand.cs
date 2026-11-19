@@ -43,17 +43,9 @@ internal static class McpCommand
             var missionDir = mission.DirectoryName!;
             var lockPath   = CliHelpers.MclLockPath(missionDir);
 
-            if (!File.Exists(lockPath)) { CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first."); return; }
+            if (!File.Exists(lockPath)) CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first.");
 
-            var source = await CliHelpers.TryReadFile(mission.FullName, ct);
-            if (source is null) return;
-
-            var ast = CliHelpers.TryParse(source, mission.FullName);
-            if (ast is null) return;
-
-            ForgeManifest? manifest = null;
-            try { manifest = ForgeTomlReader.TryRead(mission.FullName); }
-            catch (ForgeTomlException ex) { CliDiagnostics.Die(ex.Message); return; }
+            if (await CliHelpers.TryLoadMissionAsync(mission.FullName, ct) is not (var ast, var manifest)) return;
 
             LockFile lockFile;
             try { lockFile = LockFileIO.Read(lockPath); }
@@ -67,7 +59,7 @@ internal static class McpCommand
             if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
 
             var firstMission = ast.Declarations.OfType<ForgeMission.Parser.MissionDeclaration>().FirstOrDefault();
-            if (firstMission is null) { CliDiagnostics.Die("No mission declaration found in mission file."); return; }
+            if (firstMission is null) CliDiagnostics.Die("No mission declaration found in mission file.");
 
             await ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName,
                 callSeedContext => MissionServerBuilder.BuildRunners(manifest, callSeedContext), ct);
@@ -89,7 +81,7 @@ internal static class McpCommand
         Dictionary<string, ExpertDefinition> expertDefs,
         ForgeManifest? manifest,
         string missionPath,
-        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>?> buildRunners,
+        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>> buildRunners,
         CancellationToken cancellationToken)
     {
         var toolName    = firstMission.Name;
@@ -111,48 +103,70 @@ internal static class McpCommand
                 }
             ]
         });
-        options.Handlers.CallToolHandler = async (request, ct) =>
-        {
-            if (request.Params?.Name != toolName)
-                return new CallToolResult { Content = [new McpTextContent { Text = $"Unknown tool: {request.Params?.Name}" }], IsError = true };
-
-            // Extract call-time arguments as string overrides
-            var callVars = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (request.Params.Arguments is { } callArgs)
-            {
-                foreach (var kv in callArgs)
-                {
-                    var strVal = kv.Value.ValueKind == System.Text.Json.JsonValueKind.String
-                        ? kv.Value.GetString() ?? string.Empty
-                        : kv.Value.ToString();
-                    callVars[kv.Key] = strVal;
-                }
-            }
-
-            // Build runners lazily at call time so startup never needs the API key
-            Dictionary<string, object> callSeedContext;
-            try { callSeedContext = ContextBuilder.Seed(ast, callVars); }
-            catch (InvalidOperationException ex) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
-
-            var callRunners = buildRunners(callSeedContext);
-            if (callRunners is null)
-                return new CallToolResult { Content = [new McpTextContent { Text = "Cannot initialise provider — check API key env vars in claude_desktop_config.json" }], IsError = true };
-
-            var runOptions = new PipelineRunOptions(toolName, callVars);
-
-            MissionResult missionResult;
-            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions, ct); }
-            catch (Exception ex) when (!ct.IsCancellationRequested) { return new CallToolResult { Content = [new McpTextContent { Text = ex.Message }], IsError = true }; }
-
-            if (missionResult.Status == MissionStatus.Fail)
-                return new CallToolResult { Content = [new McpTextContent { Text = $"Mission failed: {missionResult.FailReason}" }], IsError = true };
-
-            return new CallToolResult { Content = [new McpTextContent { Text = missionResult.Text }] };
-        };
+        var tool = new MissionTool(toolName, ast, expertDefs, manifest, buildRunners, webSearch, clients);
+        options.Handlers.CallToolHandler = (request, ct) => tool.CallAsync(request.Params, ct);
 
         await using var server = McpServer.Create(new StdioServerTransport("forge", loggerFactory), options, loggerFactory);
         await server.RunAsync(cancellationToken);
     }
+
+    // The mission exposed as the server's one tool. Each call maps its arguments to string
+    // variables, seeds the context, builds runners lazily (so startup never needs the API key),
+    // runs the mission and maps the outcome to a tool result. A Die raised while building runners
+    // escapes the handler, as before.
+    private sealed class MissionTool(
+        string toolName,
+        MclProgram ast,
+        Dictionary<string, ExpertDefinition> expertDefs,
+        ForgeManifest? manifest,
+        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>> buildRunners,
+        IOptions<WebSearchOptions> webSearch,
+        IHttpClientFactory clients)
+    {
+        internal async ValueTask<CallToolResult> CallAsync(CallToolRequestParams? call, CancellationToken ct)
+        {
+            if (call?.Name != toolName)
+                return ErrorResult($"Unknown tool: {call?.Name}");
+
+            var callVars = ToCallVariables(call.Arguments);
+
+            Dictionary<string, object> callSeedContext;
+            try { callSeedContext = ContextBuilder.Seed(ast, callVars); }
+            catch (InvalidOperationException ex) { return ErrorResult(ex.Message); }
+
+            var callRunners = buildRunners(callSeedContext);
+            var runOptions  = new PipelineRunOptions(toolName, callVars);
+
+            MissionResult missionResult;
+            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions, ct); }
+            catch (Exception ex) when (!ct.IsCancellationRequested) { return ErrorResult(ex.Message); }
+
+            return ToToolResult(missionResult);
+        }
+    }
+
+    // Call-time arguments become string overrides: JSON strings by value, anything else as raw JSON text.
+    private static Dictionary<string, string> ToCallVariables(IDictionary<string, JsonElement>? arguments)
+    {
+        var callVars = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (arguments is null) return callVars;
+
+        foreach (var kv in arguments)
+        {
+            callVars[kv.Key] = kv.Value.ValueKind == JsonValueKind.String
+                ? kv.Value.GetString() ?? string.Empty
+                : kv.Value.ToString();
+        }
+        return callVars;
+    }
+
+    private static CallToolResult ToToolResult(MissionResult missionResult) =>
+        missionResult.Status == MissionStatus.Fail
+            ? ErrorResult($"Mission failed: {missionResult.FailReason}")
+            : new CallToolResult { Content = [new McpTextContent { Text = missionResult.Text }] };
+
+    private static CallToolResult ErrorResult(string text) =>
+        new() { Content = [new McpTextContent { Text = text }], IsError = true };
 
     // The tool's input schema: an object with one string property per distinct mission param, in
     // declaration order, and every param (as declared) required. Utf8JsonWriter does the escaping.

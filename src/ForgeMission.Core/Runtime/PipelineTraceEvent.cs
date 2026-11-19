@@ -3,13 +3,13 @@ using System.Text.Json;
 namespace ForgeMission.Core.Runtime;
 
 /// <summary>
-/// Awaited, structured pipeline lifecycle facts (Phase 43.16 Task 3). Execution facts only — Core
+/// Awaited, structured pipeline lifecycle facts. Execution facts only — Core
 /// neither persists nor references Conversation contracts, Orleans, Azure, Service Bus, HTTP,
 /// Client Runtime, or Presentation. <see cref="MissionPath"/> is a fresh array created by the
-/// runner, root mission first, ending with <see cref="MissionName"/> — it is how a nested Janus
+/// runner, root mission first, ending with <see cref="MissionName"/> — it is how a nested
 /// sub-mission (e.g. <c>[Janus, Negotiate]</c>) is distinguished from its parent in the trace.
-/// <see cref="ExpertName"/> is the MCL expert name — the future Janus participant-mapping input;
-/// Core does not depend on <c>ConversationParticipant</c>.
+/// <see cref="ExpertName"/> is the MCL expert name; Core does not depend on
+/// <c>ConversationParticipant</c>.
 /// </summary>
 public abstract record PipelineTraceEvent(
     string MissionName,

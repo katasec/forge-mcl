@@ -6,7 +6,7 @@ namespace ForgeMission.ChatClients;
 
 /// <summary>
 /// Turns an Anthropic failure into an error a user can act on, carrying the provider's
-/// <c>error.message</c> when the body has one (Phase 69).
+/// <c>error.message</c> when the body has one.
 /// </summary>
 internal static class AnthropicProviderError
 {
