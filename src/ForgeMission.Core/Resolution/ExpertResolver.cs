@@ -20,50 +20,64 @@ public static class ExpertResolver
         TextWriter?   warnings = null)
     {
         var result = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal);
+        var errors = new List<ExpertLoadException>();
 
         foreach (var (name, entry) in lockFile.Experts)
         {
-            var (absPath, source) = Locate(name, entry, missionDir);
-
-            if (absPath is null)
-                throw new ExpertLoadException(
-                    $"{MclErrorCode.ExpertNotFound.Code()} Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
-
-            // Warn when a local expert shadows a non-local (OCI/cache) entry in the lock file.
-            // Local wins intentionally — but silent shadowing is a reproducibility risk.
-            if (source == "local" && !string.IsNullOrEmpty(entry.Path))
-            {
-                var recorded = ResolveLockPath(entry.Path, missionDir);
-                if (!string.Equals(absPath, recorded, StringComparison.OrdinalIgnoreCase)
-                    && File.Exists(recorded))
-                {
-                    warnings?.WriteLine(
-                        $"warning {MclErrorCode.LocalExpertShadowsLock.Code()}: local expert '{name}' shadows the lock-file entry " +
-                        $"({ToLockPath(recorded)}). Local version will be used. " +
-                        $"Run 'forge init' to update the lock file if this is intentional.");
-                }
-            }
-
-            // Hash verification — skip for legacy lock files without a recorded hash.
-            // Also skip when a local expert shadows a non-local entry: the lock hash
-            // is for the non-local version and does not apply to the local override.
-            var isShadowing = source == "local" && !string.IsNullOrEmpty(entry.Path)
-                && !string.Equals(absPath, ResolveLockPath(entry.Path, missionDir), StringComparison.OrdinalIgnoreCase);
-            if (!isShadowing && entry.Hash is { Length: > 0 } expectedHash)
-            {
-                var actualHash = LockFileIO.ComputeHash(absPath);
-                if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
-                    throw new ExpertLoadException(
-                        $"{MclErrorCode.ExpertChanged.Code()} Expert '{name}' has changed since last 'forge init'. " +
-                        $"Run 'forge init' to update the lock file.");
-            }
-
-            verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({ToLockPath(absPath)})");
-
-            result[name] = ExpertLoader.ParseFile(absPath);
+            try { result[name] = Resolve(name, entry, missionDir, verbose, warnings); }
+            catch (AggregateExpertLoadException ex) { errors.AddRange(ex.Errors); }
+            catch (ExpertLoadException ex)           { errors.Add(ex); }
         }
 
+        // One error keeps its own exception and message; several surface together, as LoadAll does.
+        if (errors.Count == 1) throw errors[0];
+        if (errors.Count > 1) throw new AggregateExpertLoadException(errors);
         return result;
+    }
+
+    // Locates, checks and parses one lock-file expert; throws ExpertLoadException (or the
+    // parser's AggregateExpertLoadException) when it cannot be loaded.
+    private static ExpertDefinition Resolve(
+        string name, LockFileExpert entry, string missionDir, TextWriter? verbose, TextWriter? warnings)
+    {
+        var (absPath, source) = Locate(name, entry, missionDir);
+
+        if (absPath is null)
+            throw new ExpertLoadException(
+                $"{MclErrorCode.ExpertNotFound.Code()} Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
+
+        // Warn when a local expert shadows a non-local (OCI/cache) entry in the lock file.
+        // Local wins intentionally — but silent shadowing is a reproducibility risk.
+        if (source == "local" && !string.IsNullOrEmpty(entry.Path))
+        {
+            var recorded = ResolveLockPath(entry.Path, missionDir);
+            if (!string.Equals(absPath, recorded, StringComparison.OrdinalIgnoreCase)
+                && File.Exists(recorded))
+            {
+                warnings?.WriteLine(
+                    $"warning {MclErrorCode.LocalExpertShadowsLock.Code()}: local expert '{name}' shadows the lock-file entry " +
+                    $"({ToLockPath(recorded)}). Local version will be used. " +
+                    $"Run 'forge init' to update the lock file if this is intentional.");
+            }
+        }
+
+        // Hash verification — skip for legacy lock files without a recorded hash.
+        // Also skip when a local expert shadows a non-local entry: the lock hash
+        // is for the non-local version and does not apply to the local override.
+        var isShadowing = source == "local" && !string.IsNullOrEmpty(entry.Path)
+            && !string.Equals(absPath, ResolveLockPath(entry.Path, missionDir), StringComparison.OrdinalIgnoreCase);
+        if (!isShadowing && entry.Hash is { Length: > 0 } expectedHash)
+        {
+            var actualHash = LockFileIO.ComputeHash(absPath);
+            if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                throw new ExpertLoadException(
+                    $"{MclErrorCode.ExpertChanged.Code()} Expert '{name}' has changed since last 'forge init'. " +
+                    $"Run 'forge init' to update the lock file.");
+        }
+
+        verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({ToLockPath(absPath)})");
+
+        return ExpertLoader.ParseFile(absPath);
     }
 
     // Returns (absolutePath, sourceLabel) using the resolution order.
