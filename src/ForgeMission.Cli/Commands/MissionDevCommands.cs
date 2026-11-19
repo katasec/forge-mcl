@@ -37,7 +37,7 @@ internal static class MissionDevCommands
     {
         var missionDir = mission.DirectoryName!;
 
-        if (await CliHelpers.TryLoadMissionAsync(mission.FullName, cancellationToken) is not (_, var manifest)) return;
+        var (_, manifest) = await CliHelpers.LoadMissionAsync(mission.FullName, cancellationToken);
 
         Console.WriteLine("Resolving experts...\n");
 
@@ -116,7 +116,7 @@ internal static class MissionDevCommands
             var lockPath   = CliHelpers.MclLockPath(missionDir);
 
             // forge.toml is read only to validate it.
-            if (await CliHelpers.TryLoadMissionAsync(mission.FullName, cancellationToken) is not (var ast, _)) return;
+            var (ast, _) = await CliHelpers.LoadMissionAsync(mission.FullName, cancellationToken);
 
             var expertDefs = File.Exists(lockPath)
                 ? ResolveLockedExperts(lockPath, missionDir)
@@ -135,7 +135,7 @@ internal static class MissionDevCommands
     static Dictionary<string, ExpertDefinition> LoadUnlockedExperts(string missionDir)
     {
         Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold(": MCL006 mcl.lock not found — run 'forge init' to generate it")}");
-        return CliHelpers.TryLoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
+        return CliHelpers.LoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
     }
 
     // mcl.lock present: resolve the locked experts. A single expert-load failure is reported and
@@ -162,7 +162,7 @@ internal static class MissionDevCommands
             var experts    = result.GetValue(expertsOpt);
             var expertsDir = experts?.FullName ?? "experts";
 
-            var expertDefs = CliHelpers.TryLoadExperts(expertsDir);
+            var expertDefs = CliHelpers.LoadExperts(expertsDir);
             if (expertDefs.Count == 0) { Console.WriteLine($"No experts found in {expertsDir}"); return Task.CompletedTask; }
 
             Console.WriteLine($"Experts in {expertsDir}:");
