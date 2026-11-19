@@ -488,6 +488,7 @@ public class ExpertLoaderTests : IDisposable
     [InlineData("abc", "abc")]
     [InlineData("1.5s", "1.5s")]
     [InlineData("-5s", "-5s")]
+    [InlineData("72000m", "72000m")]
     [InlineData("0s", "0s")]
     [InlineData("+5s", "+5s")]
     [InlineData("\" 5s\"", " 5s")]

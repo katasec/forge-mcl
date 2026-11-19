@@ -328,6 +328,7 @@ public class ForgeTomlReaderTests
     [InlineData("soon")]
     [InlineData("1,5m")]
     [InlineData("-5s")]
+    [InlineData("5000000s")]
     [InlineData("0s")]
     [InlineData("+5s")]
     [InlineData(" 5s")]
