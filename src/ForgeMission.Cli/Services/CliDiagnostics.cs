@@ -20,8 +20,7 @@ internal static class CliDiagnostics
     }
 
     // The one CLI report for a failed expert load: each error of an aggregate in order, or the single
-    // error. Callers keep their own exit/continue decision. An error without a location calls Die,
-    // which exits at once — even partway through an aggregate.
+    // error. Every error is printed; callers keep their own exit/continue decision.
     internal static void ReportExpertLoadFailure(Exception failure)
     {
         IReadOnlyList<ExpertLoadException> errors = failure switch
@@ -35,8 +34,11 @@ internal static class CliDiagnostics
 
     private static void ReportExpertDiagnostic(ExpertLoadException ex)
     {
-        // No file path — fall back to plain Die-style output
-        if (ex.FilePath is null || ex.Line == 0) Die(ex.Message);
+        if (ex.FilePath is null || ex.Line == 0)
+        {
+            WriteError(ex.Message);
+            return;
+        }
 
         var sourceLine = File.Exists(ex.FilePath)
             ? File.ReadLines(ex.FilePath).ElementAtOrDefault(ex.Line - 1) ?? string.Empty
@@ -78,7 +80,10 @@ internal static class CliDiagnostics
     [DoesNotReturn]
     internal static void Die(string message)
     {
-        Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");
+        WriteError(message);
         throw new ForgeExitException(1);
     }
+
+    private static void WriteError(string message) =>
+        Console.Error.WriteLine($"{BoldRed("error")}{Bold($": {message}")}");
 }

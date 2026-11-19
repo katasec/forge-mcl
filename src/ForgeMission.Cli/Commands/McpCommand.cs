@@ -56,7 +56,8 @@ internal static class McpCommand
             catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
             { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
 
-            if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
+            if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName))
+                throw new ForgeExitException(1);
 
             var firstMission = ast.Declarations.OfType<ForgeMission.Parser.MissionDeclaration>().FirstOrDefault();
             if (firstMission is null) CliDiagnostics.Die("No mission declaration found in mission file.");
