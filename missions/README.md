@@ -373,7 +373,7 @@ model    = "claude-opus-4-8"
 apiKey   = env("ANTHROPIC_API_KEY")
 ```
 
-Supported providers: `openai`, `anthropic`, `azure`, `ollama`. Run `forge provider scaffold <name>` to generate a starter block.
+Supported providers: `openai`, `anthropic`, `azure`, `ollama`, `xai`. Run `forge provider scaffold <name>` to generate a starter block.
 
 ---
 

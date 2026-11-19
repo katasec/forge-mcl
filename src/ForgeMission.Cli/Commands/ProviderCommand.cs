@@ -5,8 +5,7 @@ using ForgeMission.Core.Manifest;
 namespace ForgeMission.Cli.Commands;
 
 // forge provider list/scaffold — surface the known LLM provider catalogue and generate a
-// ready-to-paste forge.toml provider block. The catalogue itself lives in
-// ForgeMission.ChatClients.ProviderCatalog; this surface owns only the command wiring.
+// ready-to-paste forge.toml provider block. The catalogue itself lives in ProviderCatalog.
 internal static class ProviderCommand
 {
     internal static Command BuildProviderCommand()
@@ -25,7 +24,7 @@ internal static class ProviderCommand
             Console.WriteLine("Known providers:\n");
             Console.WriteLine($"  {"NAME",-12} {"REQUIRED FIELDS",-30} NOTES");
             Console.WriteLine($"  {"----",-12} {"---------------",-30} -----");
-            foreach (var p in ForgeMission.ChatClients.ProviderCatalog.Entries)
+            foreach (var p in ProviderCatalog.Entries)
                 Console.WriteLine($"  {p.Name,-12} {p.RequiredFields,-30} {p.Notes}");
             Console.WriteLine("\nRun 'forge provider scaffold <name>' to generate a forge.toml block.");
             return Task.CompletedTask;
@@ -35,13 +34,13 @@ internal static class ProviderCommand
 
     static Command BuildProviderScaffoldCommand()
     {
-        var nameArg  = new Argument<string>("name") { Description = "Provider name (openai, anthropic, azure, ollama)" };
-        nameArg.CompletionSources.Add([.. ForgeMission.ChatClients.ProviderCatalog.Entries.Select(e => e.Name)]);
+        var nameArg  = new Argument<string>("name") { Description = "Provider name (openai, anthropic, azure, ollama, xai)" };
+        nameArg.CompletionSources.Add([.. ProviderCatalog.Entries.Select(e => e.Name)]);
         // Reject an unknown provider at parse time (case-insensitive, matching the action's lookup).
         nameArg.Validators.Add(result =>
         {
             var name = result.GetValueOrDefault<string>();
-            if (!string.IsNullOrEmpty(name) && ForgeMission.ChatClients.ProviderCatalog.Find(name.ToLowerInvariant()) is null)
+            if (!string.IsNullOrEmpty(name) && ProviderCatalog.Find(name.ToLowerInvariant()) is null)
                 result.AddError($"Unknown provider '{name}'. Run 'forge provider list' to see known providers.");
         });
         var writeOpt = new Option<bool>("--write") { Description = "Append the block to forge.toml instead of printing it" };
@@ -55,7 +54,7 @@ internal static class ProviderCommand
             var name  = result.GetValue(nameArg)!.ToLowerInvariant();
             var write = result.GetValue(writeOpt);
 
-            var block = ForgeMission.ChatClients.ProviderCatalog.Find(name)?.ScaffoldBlock;
+            var block = ProviderCatalog.Find(name)?.ScaffoldBlock;
 
             if (block is null)
                 CliDiagnostics.Die($"Unknown provider '{name}'. Run 'forge provider list' to see known providers.");

@@ -1,15 +1,15 @@
-namespace ForgeMission.ChatClients;
+namespace ForgeMission.Cli.Commands;
 
 // The provider catalog surfaced by `forge provider list` / `forge provider scaffold`: the known
 // provider names, the fields each needs, a one-line note, and a ready-to-paste forge.toml block.
-// ChatClients owns provider knowledge, so the catalog lives beside ChatClients.BuildChatClient.
-public sealed record ProviderCatalogEntry(
+// Each entry mirrors a provider ChatClients.BuildChatClient builds; the CLI is the catalog's only user.
+internal sealed record ProviderCatalogEntry(
     string Name,
     string RequiredFields,
     string Notes,
     string ScaffoldBlock);
 
-public static class ProviderCatalog
+internal static class ProviderCatalog
 {
     // Listing order is the order `forge provider list` prints.
     public static IReadOnlyList<ProviderCatalogEntry> Entries { get; } =
@@ -56,6 +56,17 @@ public static class ProviderCatalog
             model    = "llama3"              # any model pulled with 'ollama pull <name>'
             endpoint = "http://localhost:11434/v1"  # omit to use this default
             # no apiKey required for local Ollama
+            """),
+        new ProviderCatalogEntry(
+            "xai",
+            "apiKey, model",
+            "xAI (Grok models)",
+            """
+            [providers.default]
+            provider = "xai"
+            model    = "grok-4.5"
+            apiKey   = env("XAI_API_KEY")     # xAI keys start with "xai-"
+            # endpoint = "..."               # optional — omit for https://api.x.ai/v1
             """),
     ];
 
