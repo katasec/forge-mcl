@@ -5,8 +5,8 @@ using ForgeMission.Core.Runtime;
 namespace ForgeMission.Cli.Services;
 
 // Builds the provider runners a mission run needs from forge.toml profiles, falling back to the
-// mission's let-binding context. Used by `forge mcp`; failures are reported through CliDiagnostics
-// (Die), so callers just return.
+// mission's let-binding context. Used by `forge mcp`; a failure is reported on stderr through
+// CliDiagnostics.Die, whose ForgeExitException the tool call turns into a tool error.
 internal static class MissionServerBuilder
 {
     // Builds the full runner dictionary from forge.toml profiles.

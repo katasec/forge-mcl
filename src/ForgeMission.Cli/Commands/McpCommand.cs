@@ -112,8 +112,8 @@ internal static class McpCommand
 
     // The mission exposed as the server's one tool. Each call maps its arguments to string
     // variables, seeds the context, builds runners lazily (so startup never needs the API key),
-    // runs the mission and maps the outcome to a tool result. A Die raised while building runners
-    // escapes the handler, as before.
+    // runs the mission and maps the outcome to a tool result. A provider that cannot be built is a
+    // tool error, so the server keeps serving.
     private sealed class MissionTool(
         string toolName,
         MclProgram ast,
@@ -134,7 +134,11 @@ internal static class McpCommand
             try { callSeedContext = ContextBuilder.Seed(ast, callVars); }
             catch (InvalidOperationException ex) { return ErrorResult(ex.Message); }
 
-            var callRunners = buildRunners(callSeedContext);
+            IReadOnlyDictionary<string, IExpertRunner> callRunners;
+            try { callRunners = buildRunners(callSeedContext); }
+            catch (ForgeExitException) { return ErrorResult(ProviderInitError); }
+            catch (Exception ex) { return ErrorResult($"{ProviderInitError} {ex.Message}"); }
+
             var runOptions  = new PipelineRunOptions(toolName, callVars);
 
             MissionResult missionResult;
@@ -144,6 +148,9 @@ internal static class McpCommand
             return ToToolResult(missionResult);
         }
     }
+
+    // BuildRunners reports the specific cause on stderr (Die) before it throws.
+    private const string ProviderInitError = "Cannot initialise provider — check API key env vars and forge.toml.";
 
     // Call-time arguments become string overrides: JSON strings by value, anything else as raw JSON text.
     private static Dictionary<string, string> ToCallVariables(IDictionary<string, JsonElement>? arguments)
