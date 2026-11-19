@@ -20,7 +20,7 @@ Mission semantics must be executable without coupling the language runtime to a 
 
 - Expert definitions and loading, mission/lock-file resolution, and `forge.toml` manifest reading.
 - Pipeline execution, trace/result contracts, and the provider-neutral [`IExpertRunner`](Runtime/IExpertRunner.cs) seam.
-- Reusable workspace and capability contracts, dispatch primitives, and tool executors.
+- Reusable workspace and capability contracts and dispatch primitives.
 
 ## Does not own
 

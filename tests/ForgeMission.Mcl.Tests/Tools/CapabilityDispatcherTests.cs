@@ -80,39 +80,6 @@ public sealed class CapabilityDispatcherTests
         });
     }
 
-    [Fact]
-    public async Task Executor_ReceivesOnlyDispatcher_AndDispatchesTypedRequest()
-    {
-        var dispatcher = new RecordingDispatcher();
-        var executor = new ReadToolExecutor();
-
-        var result = await executor.ExecuteAsync(
-            new Dictionary<string, object?> { ["file_path"] = "notes.txt" }, dispatcher);
-
-        Assert.False(result.IsError);
-        Assert.Equal("file", dispatcher.CapabilityName);
-        var request = Assert.IsType<ReadFileCapabilityRequest>(dispatcher.Request);
-        Assert.Equal("notes.txt", request.FilePath);
-    }
-
-    [Fact]
-    public async Task Executor_DoesNotBypassDispatcher_WhenPolicyDenies()
-    {
-        var provider = new CountingFileProvider();
-        var capabilities = new CapabilityRegistry([provider]);
-        var auditLog = new InMemoryCapabilityAuditLog();
-        var dispatcher = new CapabilityDispatcher(capabilities,
-            new FixedOutcomeAuthorizer(AuthorizationOutcome.AutoDenied), auditLog);
-        var executor = new WriteToolExecutor();
-
-        var result = await executor.ExecuteAsync(
-            new Dictionary<string, object?> { ["file_path"] = "notes.txt", ["content"] = "secret" }, dispatcher);
-
-        Assert.True(result.IsError);
-        Assert.Equal(0, provider.InvocationCount);
-        Assert.Single(auditLog.Records);
-    }
-
     private sealed class FixedOutcomeAuthorizer(AuthorizationOutcome outcome) : ICapabilityAuthorizer
     {
         public Task<AuthorizationOutcome> AuthorizeAsync(string capabilityName, object request, CancellationToken ct) =>
@@ -127,19 +94,6 @@ public sealed class CapabilityDispatcherTests
         {
             InvocationCount++;
             return Task.FromResult(true);
-        }
-    }
-
-    private sealed class RecordingDispatcher : ICapabilityDispatcher
-    {
-        public string? CapabilityName { get; private set; }
-        public object? Request { get; private set; }
-
-        public Task<ToolExecutionResult> DispatchAsync(string capabilityName, object request, CancellationToken ct)
-        {
-            CapabilityName = capabilityName;
-            Request = request;
-            return Task.FromResult(new ToolExecutionResult("dispatched"));
         }
     }
 
