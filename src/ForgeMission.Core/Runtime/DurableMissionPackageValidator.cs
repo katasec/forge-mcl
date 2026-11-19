@@ -86,7 +86,7 @@ public static class DurableMissionPackageValidator
             ValidateAssets(package, experts);
             var names = DurableMissionInputPolicy.AdmittedNames(ast, experts, package.RootMissionName);
             var profiles = DurableMissionInputPolicy.ReachableSteps(ast, package.RootMissionName)
-                .Where(step => experts.TryGetValue(step.ExpertName, out var expert) && expert.Kind == "llm")
+                .Where(step => experts.TryGetValue(step.ExpertName, out var expert) && expert.Kind == ExpertKinds.Llm)
                 .Select(step => step.Using ?? DefaultProviderProfile).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             validated = new(package, ast, experts, names, profiles);
             return true;
@@ -205,7 +205,7 @@ public static class DurableMissionPackageValidator
             throw new InvalidOperationException("Environment expressions and reserved authored bindings are not admitted.");
         foreach (var expert in experts.Values)
         {
-            if (expert.Kind is not ("llm" or "rule" or "json_extract" or "exec" or "onnx" or "http" or "search"))
+            if (!ExpertKinds.IsKnown(expert.Kind))
                 throw new InvalidOperationException($"Unknown expert kind '{expert.Kind}'.");
             if ((expert.Inputs ?? []).Any(name => !DurableMissionInputPolicy.IsIdentifier(name)
                 || (DurableMissionInputPolicy.IsReserved(name) && !DurableMissionInputPolicy.IsRuntimeDirectory(name))))
@@ -227,7 +227,7 @@ public static class DurableMissionPackageValidator
                 throw new InvalidOperationException("Asset path, collision or content hash is invalid.");
             files.Add(asset.Path);
         }
-        foreach (var expert in experts.Values.Where(e => e.Kind == "onnx"))
+        foreach (var expert in experts.Values.Where(e => e.Kind == ExpertKinds.Onnx))
             if (!assets.Any(asset => asset.Path.Equals(ResolveModelPath(expert), StringComparison.Ordinal)))
                 throw new InvalidOperationException($"ONNX model for '{expert.Name}' is not an admitted asset.");
     }

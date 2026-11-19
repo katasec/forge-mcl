@@ -25,6 +25,7 @@ public class HttpExpertRunner(HttpClient? httpClient = null) : IExpertRunner
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadAsStringAsync(ct);
+        if (expert.IsJudge) return JudgeVerdict.Parse(body);
         return JsonSerializer.Deserialize(body, StepEnvelopeContext.Default.StepEnvelope)
                ?? new StepEnvelope(body);
     }

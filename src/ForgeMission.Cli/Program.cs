@@ -69,8 +69,8 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     var webSearch = services.GetRequiredService<IOptions<WebSearchOptions>>();
     var rootCommand = new RootCommand("forge — Mission Control Language runtime");
     rootCommand.Add(MissionDevCommands.BuildInitCommand());
-    rootCommand.Add(HostedMissionCommands.BuildRunCommand(clients,
-        services.GetRequiredService<IOptions<ForgeOciSettings>>().Value.Endpoint));
+    var ociBase = services.GetRequiredService<IOptions<ForgeOciSettings>>().Value.Endpoint;
+    rootCommand.Add(HostedMissionCommands.BuildRunCommand(clients, ociBase));
     rootCommand.Add(MissionDevCommands.BuildValidateCommand());
     rootCommand.Add(MissionDevCommands.BuildListCommand());
     rootCommand.Add(MissionDevCommands.BuildExpertCommand());
@@ -79,7 +79,7 @@ static RootCommand BuildRootCommand(IServiceProvider services)
     rootCommand.Add(AuthCommands.BuildWhoamiCommand(clients));
     rootCommand.Add(AuthCommands.BuildLogoutCommand());
     rootCommand.Add(ForgeProject.BuildCommand(clients));
-    rootCommand.Add(HostedMissionCommands.BuildPublishCommand());
+    rootCommand.Add(HostedMissionCommands.BuildPublishCommand(ociBase));
     rootCommand.Add(CleanCommand.Build());
     rootCommand.Add(ProviderCommand.BuildProviderCommand());
     rootCommand.Add(McpCommand.BuildMcpCommand(services.GetRequiredService<ILoggerFactory>(), clients, webSearch));

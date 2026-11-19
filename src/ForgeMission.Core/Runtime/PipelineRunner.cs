@@ -711,7 +711,7 @@ public class PipelineRunner
         {
             if (element is not StepElement stepElement
                 || !experts.TryGetValue(stepElement.Step.ExpertName, out var expert)
-                || !expert.Kind.Equals("llm", StringComparison.OrdinalIgnoreCase)
+                || expert.Kind != ExpertKinds.Llm
                 || expert.IsAgent)
                 return false;
         }
@@ -767,16 +767,18 @@ public class PipelineRunner
 
     private IExpertRunner RunnerFor(ExpertDefinition expert, Step step, PipelineRunOptions options, string key, int attempt) => expert.Kind switch
     {
-        "http"         => new HttpExpertRunner(),
-        "rule"         => new RuleExpertRunner(),
-        "onnx"         => new OnnxExpertRunner(),
-        "json_extract" => new JsonExtractExpertRunner(),
-        "exec"         => new ExecExpertRunner(_execution.DefaultTimeout, options.ExecutionWorkspace, key, attempt),
-        "search"       => new SearchExpertRunner(_webSearch
-                              ?? throw new InvalidOperationException(
-                                  "kind: search requires a configured IWebSearch (Scout). " +
-                                  "Pass one to the PipelineRunner constructor.")),
-        _              => ResolveRunner(step.Using)
+        ExpertKinds.Http        => new HttpExpertRunner(),
+        ExpertKinds.Rule        => new RuleExpertRunner(),
+        ExpertKinds.Onnx        => new OnnxExpertRunner(),
+        ExpertKinds.JsonExtract => new JsonExtractExpertRunner(),
+        ExpertKinds.Exec        => new ExecExpertRunner(_execution.DefaultTimeout, options.ExecutionWorkspace, key, attempt),
+        ExpertKinds.Search      => new SearchExpertRunner(_webSearch
+                                   ?? throw new InvalidOperationException(
+                                       "kind: search requires a configured IWebSearch (Scout). " +
+                                       "Pass one to the PipelineRunner constructor.")),
+        ExpertKinds.Llm         => ResolveRunner(step.Using),
+        _                       => throw new InvalidOperationException(
+                                       $"Expert '{expert.Name}' has unknown kind '{expert.Kind}'.")
     };
 
     private static ExpertDefinition ResolveExpert(Dictionary<string, ExpertDefinition> experts, Step step)
@@ -987,7 +989,7 @@ public class PipelineRunner
         options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey("tools");
 
     private static bool IsPlainTextLlm(ExpertDefinition expert) =>
-        expert.Kind.Equals("llm", StringComparison.OrdinalIgnoreCase) && !expert.IsJudge;
+        expert.Kind == ExpertKinds.Llm && !expert.IsJudge;
 
     // ------------------------------------------------------------------
     // Run state

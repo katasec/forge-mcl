@@ -1,3 +1,4 @@
+using System.Globalization;
 using ForgeMission.Parser;
 
 namespace ForgeMission.Core.Runtime;
@@ -41,9 +42,9 @@ public static class ContextBuilder
     internal static string ResolveBindingValue(BindingValue value, Dictionary<string, object> context) => value switch
     {
         StringBindingValue v => v.Text,
-        NumberBindingValue v => v.Number.ToString(),
+        NumberBindingValue v => v.Number.ToString(CultureInfo.InvariantCulture),
         VarRefBindingValue v => context.TryGetValue(v.Name, out var ctx)
-            ? ctx.ToString()!
+            ? Convert.ToString(ctx, CultureInfo.InvariantCulture)!
             : throw new InvalidOperationException($"Variable '{v.Name}' not found in context"),
         EnvBindingValue v    => ResolveEnv(v.VarName, v.DefaultValue, v.VarName),
         _                    => throw new InvalidOperationException("Unknown binding value type")

@@ -6,7 +6,7 @@ public record ExpertDefinition(
     string Output,
     string SystemPrompt,
     string Role                        = "",
-    string Kind                        = "llm",
+    string Kind                        = ExpertKinds.Llm,
     string Endpoint                    = "",
     string Check                       = "",
     string OnFail                      = "",

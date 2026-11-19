@@ -53,7 +53,8 @@ forge-client.
 | [AuthCommands](Commands/AuthCommands.cs) | `forge registry login`, `forge login`, `forge whoami` and `forge logout`. |
 | [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in (loopback + PKCE), key exchange, `whoami` and logout; its wire types are in [PlatformLoginContracts](Contracts/PlatformLoginContracts.cs). |
 | [ProviderCommand](Commands/ProviderCommand.cs) | `forge provider list` and `forge provider scaffold` (prints or appends a `forge.toml` provider block). |
-| [CleanCommand](Commands/CleanCommand.cs) | `forge clean`: removes cached OCI experts from `~/.forge/experts`. |
+| [ProviderCatalog](Commands/ProviderCatalog.cs) | The providers those commands list and scaffold, one per provider `ChatClients` builds. |
+| [CleanCommand](Commands/CleanCommand.cs) | `forge clean`: removes cached OCI experts and missions through `ForgeCache.Clear`. |
 | [McpCommand](Commands/McpCommand.cs) | `forge mcp`: serves one validated mission over stdio, runners built by [MissionServerBuilder](Services/MissionServerBuilder.cs). |
 | [CliHelpers](Services/CliHelpers.cs) | Shared mission loading, parsing, expert loading and validation, the `mcl.lock` path and the expert template. |
 | [CliDiagnostics](Services/CliDiagnostics.cs) | Error rendering and `Die`, which throws [ForgeExitException](Services/ForgeExitException.cs) for Program's handler. |

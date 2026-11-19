@@ -37,6 +37,50 @@ public class HttpExpertRunnerTests
         Assert.Equal("exceeds limit", result.Reason);
     }
 
+    [Theory]
+    [InlineData("""{"text":"looks fine"}""")]
+    [InlineData("""{"text":"unsure","status":"maybe"}""")]
+    [InlineData("not json")]
+    public async Task RunAsync_JudgeReplyWithoutVerdict_FailsVerification(string body)
+    {
+        var result = await RunJudge(body);
+
+        Assert.Equal("fail", result.Status);
+        Assert.StartsWith("The judge reply was not a valid verdict:", result.Reason);
+        Assert.Equal(body, result.Text);
+    }
+
+    [Theory]
+    [InlineData("pass")]
+    [InlineData("fail")]
+    public async Task RunAsync_JudgeVerdict_ReturnsItsStatus(string status)
+    {
+        var result = await RunJudge($$"""{"text":"judged","status":"{{status}}","reason":"because"}""");
+
+        Assert.Equal(status,   result.Status);
+        Assert.Equal("judged", result.Text);
+        Assert.Equal("because", result.Reason);
+    }
+
+    [Fact]
+    public async Task RunAsync_NonJudgeReplyWithoutStatus_Passes()
+    {
+        var runner = new HttpExpertRunner(new HttpClient(new MockHttpHandler("""{"text":"done"}""")));
+        var expert = new ExpertDefinition("Worker", "In", "Out", "", Kind: "http", Endpoint: "http://test.local/w");
+
+        var result = await runner.RunAsync(expert, new Dictionary<string, object>());
+
+        Assert.Equal("pass", result.Status);
+        Assert.Equal("done", result.Text);
+    }
+
+    private static Task<StepEnvelope> RunJudge(string body)
+    {
+        var runner = new HttpExpertRunner(new HttpClient(new MockHttpHandler(body)));
+        var expert = new ExpertDefinition("Judge", "In", "Verdict", "", Role: "judge", Kind: "http", Endpoint: "http://test.local/judge");
+        return runner.RunAsync(expert, new Dictionary<string, object>());
+    }
+
     [Fact]
     public async Task StreamAsync_YieldsEnvelopeText()
     {

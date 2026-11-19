@@ -1,3 +1,4 @@
+using System.Globalization;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
 using Microsoft.ML.OnnxRuntime;
@@ -30,16 +31,16 @@ public class OnnxExpertRunner : IExpertRunner
         ct.ThrowIfCancellationRequested();
         context[expert.OutputKey] = (double)score;
 
-        var threshold  = float.Parse(expert.Threshold);
+        var threshold  = float.Parse(expert.Threshold, CultureInfo.InvariantCulture);
         var exceeded   = score > threshold;
         // Only gate the pipeline when role:judge is explicitly set.
         // Without it, the score is written to the context bag for when() routing and the step always passes.
         var status = exceeded && expert.IsJudge ? "fail" : "pass";
         var reason = exceeded && expert.IsJudge
-            ? $"Anomaly score {score:F4} exceeds threshold {threshold}"
+            ? string.Create(CultureInfo.InvariantCulture, $"Anomaly score {score:F4} exceeds threshold {threshold}")
             : null;
 
-        return new StepEnvelope(score.ToString("F4"), status, reason);
+        return new StepEnvelope(score.ToString("F4", CultureInfo.InvariantCulture), status, reason);
     }
 
     private static float[] ReadFeatures(ExpertDefinition expert, Dictionary<string, object> context)
@@ -51,7 +52,7 @@ public class OnnxExpertRunner : IExpertRunner
             var key = inputs[i];
             if (!context.TryGetValue(key, out var raw))
                 throw new InvalidOperationException($"ONNX feature '{key}' not found in context. Ensure a prior step writes it.");
-            features[i] = Convert.ToSingle(raw);
+            features[i] = Convert.ToSingle(raw, CultureInfo.InvariantCulture);
         }
         return features;
     }

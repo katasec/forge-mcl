@@ -17,8 +17,8 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         AddToolTurn(messages, context);
         // Non-generic call with an explicit closed schema (see _stepFormat) rather than
         // GetResponseAsync<StepEnvelope>, whose derived schema is rejected by Anthropic. Deserialize
-        // via the source-gen context (AOT-safe); fall back to the raw text if the model returns
-        // non-JSON for any reason.
+        // via the source-gen context (AOT-safe); a non-judge falls back to the raw text if the model
+        // returns non-JSON, while a judge reply that is not a verdict fails (see JudgeVerdict).
         var options = new ChatOptions { ResponseFormat = _stepFormat };
 
         // Tool-capable agent expert: the PipelineRunner put the root tools in the bag for this step
@@ -39,19 +39,24 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
             return new StepEnvelope(text);
         }
 
-        StepEnvelope envelope;
+        // Non-judge experts always continue the pipeline — enforce pass regardless of LLM output.
+        return expert.IsJudge
+            ? JudgeVerdict.Parse(response.Text)
+            : ParseStep(response.Text) with { Status = "pass", Reason = null };
+    }
+
+    // A non-judge reply is its output; non-JSON falls back to the raw text.
+    private static StepEnvelope ParseStep(string reply)
+    {
         try
         {
-            envelope = JsonSerializer.Deserialize(response.Text, StepEnvelopeContext.Default.StepEnvelope)
-                       ?? new StepEnvelope(response.Text);
+            return JsonSerializer.Deserialize(reply, StepEnvelopeContext.Default.StepEnvelope)
+                   ?? new StepEnvelope(reply);
         }
         catch (JsonException)
         {
-            envelope = new StepEnvelope(response.Text);
+            return new StepEnvelope(reply);
         }
-
-        // Non-judge experts always continue the pipeline — enforce pass regardless of LLM output.
-        return expert.IsJudge ? envelope : envelope with { Status = "pass", Reason = null };
     }
 
     public async IAsyncEnumerable<string> StreamAsync(

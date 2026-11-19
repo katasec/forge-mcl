@@ -27,7 +27,7 @@ public static class ExpertResolver
 
             if (absPath is null)
                 throw new ExpertLoadException(
-                    $"MCL008 Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
+                    $"{MclErrorCode.ExpertNotFound.Code()} Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
 
             // Warn when a local expert shadows a non-local (OCI/cache) entry in the lock file.
             // Local wins intentionally — but silent shadowing is a reproducibility risk.
@@ -38,7 +38,7 @@ public static class ExpertResolver
                     && File.Exists(recorded))
                 {
                     warnings?.WriteLine(
-                        $"warning MCL010: local expert '{name}' shadows the lock-file entry " +
+                        $"warning {MclErrorCode.LocalExpertShadowsLock.Code()}: local expert '{name}' shadows the lock-file entry " +
                         $"({ToLockPath(recorded)}). Local version will be used. " +
                         $"Run 'forge init' to update the lock file if this is intentional.");
                 }
@@ -54,7 +54,7 @@ public static class ExpertResolver
                 var actualHash = LockFileIO.ComputeHash(absPath);
                 if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
                     throw new ExpertLoadException(
-                        $"MCL009 Expert '{name}' has changed since last 'forge init'. " +
+                        $"{MclErrorCode.ExpertChanged.Code()} Expert '{name}' has changed since last 'forge init'. " +
                         $"Run 'forge init' to update the lock file.");
             }
 
@@ -89,11 +89,20 @@ public static class ExpertResolver
     // The mcl.lock form of a cache path: ~/... when under the user's home, otherwise unchanged.
     // Also the verbose/warning display form.
     public static string ToLockPath(string absolutePath)
+        => ToLockPath(absolutePath, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+    // Abbreviates only at a directory boundary, so a sibling such as /Users/xyz under home
+    // /Users/xy stays unchanged.
+    internal static string ToLockPath(string absolutePath, string home)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return absolutePath.StartsWith(home, StringComparison.Ordinal)
-            ? "~/" + absolutePath[(home.Length + 1)..].Replace(Path.DirectorySeparatorChar, '/')
-            : absolutePath;
+        if (absolutePath == home)
+            return "~";
+
+        var homePrefix = home + Path.DirectorySeparatorChar;
+        if (!absolutePath.StartsWith(homePrefix, StringComparison.Ordinal))
+            return absolutePath;
+
+        return "~/" + absolutePath[homePrefix.Length..].Replace(Path.DirectorySeparatorChar, '/');
     }
 
     private static string ResolveLockPath(string path, string missionDir)

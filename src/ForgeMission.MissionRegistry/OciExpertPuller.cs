@@ -5,7 +5,7 @@ namespace ForgeMission.MissionRegistry;
 /// <summary>Pulls immutable expert content into the local Forge OCI cache.</summary>
 public static class OciExpertPuller
 {
-    public static Task<(string Path, string Status)> PullAsync(string ociReference, bool refresh,
+    public static Task<(string Path, string Status)> PullAsync(string ociReference,
         CancellationToken cancellationToken = default) => PullVerifiedAsync(OciReference.Parse(ociReference),
             RegistryCredentialStore.GetToken(OciReference.Parse(ociReference).Registry), cancellationToken);
 

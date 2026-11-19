@@ -7,7 +7,7 @@ using ForgeMission.Core.Runtime;
 
 namespace ForgeMission.Core.Adapters;
 
-public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
+public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IExpertRunner
 {
     private const int MaxOutputBytes = 4 * 1024 * 1024;
     private const int MaxErrorBytes = 64 * 1024;
@@ -33,7 +33,7 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         if (Encoding.UTF8.GetByteCount(inputJson) > MaxOutputBytes)
             return new("", "fail", "Executable stdin JSON exceeds 4 MiB.");
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var timeout = ParseTimeout(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
+        var timeout = ExecTimeout.Parse(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
         cancellation.CancelAfter(timeout);
         Process process;
         try
@@ -202,12 +202,19 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         var text = outputValue.ValueKind == JsonValueKind.String ? outputValue.GetString() ?? "" : outputValue.GetRawText();
         context[expert.OutputKey] = text;
         context["output"] = text;
-        var status = root.TryGetProperty("status", out var sv) ? sv.GetString() : null;
         var reason = root.TryGetProperty("reason", out var rv) ? rv.GetString() : null;
-        if (expert.IsJudge && status == "fail")
-            context["feedback"] = !string.IsNullOrWhiteSpace(reason) ? reason
-                : !string.IsNullOrWhiteSpace(expert.OnFail) ? expert.OnFail : "Verification failed.";
+        if (expert.IsJudge) return ApplyVerdict(expert, context, JudgeVerdict.Read(root, text, reason));
+        var status = root.TryGetProperty("status", out var sv) ? sv.GetString() : null;
         return new(text, status ?? "pass", reason);
+    }
+
+    // A failed verdict carries its reason into the next loop attempt as feedback.
+    private static StepEnvelope ApplyVerdict(ExpertDefinition expert, Dictionary<string, object> context, StepEnvelope verdict)
+    {
+        if (verdict.Status == "fail")
+            context["feedback"] = !string.IsNullOrWhiteSpace(verdict.Reason) ? verdict.Reason
+                : !string.IsNullOrWhiteSpace(expert.OnFail) ? expert.OnFail : "Verification failed.";
+        return verdict;
     }
 
     private static JsonDocument ParseOutput(ExpertDefinition expert, string stdout)
@@ -244,20 +251,6 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
             if (!key.StartsWith("FORGE_", StringComparison.Ordinal)) continue;
             psi.Environment[key] = value?.ToString() ?? "";
         }
-    }
-
-    private static TimeSpan ParseTimeout(string timeout)
-    {
-        if (string.IsNullOrWhiteSpace(timeout))
-            return TimeSpan.FromSeconds(30);
-
-        if (timeout.EndsWith('s') && int.TryParse(timeout[..^1], out var secs))
-            return TimeSpan.FromSeconds(secs);
-
-        if (timeout.EndsWith('m') && int.TryParse(timeout[..^1], out var mins))
-            return TimeSpan.FromMinutes(mins);
-
-        return TimeSpan.FromSeconds(30);
     }
 }
 

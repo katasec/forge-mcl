@@ -22,24 +22,39 @@ public class ExpertLoaderDiagnosticsCharacterizationTests : IDisposable
             ("Missing required frontmatter field 'name' in expert.md", 1, 0, 3),
             ("Missing required frontmatter field 'input' in expert.md", 1, 0, 3),
             ("Missing required frontmatter field 'output' in expert.md", 1, 0, 3),
-            ("Expert 'expert' has kind:onnx but is missing required field 'model'.", 2, 0, 4),
-            ("Expert 'expert' has kind:onnx but is missing required field 'inputs'.", 2, 0, 4),
-            ("Expert 'expert' has kind:onnx but is missing required field 'outputKey'.", 2, 0, 4),
-            ("Expert 'expert' has kind:onnx but is missing required field 'threshold'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'model'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'inputs'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'outputKey'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'threshold'.", 2, 0, 4),
         ], errors);
     }
 
     [Fact]
-    public void ParseContent_matches_kind_case_insensitively_and_names_it_lowercase()
+    public void ParseContent_rejects_wrong_case_kind_and_lists_allowed_kinds()
     {
         var errors = ParseErrors("dir/Runner/expert.md", "---\nname: Runner\ninput: a\noutput: b\nkind: EXEC\n---\n");
 
         Assert.Equal(
-        [
-            ("Expert 'Runner' has kind:exec but is missing required field 'command'.", 5, 0, 4),
-            ("Expert 'Runner' has kind:exec but is missing required field 'inputs'.", 5, 0, 4),
-            ("Expert 'Runner' has kind:exec but is missing required field 'outputKey'.", 5, 0, 4),
-        ], errors);
+            [("Expert 'Runner' has unknown kind 'EXEC'. Allowed kinds: llm, rule, json_extract, exec, onnx, http, search.", 5, 0, 4)],
+            errors);
+    }
+
+    [Fact]
+    public void ParseContent_rejects_unknown_kind()
+    {
+        var errors = ParseErrors("dir/Runner/expert.md", "---\nname: Runner\ninput: a\noutput: b\nkind: shell\n---\n");
+
+        Assert.Equal(
+            [("Expert 'Runner' has unknown kind 'shell'. Allowed kinds: llm, rule, json_extract, exec, onnx, http, search.", 5, 0, 4)],
+            errors);
+    }
+
+    [Fact]
+    public void ParseContent_without_kind_loads_as_llm()
+    {
+        var expert = ExpertLoader.ParseContent("dir/Writer/expert.md", "---\nname: Writer\ninput: a\noutput: b\n---\nWrite.");
+
+        Assert.Equal(ExpertKinds.Llm, expert.Kind);
     }
 
     [Fact]
@@ -51,6 +66,27 @@ public class ExpertLoaderDiagnosticsCharacterizationTests : IDisposable
         Assert.Equal(
             [("Expert 'R' has kind:rule but is missing required field 'check'.", 5, 0, 4)],
             ParseErrors("R.md", "---\nname: R\ninput: a\noutput: b\nkind: rule\n---\n"));
+    }
+
+    [Theory]
+    // Unclosed '[' followed by another key: the YAML parser has no message of its own here.
+    [InlineData("---\nname: X\ninput: a\noutput: b\ninputs: [a, b\nrole: r\n---\n",
+        "syntax error", 5, 9)]
+    // Unclosed '[' where a string is expected: the parser's own complaint, at the '['.
+    [InlineData("---\nname: [X\n---\n",
+        "While parsing a flow sequence, did not find expected ',' or ']'.", 2, 6)]
+    // Well-formed YAML with a mapping or a list where a string is expected.
+    [InlineData("---\nname: X\ninput:\n  nested: 1\noutput: b\n---\n",
+        "value has the wrong type for its field", 4, 2)]
+    [InlineData("---\nname: [X]\n---\n",
+        "value has the wrong type for its field", 2, 6)]
+    public void ParseContent_reports_malformed_yaml_in_plain_words_at_its_file_position(
+        string markdown, string reason, int line, int column)
+    {
+        var error = Assert.Throws<ExpertLoadException>(() => ExpertLoader.ParseContent("dir/Writer.md", markdown));
+
+        Assert.Equal(($"Invalid YAML frontmatter in expert 'Writer': {reason}", "dir/Writer.md", line, column),
+            (error.Message, error.FilePath, error.Line, error.Column));
     }
 
     [Fact]

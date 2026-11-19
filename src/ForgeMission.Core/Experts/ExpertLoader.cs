@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using ForgeMission.Core.Resolution;
 using ForgeMission.Parser;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
@@ -27,6 +28,7 @@ public class ExpertLoader(string expertsDirectory)
             throw new ExpertLoadException($"Experts directory not found: {expertsDirectory}");
 
         var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal);
+        var sources = new Dictionary<string, string>(StringComparer.Ordinal);
         var errors  = new List<ExpertLoadException>();
 
         void TryLoad(string mdPath)
@@ -34,8 +36,13 @@ public class ExpertLoader(string expertsDirectory)
             try
             {
                 var expert = ParseFile(mdPath);
-                if (!experts.ContainsKey(expert.Name))
-                    experts[expert.Name] = expert;
+                if (sources.TryGetValue(expert.Name, out var firstPath))
+                {
+                    errors.Add(DuplicateNameError(expert.Name, firstPath, mdPath));
+                    return;
+                }
+                experts[expert.Name] = expert;
+                sources[expert.Name] = mdPath;
             }
             catch (AggregateExpertLoadException ex) { errors.AddRange(ex.Errors); }
             catch (ExpertLoadException ex)           { errors.Add(ex); }
@@ -56,6 +63,23 @@ public class ExpertLoader(string expertsDirectory)
             throw new AggregateExpertLoadException(errors);
 
         return experts;
+    }
+
+    // The expert name an error shows when frontmatter has none (or cannot be read): the folder
+    // name for experts/Name/expert.md, else the file name.
+    private static string NameFromSource(string sourceName) =>
+        Path.GetFileName(sourceName) == "expert.md" && Path.GetDirectoryName(sourceName) is { Length: > 0 } dir
+            ? Path.GetFileName(dir)
+            : Path.GetFileNameWithoutExtension(sourceName);
+
+    // A second file declaring an already-loaded name; points at that file's "name:" line.
+    private static ExpertLoadException DuplicateNameError(string name, string firstPath, string duplicatePath)
+    {
+        var (frontmatter, startLine) = ReadFrontmatter(duplicatePath);
+        var (line, col, endCol) = FindField(frontmatter, "name", startLine);
+        return new ExpertLoadException(
+            $"Duplicate expert name '{name}' in {duplicatePath}; already defined in {firstPath}.",
+            duplicatePath, line, col, endCol);
     }
 
     public static void Validate(
@@ -250,12 +274,12 @@ public class ExpertLoader(string expertsDirectory)
         string missionName, string expertName, string key, string declaredType, Dictionary<string, string> available)
     {
         if (!available.TryGetValue(key, out var upstreamType))
-            return $"MCL011: expert '{expertName}' in mission '{missionName}' " +
+            return $"{MclErrorCode.InputKeyMissingUpstream.Code()}: expert '{expertName}' in mission '{missionName}' " +
                    $"declares inputKey '{key}: {declaredType}' but no upstream expert declares this outputKey.";
 
         if (string.Equals(upstreamType, declaredType, StringComparison.OrdinalIgnoreCase)) return null;
 
-        return $"MCL012: expert '{expertName}' in mission '{missionName}' " +
+        return $"{MclErrorCode.InputKeyTypeMismatch.Code()}: expert '{expertName}' in mission '{missionName}' " +
                $"expects '{key}: {declaredType}' but upstream declares '{key}: {upstreamType}'.";
     }
 
@@ -344,15 +368,14 @@ public class ExpertLoader(string expertsDirectory)
         }
         catch (YamlException ex)
         {
-            var line = frontmatterStartLine + (int)ex.Start.Line - 1;
-            var col  = (int)ex.Start.Column - 1;
-            throw new ExpertLoadException(ex.InnerException?.Message ?? ex.Message, sourceName, line, col);
+            throw InvalidFrontmatter(sourceName, frontmatter, frontmatterStartLine, ex);
         }
 
         // Collect all semantic errors before surfacing them
         var errors = new List<ExpertLoadException>();
         AddMissingFieldErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
-        AddMissingKindFieldErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
+        AddKindErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
+        AddTimeoutError(errors, meta, frontmatter, frontmatterStartLine, sourceName);
 
         if (errors.Count > 0)
             throw new AggregateExpertLoadException(errors);
@@ -365,6 +388,34 @@ public class ExpertLoader(string expertsDirectory)
             InputKeys:  meta.InputKeys.Count  > 0 ? meta.InputKeys  : null);
     }
 
+    // Reports the YAML parser's own problem in plain words, at the node where deserialization failed.
+    // Typed deserialization can trip over a value's shape before the parser reaches a syntax error,
+    // so the text is parsed on its own for the reason; frontmatter that parses cleanly holds a value
+    // of the wrong type for its field.
+    private static ExpertLoadException InvalidFrontmatter(
+        string sourceName, string frontmatter, int startLine, YamlException deserializeError)
+    {
+        var reason = SyntaxError(frontmatter) ?? "value has the wrong type for its field";
+        var start  = deserializeError.Start;
+        return new ExpertLoadException(
+            $"Invalid YAML frontmatter in expert '{NameFromSource(sourceName)}': {reason}",
+            sourceName, startLine + (int)start.Line - 1, (int)start.Column - 1);
+    }
+
+    // The parser's syntax error in the frontmatter, or null when it parses cleanly. On some unclosed
+    // flow collections YamlDotNet's parser throws InvalidOperationException with no message of use.
+    private static string? SyntaxError(string frontmatter)
+    {
+        try
+        {
+            var parser = new YamlDotNet.Core.Parser(new StringReader(frontmatter));
+            while (parser.MoveNext()) { }
+            return null;
+        }
+        catch (YamlException ex)          { return ex.Message; }
+        catch (InvalidOperationException) { return "syntax error"; }
+    }
+
     private static readonly (string Field, Func<ExpertFrontmatter, string> Value)[] RequiredFields =
     [
         ("name",   meta => meta.Name),
@@ -375,15 +426,15 @@ public class ExpertLoader(string expertsDirectory)
     // Fields a kind requires, in diagnostic order. Each check runs only for its own kind.
     private static readonly (string Kind, string Field, Func<ExpertFrontmatter, bool> IsMissing)[] KindRequiredFields =
     [
-        ("http", "endpoint",  meta => string.IsNullOrWhiteSpace(meta.Endpoint)),
-        ("rule", "check",     meta => string.IsNullOrWhiteSpace(meta.Check)),
-        ("onnx", "model",     meta => string.IsNullOrWhiteSpace(meta.Model)),
-        ("onnx", "inputs",    meta => meta.Inputs.Count == 0),
-        ("onnx", "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
-        ("onnx", "threshold", meta => string.IsNullOrWhiteSpace(meta.Threshold)),
-        ("exec", "command",   meta => string.IsNullOrWhiteSpace(meta.Command)),
-        ("exec", "inputs",    meta => meta.Inputs.Count == 0),
-        ("exec", "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
+        (ExpertKinds.Http, "endpoint",  meta => string.IsNullOrWhiteSpace(meta.Endpoint)),
+        (ExpertKinds.Rule, "check",     meta => string.IsNullOrWhiteSpace(meta.Check)),
+        (ExpertKinds.Onnx, "model",     meta => string.IsNullOrWhiteSpace(meta.Model)),
+        (ExpertKinds.Onnx, "inputs",    meta => meta.Inputs.Count == 0),
+        (ExpertKinds.Onnx, "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
+        (ExpertKinds.Onnx, "threshold", meta => string.IsNullOrWhiteSpace(meta.Threshold)),
+        (ExpertKinds.Exec, "command",   meta => string.IsNullOrWhiteSpace(meta.Command)),
+        (ExpertKinds.Exec, "inputs",    meta => meta.Inputs.Count == 0),
+        (ExpertKinds.Exec, "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
     ];
 
     private static void AddMissingFieldErrors(
@@ -399,18 +450,39 @@ public class ExpertLoader(string expertsDirectory)
     }
 
     // Kind errors point at the "kind:" line and name the expert, falling back to the file name.
-    private static void AddMissingKindFieldErrors(
+    // An unknown or wrong-case kind is one error; its kind-specific fields are not checked.
+    private static void AddKindErrors(
         List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
     {
-        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? Path.GetFileNameWithoutExtension(sourceName) : meta.Name;
+        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? NameFromSource(sourceName) : meta.Name;
         var (line, col, endCol) = FindField(frontmatter, "kind", startLine);
+
+        if (!ExpertKinds.IsKnown(meta.Kind))
+        {
+            errors.Add(new ExpertLoadException(
+                $"Expert '{expertName}' has unknown kind '{meta.Kind}'. Allowed kinds: {string.Join(", ", ExpertKinds.All)}.",
+                sourceName, line, col, endCol));
+            return;
+        }
 
         foreach (var (kind, field, isMissing) in KindRequiredFields)
         {
-            if (!meta.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase) || !isMissing(meta)) continue;
+            if (meta.Kind != kind || !isMissing(meta)) continue;
             errors.Add(new ExpertLoadException(
                 $"Expert '{expertName}' has kind:{kind} but is missing required field '{field}'.", sourceName, line, col, endCol));
         }
+    }
+
+    // An unparseable timeout points at the "timeout:" line; a blank one keeps the manifest default.
+    private static void AddTimeoutError(
+        List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
+    {
+        if (ExecTimeout.TryParse(meta.Timeout, out _)) return;
+        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? NameFromSource(sourceName) : meta.Name;
+        var (line, col, endCol) = FindField(frontmatter, "timeout", startLine);
+        errors.Add(new ExpertLoadException(
+            $"Expert '{expertName}' has invalid timeout '{meta.Timeout}'. Use <int>s or <int>m, e.g. 30s or 2m.",
+            sourceName, line, col, endCol));
     }
 
     // Returns (frontmatter text, body text, 1-based line number of the first frontmatter line in the file).
@@ -465,7 +537,7 @@ public class ExpertLoader(string expertsDirectory)
         public string       Input     { get; set; } = "";
         public string       Output    { get; set; } = "";
         public string       Role      { get; set; } = "";
-        public string       Kind      { get; set; } = "llm";
+        public string       Kind      { get; set; } = ExpertKinds.Llm;
         public string       Endpoint  { get; set; } = "";
         public string       Check     { get; set; } = "";
         public string       OnFail    { get; set; } = "";

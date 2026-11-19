@@ -23,27 +23,34 @@ public sealed class OciReferenceTests
         Assert.Throws<ArgumentException>(() => OciReference.Parse(value));
     }
 
-    [Fact]
-    public void SplitTaggedTarget_SplitsOnFirstSlashAndLastColon()
+    [Theory]
+    [InlineData("ghcr.io/katasec/example:0.1.0", "ghcr.io", "katasec/example", "0.1.0")]
+    [InlineData("example:0.1.0", "ghcr.io", "katasec/example", "0.1.0")]
+    [InlineData("localhost:5000/example:1", "localhost:5000", "example", "1")]
+    public void ResolveTagged_ReadsTargetsTheWayRunResolvesThem(string selector, string registry, string name, string tag)
     {
-        var (registry, name, tag) = OciReference.SplitTaggedTarget("ghcr.io/katasec/example:0.1.0");
+        var target = OciReference.ResolveTagged(selector, "ghcr.io/katasec");
 
-        Assert.Equal("ghcr.io", registry);
-        Assert.Equal("katasec/example", name);
-        Assert.Equal("0.1.0", tag);
+        Assert.Equal(OciReference.Resolve(selector, "ghcr.io/katasec"), target);
+        Assert.Equal(new OciReference(registry, name, tag), target);
     }
 
-    [Fact]
-    public void SplitTaggedTarget_MissingSlash_ReportsRegistryNameTag()
+    [Theory]
+    [InlineData("ghcr.io/katasec/example")]
+    [InlineData("localhost:5000/example")]
+    [InlineData("example@sha256:0000000000000000000000000000000000000000000000000000000000000000")]
+    public void ResolveTagged_RejectsTargetWithoutExplicitTag(string selector)
     {
-        var ex = Assert.Throws<ArgumentException>(() => OciReference.SplitTaggedTarget("example:0.1.0"));
-        Assert.Equal("Invalid reference 'example:0.1.0': expected registry/name:tag", ex.Message);
+        var ex = Assert.Throws<ArgumentException>(() => OciReference.ResolveTagged(selector, "ghcr.io/katasec"));
+        Assert.Contains("a tag is required", ex.Message);
     }
 
-    [Fact]
-    public void SplitTaggedTarget_MissingTag_ReportsTag()
+    [Theory]
+    [InlineData("ghcr.io/Katasec/Example:0.1.0")]
+    [InlineData("ghcr.io/katasec/../example:0.1.0")]
+    public void ResolveTagged_RejectsNamesRunCannotPull(string selector)
     {
-        var ex = Assert.Throws<ArgumentException>(() => OciReference.SplitTaggedTarget("ghcr.io/example"));
-        Assert.Equal("Invalid reference 'ghcr.io/example': expected a :tag", ex.Message);
+        Assert.Throws<ArgumentException>(() => OciReference.ResolveTagged(selector, "ghcr.io/katasec"));
+        Assert.Throws<ArgumentException>(() => OciReference.Resolve(selector, "ghcr.io/katasec"));
     }
 }

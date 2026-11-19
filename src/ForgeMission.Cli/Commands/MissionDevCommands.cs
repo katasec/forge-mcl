@@ -19,21 +19,19 @@ internal static class MissionDevCommands
     internal static Command BuildInitCommand()
     {
         var missionArg  = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
-        var refreshOpt  = new Option<bool>("--refresh") { Description = "Re-pull OCI experts even if already present in ~/.forge/experts" };
 
         var cmd = new Command("init", "Resolve expert sources and generate mcl.lock");
         cmd.Add(missionArg);
-        cmd.Add(refreshOpt);
 
         cmd.SetCancellableAction((result, cancellationToken) =>
-            RunInitAsync(result.GetValue(missionArg)!, result.GetValue(refreshOpt), cancellationToken));
+            RunInitAsync(result.GetValue(missionArg)!, cancellationToken));
 
         return cmd;
     }
 
     // Resolve local experts, pull any OCI experts, and write mcl.lock. Each helper reports its own
     // failure through Die (which throws ForgeExitException), so the orchestration reads top-down.
-    internal static async Task RunInitAsync(FileInfo mission, bool refresh, CancellationToken cancellationToken)
+    internal static async Task RunInitAsync(FileInfo mission, CancellationToken cancellationToken)
     {
         var missionDir = mission.DirectoryName!;
 
@@ -45,7 +43,7 @@ internal static class MissionDevCommands
         foreach (var (name, entry) in lockFile.Experts.OrderBy(k => k.Key))
             Console.WriteLine($"  ✓ {name,-30} local    {entry.Path}");
 
-        await PullOciExpertsAsync(manifest, refresh, lockFile, cancellationToken);
+        await PullOciExpertsAsync(manifest, lockFile, cancellationToken);
 
         var lockPath = CliHelpers.MclLockPath(missionDir);
         LockFileIO.Write(lockPath, lockFile);
@@ -69,19 +67,19 @@ internal static class MissionDevCommands
 
     // OCI experts: pull each manifest expert from its registry into the lock file, in name order.
     // The first failure stops init (PullOciExpertAsync calls Die, which throws).
-    static async Task PullOciExpertsAsync(ForgeManifest? manifest, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
+    static async Task PullOciExpertsAsync(ForgeManifest? manifest, LockFile lockFile, CancellationToken cancellationToken)
     {
         if (manifest is null) return;
         foreach (var (name, ociRef) in manifest.Experts.OrderBy(k => k.Key))
-            await PullOciExpertAsync(name, ociRef, refresh, lockFile, cancellationToken);
+            await PullOciExpertAsync(name, ociRef, lockFile, cancellationToken);
     }
 
-    // The caller's own cancellation propagates; any other pull failure stops init with MCL011.
-    static async Task PullOciExpertAsync(string name, string ociRef, bool refresh, LockFile lockFile, CancellationToken cancellationToken)
+    // The caller's own cancellation propagates; any other pull failure stops init with MCL013.
+    static async Task PullOciExpertAsync(string name, string ociRef, LockFile lockFile, CancellationToken cancellationToken)
     {
         try
         {
-            var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, refresh, cancellationToken);
+            var (cachePath, status) = await OciExpertPuller.PullAsync(ociRef, cancellationToken);
             lockFile.Experts[name] = new LockFileExpert
             {
                 Source = "oci",
@@ -95,7 +93,7 @@ internal static class MissionDevCommands
             Console.Error.WriteLine($"  ✗ {name,-30} failed   {ociRef}");
             Console.Error.WriteLine($"    {ex.Message}");
             Console.Error.WriteLine("    Run 'forge registry login <registry> --token <PAT>' if this is an auth error.");
-            CliDiagnostics.Die($"MCL011 OCI pull failed for '{name}'.");
+            CliDiagnostics.Die($"{MclErrorCode.OciPullFailed.Code()} OCI pull failed for '{name}'.");
         }
     }
 
@@ -121,7 +119,6 @@ internal static class MissionDevCommands
             var expertDefs = File.Exists(lockPath)
                 ? ResolveLockedExperts(lockPath, missionDir)
                 : LoadUnlockedExperts(missionDir);
-            if (expertDefs is null) return;
 
             if (!CliHelpers.TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
                 throw new ForgeExitException(1);
@@ -134,17 +131,18 @@ internal static class MissionDevCommands
     // No mcl.lock: warn, then load experts straight from ./experts.
     static Dictionary<string, ExpertDefinition> LoadUnlockedExperts(string missionDir)
     {
-        Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold(": MCL006 mcl.lock not found — run 'forge init' to generate it")}");
+        Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold($": {MclErrorCode.LockFileMissing.Code()} mcl.lock not found — run 'forge init' to generate it")}");
         return CliHelpers.LoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
     }
 
-    // mcl.lock present: resolve the locked experts. A single expert-load failure is reported and
-    // ends validate (null) without a non-zero exit — existing behaviour, kept as is.
-    static Dictionary<string, ExpertDefinition>? ResolveLockedExperts(string lockPath, string missionDir)
+    // mcl.lock present: resolve the locked experts. Any expert-load failure, one error or several,
+    // is reported in full and ends validate with exit 1.
+    static Dictionary<string, ExpertDefinition> ResolveLockedExperts(string lockPath, string missionDir)
     {
         var lockFile = LockFileIO.Read(lockPath);
         try { return ExpertResolver.ResolveAll(lockFile, missionDir, warnings: Console.Error); }
-        catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertLoadFailure(ex); return null; }
+        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+        { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
     }
 
     // ---------------------------------------------------------------------------

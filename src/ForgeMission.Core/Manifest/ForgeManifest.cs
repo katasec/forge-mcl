@@ -1,3 +1,5 @@
+using ForgeMission.Core.Experts;
+
 namespace ForgeMission.Core.Manifest;
 
 public sealed class ForgeManifest
@@ -27,7 +29,7 @@ public sealed class ExecutionConfig
     public string Backend        { get; init; } = "process";
 
     // Default timeout for kind:exec experts. Overridden per-expert via the 'timeout' frontmatter field.
-    public string DefaultTimeout { get; init; } = "30s";
+    public string DefaultTimeout { get; init; } = ExecTimeout.Default;
 }
 
 public sealed class ProviderProfile

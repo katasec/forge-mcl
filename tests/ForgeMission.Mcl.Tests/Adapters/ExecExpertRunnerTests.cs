@@ -321,6 +321,41 @@ public class ExecExpertRunnerTests : IDisposable
         Assert.Equal("artifact proof", File.ReadAllText(Path.Combine(outputDir, "proof.txt")));
     }
 
+    [SkippableTheory]
+    [InlineData("{'result':'looks fine'}")]
+    [InlineData("{'result':'unsure','status':'maybe'}")]
+    public async Task RunAsync_JudgeReplyWithoutVerdict_FailsVerification(string reply)
+    {
+        var context = new Dictionary<string, object> { ["input"] = "x" };
+
+        var envelope = await RunJudge(reply, context);
+
+        Assert.Equal("fail", envelope.Status);
+        Assert.StartsWith("The judge reply was not a valid verdict:", envelope.Reason);
+        Assert.Equal(envelope.Reason, context["feedback"]);
+    }
+
+    [SkippableTheory]
+    [InlineData("pass")]
+    [InlineData("fail")]
+    public async Task RunAsync_JudgeVerdict_ReturnsItsStatus(string status)
+    {
+        var context = new Dictionary<string, object> { ["input"] = "x" };
+
+        var envelope = await RunJudge($"{{'result':'judged','status':'{status}','reason':'because'}}", context);
+
+        Assert.Equal(status,   envelope.Status);
+        Assert.Equal("judged", envelope.Text);
+        Assert.Equal("because", envelope.Reason);
+    }
+
+    private async Task<StepEnvelope> RunJudge(string reply, Dictionary<string, object> context)
+    {
+        var script = Script($"import sys,json\nsys.stdin.read()\nprint(json.dumps({reply}))\n");
+        var expert = ExecExpert(script) with { Role = "judge" };
+        return await new ExecExpertRunner().RunAsync(expert, context);
+    }
+
     private static PythonInvocation RequirePython()
     {
         var python = WorkingPython.Value;

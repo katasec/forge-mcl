@@ -1,4 +1,3 @@
-using ForgeMission.ChatClients;
 using ForgeMission.Tests.Cli.Harness;
 
 namespace ForgeMission.Tests.Cli;
@@ -17,6 +16,6 @@ public sealed class ProviderScaffoldCompletionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Subset(result.StandardOutput.Split('\n', StringSplitOptions.TrimEntries).ToHashSet(),
-            ProviderCatalog.Entries.Select(e => e.Name).ToHashSet());
+            new HashSet<string> { "openai", "anthropic", "azure", "ollama", "xai" });
     }
 }
