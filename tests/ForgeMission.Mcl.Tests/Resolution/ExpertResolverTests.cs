@@ -227,4 +227,48 @@ public class ExpertResolverTests
         Assert.True(result.ContainsKey("ExpertB"));
         Assert.True(result.ContainsKey("ExpertC"));
     }
+
+    // mcl.lock records a home cache path as ~/...; writing and reading the lock keeps the exact text,
+    // and resolution maps it back to the same absolute file.
+    [Fact]
+    public void HomeCachePath_LockRoundTrip_IsByteIdentical()
+    {
+        var home      = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var cacheRoot = Path.Combine(home, ".forge", $"lock-roundtrip-test-{Guid.NewGuid():N}");
+        var cachePath = Path.Combine(cacheRoot, "reg", "Name", "sha256-abc", "expert.md");
+        var missionDir = Directory.CreateTempSubdirectory("forge-resolver-test-").FullName;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+            File.WriteAllText(cachePath, ExpertMd);
+            var lockPath = ExpertResolver.ToLockPath(cachePath);
+            var expected = "~/" + Path.GetRelativePath(home, cachePath).Replace(Path.DirectorySeparatorChar, '/');
+            Assert.Equal(expected, lockPath);
+
+            var lockFilePath = Path.Combine(missionDir, "mcl.lock");
+            LockFileIO.Write(lockFilePath, new LockFile
+            {
+                Experts = { ["TestExpert"] = new LockFileExpert { Source = "oci", Path = lockPath, Hash = LockFileIO.ComputeHash(cachePath) } },
+            });
+            var bytes = File.ReadAllBytes(lockFilePath);
+            var read  = LockFileIO.Read(lockFilePath);
+            Assert.Equal(lockPath, read.Experts["TestExpert"].Path);
+
+            LockFileIO.Write(lockFilePath, read);
+            Assert.Equal(bytes, File.ReadAllBytes(lockFilePath));
+
+            var verbose = new StringWriter();
+            ExpertResolver.ResolveAll(read, missionDir, verbose);
+            Assert.Contains($"→ cache    ({lockPath})", verbose.ToString());
+        }
+        finally
+        {
+            Directory.Delete(cacheRoot, recursive: true);
+            Directory.Delete(missionDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ToLockPath_OutsideHome_ReturnsPathUnchanged()
+        => Assert.Equal("/opt/forge/expert.md", ExpertResolver.ToLockPath("/opt/forge/expert.md"));
 }

@@ -15,7 +15,7 @@ public static class OciExpertPuller
         reference = reference.Canonical();
         using var client = new OciClient(credential: credential);
         var pulled = await client.PullExpertWithDigestAsync(reference.Registry, reference.Name, reference.Reference, cancellationToken);
-        var cachePath = ForgeCache.ExpertMdPath(reference.Registry, reference.Name, pulled.ManifestDigest.Replace(':', '-'));
+        var cachePath = ForgeCache.ExpertMdPath(reference.Registry, reference.Name, pulled.ManifestDigest);
         Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
         if (File.Exists(cachePath))
         {
@@ -47,13 +47,5 @@ public static class OciExpertPuller
             throw;
         }
         return (cachePath, "pulled");
-    }
-
-    public static string ToLockPath(string absolutePath)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return absolutePath.StartsWith(home, StringComparison.Ordinal)
-            ? "~/" + absolutePath[(home.Length + 1)..].Replace(Path.DirectorySeparatorChar, '/')
-            : absolutePath;
     }
 }

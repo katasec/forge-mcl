@@ -85,7 +85,7 @@ internal static class MissionDevCommands
             lockFile.Experts[name] = new LockFileExpert
             {
                 Source = "oci",
-                Path   = OciExpertPuller.ToLockPath(cachePath),
+                Path   = ExpertResolver.ToLockPath(cachePath),
                 Hash   = LockFileIO.ComputeHash(cachePath),
             };
             Console.WriteLine($"  ✓ {name,-30} {status,-8} {ociRef}");
