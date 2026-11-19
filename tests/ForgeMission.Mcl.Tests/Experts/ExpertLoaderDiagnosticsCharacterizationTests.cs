@@ -22,10 +22,10 @@ public class ExpertLoaderDiagnosticsCharacterizationTests : IDisposable
             ("Missing required frontmatter field 'name' in expert.md", 1, 0, 3),
             ("Missing required frontmatter field 'input' in expert.md", 1, 0, 3),
             ("Missing required frontmatter field 'output' in expert.md", 1, 0, 3),
-            ("Expert 'expert' has kind:onnx but is missing required field 'model'.", 2, 0, 4),
-            ("Expert 'expert' has kind:onnx but is missing required field 'inputs'.", 2, 0, 4),
-            ("Expert 'expert' has kind:onnx but is missing required field 'outputKey'.", 2, 0, 4),
-            ("Expert 'expert' has kind:onnx but is missing required field 'threshold'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'model'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'inputs'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'outputKey'.", 2, 0, 4),
+            ("Expert 'X' has kind:onnx but is missing required field 'threshold'.", 2, 0, 4),
         ], errors);
     }
 

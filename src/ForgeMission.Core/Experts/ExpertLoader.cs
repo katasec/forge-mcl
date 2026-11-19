@@ -65,6 +65,13 @@ public class ExpertLoader(string expertsDirectory)
         return experts;
     }
 
+    // The expert name an error shows when frontmatter has none (or cannot be read): the folder
+    // name for experts/Name/expert.md, else the file name.
+    private static string NameFromSource(string sourceName) =>
+        Path.GetFileName(sourceName) == "expert.md" && Path.GetDirectoryName(sourceName) is { Length: > 0 } dir
+            ? Path.GetFileName(dir)
+            : Path.GetFileNameWithoutExtension(sourceName);
+
     // A second file declaring an already-loaded name; points at that file's "name:" line.
     private static ExpertLoadException DuplicateNameError(string name, string firstPath, string duplicatePath)
     {
@@ -391,7 +398,7 @@ public class ExpertLoader(string expertsDirectory)
         var reason = SyntaxError(frontmatter) ?? "value has the wrong type for its field";
         var start  = deserializeError.Start;
         return new ExpertLoadException(
-            $"Invalid YAML frontmatter in expert '{Path.GetFileNameWithoutExtension(sourceName)}': {reason}",
+            $"Invalid YAML frontmatter in expert '{NameFromSource(sourceName)}': {reason}",
             sourceName, startLine + (int)start.Line - 1, (int)start.Column - 1);
     }
 
@@ -447,7 +454,7 @@ public class ExpertLoader(string expertsDirectory)
     private static void AddKindErrors(
         List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
     {
-        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? Path.GetFileNameWithoutExtension(sourceName) : meta.Name;
+        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? NameFromSource(sourceName) : meta.Name;
         var (line, col, endCol) = FindField(frontmatter, "kind", startLine);
 
         if (!ExpertKinds.IsKnown(meta.Kind))
@@ -471,7 +478,7 @@ public class ExpertLoader(string expertsDirectory)
         List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
     {
         if (ExecTimeout.TryParse(meta.Timeout, out _)) return;
-        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? Path.GetFileNameWithoutExtension(sourceName) : meta.Name;
+        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? NameFromSource(sourceName) : meta.Name;
         var (line, col, endCol) = FindField(frontmatter, "timeout", startLine);
         errors.Add(new ExpertLoadException(
             $"Expert '{expertName}' has invalid timeout '{meta.Timeout}'. Use <int>s or <int>m, e.g. 30s or 2m.",
