@@ -99,6 +99,20 @@ public sealed class PlatformLoginTests
         Assert.Empty(harness.Proxy.Attempts);
     }
 
+    // A credentials file that is not valid JSON reads as no sign-in; whoami makes no call.
+    [Fact]
+    public async Task A_corrupt_credentials_file_reads_as_not_signed_in()
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.WriteForgeFile("credentials.json", "{ not json");
+
+        var result = await harness.RunAsync("whoami");
+
+        Assert.Equal((1, "", "Not signed in. Run `forge login`."),
+            (result.ExitCode, result.StandardOutput, result.StandardError.Trim()));
+        Assert.Empty(harness.Proxy.Attempts);
+    }
+
     // Ctrl+C while login waits (for the browser's callback, the token exchange or the key issuance)
     // exits 130, prints nothing more and stores no key.
     [SkippableTheory]
