@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
 using Scout;
@@ -37,15 +36,6 @@ public sealed class SearchExpertRunner(IWebSearch search) : IExpertRunner
             : string.Empty;
 
         return new StepEnvelope(result.Answer ?? string.Empty);
-    }
-
-    public async IAsyncEnumerable<string> StreamAsync(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var envelope = await RunAsync(expert, context, ct);
-        yield return envelope.Text;
     }
 
     private static string? Resolve(Dictionary<string, object> context, string key) =>

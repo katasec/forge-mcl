@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
@@ -44,15 +43,6 @@ public class JsonExtractExpertRunner : IExpertRunner
             context["output"] = prose;
 
         return Task.FromResult(new StepEnvelope(json));
-    }
-
-    public async IAsyncEnumerable<string> StreamAsync(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var envelope = await RunAsync(expert, context, ct);
-        yield return envelope.Text;
     }
 
     // Extracts the first ```json ... ``` block from mixed prose+JSON output.

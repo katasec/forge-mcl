@@ -1,6 +1,7 @@
 using System.Net;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
+using ForgeMission.Core.Runtime;
 
 namespace ForgeMission.Tests.Adapters;
 
@@ -40,7 +41,7 @@ public class HttpExpertRunnerTests
     public async Task StreamAsync_YieldsEnvelopeText()
     {
         var handler = new MockHttpHandler("""{"text":"streamed result","status":"pass"}""");
-        var runner  = new HttpExpertRunner(new HttpClient(handler));
+        IExpertRunner runner = new HttpExpertRunner(new HttpClient(handler));
         var expert  = new ExpertDefinition("E", "In", "Out", "", Kind: "http", Endpoint: "http://test.local/e");
 
         var chunks = new List<string>();

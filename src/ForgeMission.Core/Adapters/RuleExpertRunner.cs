@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Rules;
 using ForgeMission.Core.Runtime;
@@ -21,14 +20,5 @@ public class RuleExpertRunner : IExpertRunner
         var message = string.IsNullOrWhiteSpace(expert.OnFail) ? "Rule check failed." : expert.OnFail;
         context["feedback"] = message;
         return Task.FromResult(new StepEnvelope(text, "fail", message));
-    }
-
-    public async IAsyncEnumerable<string> StreamAsync(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var envelope = await RunAsync(expert, context, ct);
-        yield return envelope.Text;
     }
 }

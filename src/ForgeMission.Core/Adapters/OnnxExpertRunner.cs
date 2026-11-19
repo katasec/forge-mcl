@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
 using Microsoft.ML.OnnxRuntime;
@@ -41,15 +40,6 @@ public class OnnxExpertRunner : IExpertRunner
             : null;
 
         return new StepEnvelope(score.ToString("F4"), status, reason);
-    }
-
-    public async IAsyncEnumerable<string> StreamAsync(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var envelope = await RunAsync(expert, context, ct);
-        yield return envelope.Text;
     }
 
     private static float[] ReadFeatures(ExpertDefinition expert, Dictionary<string, object> context)

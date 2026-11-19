@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -67,17 +66,6 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
                 return new("", "fail", $"Executable I/O failed: {exception.Message}");
             }
         }
-    }
-
-    public async IAsyncEnumerable<string> StreamAsync(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        // Process backend produces output only on exit; no true streaming for exec.
-        // Yield only envelope.Text — not the JSON envelope.
-        var envelope = await RunAsync(expert, context, ct);
-        yield return envelope.Text ?? string.Empty;
     }
 
     private Dictionary<string, object> ProcessInputs(ExpertDefinition expert, Dictionary<string, object> context)
