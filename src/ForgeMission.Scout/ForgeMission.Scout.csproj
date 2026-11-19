@@ -4,7 +4,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>true</IsPackable>
     <PackageId>Katasec.Forge.Mcl.Scout</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Katasec</Authors>
     <Description>Provider-neutral web-search contracts and the AOT-compatible xAI Grok Responses API implementation.</Description>
     <PackageTags>mcl;mission-control-language;search;retrieval;grok;aot</PackageTags>

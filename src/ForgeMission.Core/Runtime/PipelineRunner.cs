@@ -39,7 +39,7 @@ public class PipelineRunner
 
     // Convenience: a single runner registered as "default".
     public PipelineRunner(IExpertRunner defaultRunner, IWebSearch? webSearch = null)
-        : this(new Dictionary<string, IExpertRunner>(StringComparer.Ordinal) { [DurableMissionPackageValidator.DefaultProviderProfile] = defaultRunner },
+        : this(new Dictionary<string, IExpertRunner>(StringComparer.Ordinal) { ["default"] = defaultRunner },
                webSearch: webSearch) { }
 
     public async Task<MissionResult> RunAsync(
@@ -757,7 +757,7 @@ public class PipelineRunner
 
     private IExpertRunner ResolveRunner(string? profileName)
     {
-        var key = profileName ?? DurableMissionPackageValidator.DefaultProviderProfile;
+        var key = profileName ?? "default";
         return _runners.TryGetValue(key, out var runner)
             ? runner
             : throw new InvalidOperationException(

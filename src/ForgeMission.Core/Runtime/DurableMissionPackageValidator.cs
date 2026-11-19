@@ -236,7 +236,7 @@ public static class DurableMissionPackageValidator
     {
         if (string.IsNullOrWhiteSpace(expert.Model) || expert.Model.StartsWith('/') || expert.Model.Contains('\\') || expert.Model.Contains(':'))
             throw new InvalidOperationException("ONNX model must be package-relative.");
-        var segments = new List<string> { SourceResolver.DefaultExpertsDir, expert.Name };
+        var segments = new List<string> { "experts", expert.Name };
         foreach (var segment in expert.Model.Split('/'))
         {
             if (segment == ".") continue;
