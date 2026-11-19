@@ -43,8 +43,8 @@ behaviour change `ForgeMission.Cli`.
 ## Use these pieces
 
 - `OciReference.Resolve` normalizes a repository selector against an explicit registry base.
-  `OciReference.Parse` reads the older `registry/name@reference` form. `SplitTaggedTarget` splits a
-  `registry/name:tag` publish target.
+  `OciReference.Parse` reads the older `registry/name@reference` form. `ResolveTagged` reads a publish
+  target with the `Resolve` grammar and requires an explicit tag.
 - `OciExpertPuller.PullVerifiedAsync` takes the registry token from the caller.
   `OciExpertPuller.PullAsync` reads it itself: `FORGE_REGISTRY_TOKEN`, else `~/.forge/credentials.json`.
 - `OciMissionPuller.PullVerifiedAsync` takes the registry token from the caller and returns the

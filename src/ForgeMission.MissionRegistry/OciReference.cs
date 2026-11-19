@@ -39,18 +39,17 @@ public sealed record OciReference(string Registry, string Name, string Reference
     }
 
     /// <summary>
-    /// Splits a publish target of the form <c>registry/name:tag</c> (registry up to the first
-    /// <c>/</c>, tag after the last <c>:</c>). The <see cref="ArgumentException.Message"/> states
-    /// which part is missing so a caller can surface it verbatim.
+    /// Resolves a publish target with the <see cref="Resolve"/> grammar and requires an explicit
+    /// tag: a target with no tag (which <see cref="Resolve"/> reads as <c>latest</c>) or with a
+    /// digest is rejected, since a push names the tag it writes.
     /// </summary>
-    public static (string Registry, string Name, string Tag) SplitTaggedTarget(string reference)
+    public static OciReference ResolveTagged(string selector, string registryBase)
     {
-        var slash = reference.IndexOf('/');
-        if (slash < 0) throw new ArgumentException($"Invalid reference '{reference}': expected registry/name:tag");
-        var rest  = reference[(slash + 1)..];
-        var colon = rest.LastIndexOf(':');
-        if (colon < 0) throw new ArgumentException($"Invalid reference '{reference}': expected a :tag");
-        return (reference[..slash], rest[..colon], rest[(colon + 1)..]);
+        var resolved = Resolve(selector, registryBase);
+        if (resolved.Reference.StartsWith("sha256:", StringComparison.Ordinal) ||
+            !selector.EndsWith(":" + resolved.Reference, StringComparison.Ordinal))
+            throw new ArgumentException($"Invalid publish target '{selector}': a tag is required, e.g. {selector.Split('@')[0]}:0.1.0");
+        return resolved;
     }
 
     private static string RegistryHost(string value)

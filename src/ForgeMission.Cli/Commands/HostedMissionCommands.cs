@@ -9,7 +9,7 @@ namespace ForgeMission.Cli.Commands;
 // Hosted-mission and packaging commands: `forge run` (run a mission as a cloud conversation in a
 // project) and `forge publish` (package a mission directory into an OCI artifact and push it).
 // `forge run` picks the project file (--project, else ./forge.project.json) and hands off to
-// ForgeDurableRun. `forge publish` checks for mission.mcl, splits the target with OciReference,
+// ForgeDurableRun. `forge publish` checks for mission.mcl, resolves the tagged target with OciReference,
 // packs with MissionBundle, reads the registry token from CredentialStore and pushes with
 // Katasec.OciClient.
 internal static class HostedMissionCommands
@@ -51,7 +51,7 @@ internal static class HostedMissionCommands
     // ---------------------------------------------------------------------------
     // forge publish — package a mission directory and push it to an OCI registry
 
-    internal static Command BuildPublishCommand()
+    internal static Command BuildPublishCommand(string ociBase)
     {
         var refArg  = new Argument<string>("reference") { Description = "OCI reference, e.g. ghcr.io/katasec/forge-mission-guard:0.1.0" };
         var dirArg  = new Argument<DirectoryInfo>("dir") { Description = "Mission directory", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new DirectoryInfo(".") };
@@ -71,10 +71,11 @@ internal static class HostedMissionCommands
             if (!File.Exists(Path.Combine(dir.FullName, "mission.mcl")))
                 CliDiagnostics.Die($"No mission.mcl in {dir.FullName} — point at a mission directory.");
 
-            // registry/name:tag parsing is owned by OciReference (MissionRegistry).
-            string registry, name, tag;
-            try { (registry, name, tag) = OciReference.SplitTaggedTarget(reference); }
+            // Publish reads its target with the same grammar `forge run` pulls with.
+            OciReference target;
+            try { target = OciReference.ResolveTagged(reference, ociBase); }
             catch (ArgumentException ex) { CliDiagnostics.Die(ex.Message); return; }
+            var (registry, name, tag) = (target.Registry, target.Name, target.Reference);
 
             var bundle = MissionBundle.Pack(dir.FullName);
             var token  = CredentialStore.GetToken(registry);
