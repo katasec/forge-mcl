@@ -9,7 +9,7 @@ public class ForgeCredentials
 
     public Dictionary<string, ProviderCredential> Providers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Platform sign-in (42.5): the forge platform key + who/where it came from.</summary>
+    /// <summary>Platform sign-in: the forge platform key + who/where it came from.</summary>
     public PlatformCredential? Platform { get; set; }
 }
 
@@ -72,7 +72,7 @@ public static class CredentialStore
     public static void SaveToken(string registry, string token) =>
         Mutate(creds => creds.Credentials[registry] = new RegistryCredential { Token = token });
 
-    // --- Platform credential (42.5) --------------------------------------------------------
+    // --- Platform credential ---------------------------------------------------------------
 
     public static PlatformCredential? GetPlatform()
     {

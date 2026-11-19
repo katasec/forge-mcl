@@ -11,7 +11,7 @@ public interface IWebSearch
     Task<WebSearchResult> SearchAsync(WebSearchRequest request, CancellationToken ct = default);
 
     /// <summary>
-    /// Progress-aware search (Phase 41.7): reports a backend's server-side sub-search steps via
+    /// Progress-aware search: reports a backend's server-side sub-search steps via
     /// <paramref name="progress"/> as they happen, and returns the <b>same</b> grounded result — one
     /// call, never re-runs the (slow) search. Answer-engines (Grok, OpenAI) map their native
     /// <c>web_search_call</c> stream onto <see cref="WebSearchProgress"/>; raw search APIs (Tavily/Exa)
@@ -58,8 +58,8 @@ public sealed record WebSearchResult(
 
 /// <summary>
 /// One attributed source. <see cref="Provider"/> travels with every source (source attribution over
-/// source-selection); <see cref="ImpartialityRating"/> is a null stub for a future hosted per-domain
-/// rating (Phase 41.6) — we manage provenance, we do not chase "the best source".
+/// source-selection); <see cref="ImpartialityRating"/> is set by no backend; per-domain
+/// rating is not implemented — we manage provenance, we do not chase "the best source".
 /// </summary>
 public sealed record SourceRef(
     string Url,

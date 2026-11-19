@@ -2,7 +2,7 @@ using Microsoft.Extensions.AI;
 
 namespace ForgeMission.Core.Runtime;
 
-/// <summary>The earlier turns of a durable chat (Phase 58), as user/assistant messages. When the
+/// <summary>The earlier turns of a durable chat, as user/assistant messages. When the
 /// root mission's step context carries it, <see cref="Adapters.DirectExpertRunner"/> sends every
 /// llm step <c>system + these messages + user(step input)</c>. It never renders as text: there is
 /// deliberately no transcript <c>ToString</c>, so earlier turns cannot reach a prompt as

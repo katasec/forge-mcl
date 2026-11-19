@@ -9,7 +9,6 @@ namespace ForgeMission.Core.Runtime;
 internal static class PipelineRuntimeInstructions
 {
     /// <summary>bool value mirroring <see cref="Microsoft.Extensions.AI.ChatOptions.AllowMultipleToolCalls"/>.
-    /// Set only when <see cref="PipelineRunOptions.AllowMultipleToolCalls"/> is non-null and the
-    /// step is a tool-capable agent expert (Phase 43.16 Task 8b).</summary>
+    /// Set to false on an agent expert's call when root tools are attached: one tool call per pause.</summary>
     public const string AllowMultipleToolCalls = "__pipeline_allow_multiple_tool_calls";
 }

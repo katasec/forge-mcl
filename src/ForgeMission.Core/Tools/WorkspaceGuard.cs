@@ -1,8 +1,7 @@
 namespace ForgeMission.Core.Tools;
 
-// Confines Read/Edit/Write to the workspace root (43.2's opened folder). A violation returns a
-// tool-facing error string, never a thrown exception — 42.3's graceful-unknown-tool discipline
-// ("answer with an error tool_result, never a crash") applies to path violations too.
+// Confines Read/Edit/Write to the workspace roots. A violation returns a tool-facing error string,
+// never a thrown exception: a bad path is answered with an error tool_result, never a crash.
 public static class WorkspaceGuard
 {
     // Case-sensitive comparison only where the filesystem actually is: Windows and macOS are

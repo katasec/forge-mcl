@@ -7,7 +7,7 @@ namespace ForgeMission.Cli.Services;
 // Live-retrieval wiring stays in CLI; chat-provider construction lives in ForgeMission.ChatClients.
 public static class ProviderClientBuilder
 {
-    // Live-retrieval backend for kind:search experts (Phase 41). Implicitly Grok for the POC.
+    // Live-retrieval backend for kind:search experts. Always Grok.
     // Returns null when no xAI key is present — missions without kind:search are unaffected; a
     // kind:search step then fails with a clear "IWebSearch not configured" error.
     internal static IWebSearch? BuildWebSearch(IOptions<WebSearchOptions> options, IHttpClientFactory clients)

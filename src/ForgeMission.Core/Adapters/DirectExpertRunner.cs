@@ -36,7 +36,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         schemaDescription: "A step result: the answer text plus a pass/fail status and optional reason.");
 
     // Appended to a judge's system prompt in streaming mode (structured output is not available for
-    // streaming). Every other streamed step answers in plain text and always passes (Phase 53.8).
+    // streaming). Every other streamed step answers in plain text and always passes.
     private const string JudgeStreamingInstruction = """
 
 
@@ -67,7 +67,7 @@ Or on failure:
             options.Tools          = tools;
             options.ResponseFormat = null;
 
-            // Closed runtime instruction (Phase 43.16 Task 8b) — set only by PipelineRunner;
+            // Closed runtime instruction — set only by PipelineRunner;
             // never a mission-authorable variable.
             if (context.TryGetValue(PipelineRuntimeInstructions.AllowMultipleToolCalls, out var amtc)
                 && amtc is bool allowMultiple)
@@ -116,7 +116,7 @@ Or on failure:
         {
             options.Tools = tools;
 
-            // Closed runtime instruction (Phase 43.16 Task 8b) — mirrors the RunAsync branch above.
+            // Closed runtime instruction — mirrors the RunAsync branch above.
             if (context.TryGetValue(PipelineRuntimeInstructions.AllowMultipleToolCalls, out var amtc)
                 && amtc is bool allowMultiple)
                 options.AllowMultipleToolCalls = allowMultiple;
@@ -174,7 +174,7 @@ Or on failure:
         var systemPrompt = ContextInterpolator.Interpolate(expert.SystemPrompt, context);
         List<ChatMessage> messages = [new(ChatRole.System, systemPrompt)];
 
-        // Phase 58: durable chat history (earlier turns) precedes this step's own input.
+        // Durable chat history (earlier turns) precedes this step's own input.
         if (context.TryGetValue(ChatHistory.ContextKey, out var chatValue) && chatValue is ChatHistory chat)
             messages.AddRange(chat.Messages);
 

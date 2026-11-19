@@ -14,7 +14,7 @@ namespace ForgeMission.Cli.Commands;
 internal static class MissionDevCommands
 {
     // ---------------------------------------------------------------------------
-    // fms init
+    // forge init
 
     internal static Command BuildInitCommand()
     {
@@ -108,7 +108,7 @@ internal static class MissionDevCommands
     }
 
     // ---------------------------------------------------------------------------
-    // fms validate
+    // forge validate
 
     internal static Command BuildValidateCommand()
     {
@@ -164,7 +164,7 @@ internal static class MissionDevCommands
     }
 
     // ---------------------------------------------------------------------------
-    // fms list
+    // forge list
 
     internal static Command BuildListCommand()
     {
@@ -195,7 +195,7 @@ internal static class MissionDevCommands
     }
 
     // ---------------------------------------------------------------------------
-    // fms expert
+    // forge expert
 
     internal static Command BuildExpertCommand()
     {

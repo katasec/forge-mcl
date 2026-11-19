@@ -206,7 +206,7 @@ public static class DurableMissionPackageValidator
 }
 
 public sealed record DurableResolvedExpertInput(string Name, string LockSource, string LockPath, string LockHash, string ExpertMarkdown);
-/// <param name="Executable">Ignored; not part of the hash. Deleted in Core 0.1.10 once Katasec.Forge.Client stops passing it (Phase 76 decision 5).</param>
+/// <param name="Executable">Ignored; not part of the hash. Deleted in Core 0.1.10 once Katasec.Forge.Client stops passing it.</param>
 public sealed record DurableMissionAssetInput(string Path, string ContentType, byte[] Bytes, string Sha256, bool Executable = false);
 [method: JsonConstructor]
 public sealed record DurableMissionPackageInput(int FormatVersion, string PackageHash, string MissionSource,

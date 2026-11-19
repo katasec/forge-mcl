@@ -3,7 +3,7 @@ using Microsoft.Extensions.AI;
 namespace ForgeMission.Core.Adapters;
 
 /// <summary>
-/// Thread-safe token counter for a single mission run (Phase 39.1). One accumulator is created per
+/// Thread-safe token counter for a single mission run. One accumulator is created per
 /// run request in the runner, so counts never bleed across the warm runner's concurrent runs.
 /// </summary>
 public sealed class UsageAccumulator
@@ -26,7 +26,7 @@ public sealed class UsageAccumulator
 /// Decorates an <see cref="IChatClient"/> to accumulate token usage from every response into a
 /// per-run <see cref="UsageAccumulator"/>. The runner wraps its provider client with this so each
 /// run emits <c>tokens</c> (half of the cost-meter; compute-seconds is the wall-clock half). The
-/// orchestrator prices and debits these signals in 39.2 — the runner only measures.
+/// orchestrator prices and debits these signals — the runner only measures.
 /// </summary>
 public sealed class UsageTrackingChatClient(IChatClient inner, UsageAccumulator accumulator)
     : DelegatingChatClient(inner)

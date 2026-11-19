@@ -4,15 +4,15 @@ using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli.Commands;
 
-// Authentication commands: OCI-registry credentials under `forge registry login` (42.5), and
+// Authentication commands: OCI-registry credentials under `forge registry login`, and
 // platform sign-in / identity under `forge login`, `forge whoami` and `forge logout`. Registry
 // credentials are stored by CredentialStore; platform sign-in (loopback + PKCE) lives in
 // PlatformLogin. This surface owns only the command wiring.
 internal static class AuthCommands
 {
     // ---------------------------------------------------------------------------
-    // forge registry login  (42.5: OCI-registry credentials move under `forge registry`;
-    // the top-level `forge login` becomes platform sign-in)
+    // forge registry login  (OCI-registry credentials; the top-level `forge login` is platform
+    // sign-in)
 
     internal static Command BuildRegistryCommand()
     {

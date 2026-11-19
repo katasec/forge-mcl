@@ -4,24 +4,19 @@ using Microsoft.Extensions.AI;
 
 namespace ForgeMission.Core.Tools;
 
-// The Read/Edit/Write/Bash tool declarations Forge Desktop's terminal agent expert attaches via
-// PipelineRunOptions.RootTools (Phase 43.1). Forge Desktop has no upstream client to relay a tool
-// list from (unlike Katasec.AnthropicServer's ToolMapping, which relays whatever the real
-// `claude` CLI declared) — forge originates these itself.
+// The Read/Edit/Write/Bash tool declarations CapabilityRegistry advertises for the file and
+// terminal capability providers it holds. Forge originates these itself; there is no upstream
+// client tool list to relay.
 //
-// Schema content is copied from the real `claude` CLI's captured wire traffic
-// (src/ForgeMission.Tests/Fixtures/anthropic-wire/main-loop-tools.json, 2026-07-16 capture),
-// not invented: no official SDK publishes what these four tools look like, only the generic
-// AITool envelope to declare any tool in. Trimmed to what AgenticSession's executors actually
-// support — Bash drops timeout/run_in_background/dangerouslyDisableSandbox (already
-// unrestricted, no sandbox toggle to expose); Read drops the PDF-only `pages` field; Edit and
-// Write are unchanged.
+// Schema content is copied from the real `claude` CLI's captured wire traffic, not invented: no
+// official SDK publishes what these four tools look like, only the generic AITool envelope to
+// declare any tool in. Trimmed to what the workspace capabilities support — Bash drops
+// timeout/run_in_background/dangerouslyDisableSandbox (already unrestricted, no sandbox toggle to
+// expose); Read drops the PDF-only `pages` field; Edit and Write are unchanged.
 //
 // Hand-written, not AIFunctionFactory.Create(delegate): that overload derives its schema via
-// reflection, unsafe in the AOT-published binary (AGENTS.md AOT-first rules). DeclaredTool
-// (Katasec.AITools) is the same declaration-only AIFunction shape Katasec.AnthropicServer uses
-// for the wire-relay case — extracted so both sides construct the identical AIFunction shape
-// instead of two independently-written copies (see phase-43.1 spoke).
+// reflection, unsafe in the AOT-published binary. DeclaredTool (Katasec.AITools) is the shared
+// declaration-only AIFunction shape, so every declaration is built the same way.
 public static class AgentToolDeclarations
 {
     public static readonly AIFunction Read = new DeclaredTool("Read",

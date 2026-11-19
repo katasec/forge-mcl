@@ -35,7 +35,7 @@ A change belongs here only if it advances construction or protocol adaptation fo
 
 ## Use these pieces
 
-- [`ChatClients`](ChatClients.cs) is the public factory used by CLI and mission-serving hosts.
+- [`ChatClients`](ChatClients.cs) is the public factory hosts call to build an `IExpertRunner` from a provider profile.
 - [`ProviderProfile`](../ForgeMission.Core/Manifest/ForgeManifest.cs) is the incoming profile shape.
 - [`DirectExpertRunner`](../ForgeMission.Core/Adapters/DirectExpertRunner.cs) is the Core adapter returned by `Build`.
 - [`DirectExpertRunnerTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Adapters/DirectExpertRunnerTests.cs) cover the provider-neutral runner boundary.

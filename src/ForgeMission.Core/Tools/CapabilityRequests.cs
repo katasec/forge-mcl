@@ -1,7 +1,7 @@
 namespace ForgeMission.Core.Tools;
 
-// These are data-only requests. Executors cannot carry a provider reference or delegate through
-// them; the dispatcher is responsible for resolving and invoking the provider after approval.
+// These are data-only requests: they cannot carry a provider reference or delegate. The dispatcher
+// resolves and invokes the provider after approval.
 public interface ICapabilityRequest
 {
     string Summary { get; }

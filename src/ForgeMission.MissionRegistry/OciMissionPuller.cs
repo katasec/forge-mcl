@@ -63,7 +63,7 @@ public static class OciMissionPuller
         if (!names.Any(name => name == "mission.mcl")) throw new InvalidDataException("Mission bundle does not contain mission.mcl.");
     }
 
-    // Extracted files are never executable (Phase 76 decision 5): the entry's mode is ignored and every
+    // Extracted files are never executable: the entry's mode is ignored and every
     // file is created owner read/write, others read-only, still reduced by the process umask.
     private static FileStreamOptions NewFileOptions() => OperatingSystem.IsWindows()
         ? new() { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None }

@@ -14,7 +14,7 @@ Supplies the provider-neutral implementation of MCL mission loading, resolution,
 
 ## Why this exists
 
-Mission semantics must be executable without coupling the language runtime to a particular provider, executable host, or Desktop domain. This project keeps those durable semantics and shared primitives in one AOT-compatible library.
+Mission semantics must be executable without coupling the language runtime to a particular provider, executable host, or client. This project keeps those durable semantics and shared primitives in one AOT-compatible library.
 
 ## Owns
 
@@ -24,12 +24,12 @@ Mission semantics must be executable without coupling the language runtime to a 
 
 ## Does not own
 
-- Provider SDK selection or credentials, command-line UX, HTTP serving, Project/conversation state, or Desktop process supervision.
-- The scoped local-capability authority: Client Runtime (Bob) composes these capability primitives and owns its policy, admission, confirmation, audit, and lifetime.
+- Provider SDK selection or credentials, command-line UX, HTTP serving, or Project/conversation state.
+- The scoped local-capability authority: Client Runtime (Bob, in forge-client) composes these capability primitives and owns its policy, admission, confirmation, audit, and lifetime.
 
 ## Change admission
 
-A change belongs here only if it advances provider-neutral MCL execution, resolution, or a reusable contract/primitives boundary. For provider construction change `ForgeMission.ChatClients`; for scoped local capability authority compose with `ForgeMission.ClientRuntime`.
+A change belongs here only if it advances provider-neutral MCL execution, resolution, or a reusable contract/primitives boundary. For provider construction change `ForgeMission.ChatClients`; for scoped local capability authority change Client Runtime (Bob) in forge-client.
 
 ## Use these pieces
 
@@ -54,8 +54,8 @@ flowchart LR
 
 ## Important flows and constraints
 
-- Core 0.1.8 adds explicit `DurableMissionAssetInput` values (canonical relative path, content type, bytes, SHA-256 and executable bit). The actual source-generated camelCase JSON value must fit 4 MiB, including base64/escaping. Assets cannot collide with staged metadata/expert files or use runtime `inputs/` and `outputs/` paths. A package does not authorize a filesystem scan. Empty/missing assets retain format-1 hashes. The retained six-argument package constructor serves already-published clients; `JsonConstructor` selects the seven-argument semantic constructor for generated deserialization.
-- Core 0.1.9 drops the asset executable bit from the package hash: scripts run through their interpreter, so Forge carries no execute permission. Every asset-bearing package hash changes; there is no compatibility path. Packages without assets keep their hashes. The `Executable` field remains, ignored, only so Katasec.Forge.Client 0.15 still binds; Core 0.1.10 deletes it.
+- `DurableMissionAssetInput` values carry (canonical relative path, content type, bytes, SHA-256 and executable bit). The actual source-generated camelCase JSON value must fit 4 MiB, including base64/escaping. Assets cannot collide with staged metadata/expert files or use runtime `inputs/` and `outputs/` paths. A package does not authorize a filesystem scan. Empty/missing assets retain format-1 hashes. The retained six-argument package constructor serves already-published clients; `JsonConstructor` selects the seven-argument semantic constructor for generated deserialization.
+- The asset executable bit is not part of the package hash: scripts run through their interpreter, so Forge carries no execute permission. The `Executable` field remains, ignored, only so Katasec.Forge.Client 0.15 still binds; Core 0.1.10 deletes it.
 - `ForgeTomlReader.TryReadDistribution` shares the normal TOML parser but selects only literal expert locators and package assets before environment evaluation. `TryRead` remains the full local configuration reader. Package admission rejects all authored environment expressions and exact reserved credential/runtime names; declared `token_count` is an ordinary input. Expert inputs are forwarded when present, not a new mandatory schema; root parameters are required.
 - Root-tool checkpoints derive admitted names from root parameters/reachable expert inputs and retain only those values. Inner format 3 checks that set and the complete execution-semantic fingerprint before replay; envelope 1 remains. Old inner formats are refused. Scratch roots and `ExpertDirectory` do not affect identity; completed side effects replay from the log. Opaque authored text is never rewritten for paths.
 - `PipelineRunOptions.ExecutionWorkspace` is runtime-only and inherited by child missions. Its verified artifact registry maps root-relative paths to digests and retains the supplied live caller/Runner-owned concurrent dictionary through `IReadOnlyDictionary`; later registrations are visible without replacing the workspace. Core does not register or freeze artifacts. Exec makes matching declared input values absolute only in its process copy, keeps expert-relative cwd and literal args, and supplies runtime directory/stdin/environment bindings. `GetStepOutputDirectory` calculates `outputs/<SHA256-of-StepKey>/<attempt>` without I/O. Every emitted lifecycle trace exposes that exact internal `StepKey`.
@@ -70,4 +70,3 @@ flowchart LR
 
 - [Architecture](https://github.com/katasec/mission-control-language/blob/main/docs/design/architecture.md)
 - [Language design](https://github.com/katasec/mission-control-language/blob/main/docs/design/language.md)
-- [Phase 43.23 ownership end state](https://github.com/katasec/mission-control-language/blob/main/docs/retrospectives/phase-43-domain-ownership/end-state.md)

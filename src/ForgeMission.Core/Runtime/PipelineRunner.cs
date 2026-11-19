@@ -12,7 +12,7 @@ namespace ForgeMission.Core.Runtime;
 
 /// <summary>
 /// The one MCL interpreter. A run with root tools can pause on an agent's tool call and resume by
-/// replay (Phase 62): the checkpoint logs every completed step under its call-path key, and
+/// replay: the checkpoint logs every completed step under its call-path key, and
 /// <see cref="ResumeAsync"/> runs the mission from the top, returning each logged step's recorded
 /// result instead of running it, until the paused agent continues its tool turn.
 /// </summary>
@@ -37,7 +37,7 @@ public class PipelineRunner
         _webSearch = webSearch;
     }
 
-    // Convenience: single default runner — keeps existing tests and callers unchanged.
+    // Convenience: a single runner registered as "default".
     public PipelineRunner(IExpertRunner defaultRunner, IWebSearch? webSearch = null)
         : this(new Dictionary<string, IExpertRunner>(StringComparer.Ordinal) { ["default"] = defaultRunner },
                webSearch: webSearch) { }
@@ -98,7 +98,7 @@ public class PipelineRunner
         try
         {
             var result = await RunCoreAsync(ast, experts, options, run, string.Empty, ct);
-            // Still replaying: the run finished without reaching the paused agent (R6).
+            // Still replaying: the run finished without reaching the paused agent.
             return run.Replaying ? Failure(root, PipelineFailure.InvalidContinuation) : result;
         }
         catch (ReplayDivergedException)
@@ -124,7 +124,7 @@ public class PipelineRunner
         string? loopFeedback = null;
         var history = IsNegotiationEligible(mission, experts) ? new SpeakerTranscript() : null;
 
-        // Fresh array, root mission first, ending with this mission (Phase 43.16 Task 3). A
+        // Fresh array, root mission first, ending with this mission. A
         // top-level call leaves options.MissionPath null; CreateChildOptions supplies it for a
         // nested sub-mission invocation.
         IReadOnlyList<string> missionPath = options.MissionPath ?? [options.MissionName];
@@ -237,7 +237,7 @@ public class PipelineRunner
         CancellationToken ct)
     {
         // Sub-mission: step name matches a declared mission → recurse. No synthetic lifecycle fact
-        // is emitted for the sub-mission invocation itself (Phase 43.16 Task 3) — the actual
+        // is emitted for the sub-mission invocation itself — the actual
         // experts inside it, at the deeper path CreateChildOptions builds, are the visible trail.
         if (FindMission(ast, step.ExpertName) is not null)
         {
@@ -282,7 +282,7 @@ public class PipelineRunner
 
         // Emitted for both pass and fail envelopes, after the output/history update above and
         // before the caller decides whether the envelope fails the mission — always awaited
-        // before the next step begins (Phase 43.16 Task 3). A replayed step reports nothing (R4).
+        // before the next step begins. A replayed step reports nothing.
         if (!invocation.Replayed && options.OnTrace is { } onCompleted)
             await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope) { StepKey = key }, ct);
 
@@ -293,7 +293,7 @@ public class PipelineRunner
 
     // A parallel block runs its branches concurrently on one context snapshot. When the run can
     // pause and a branch can reach an agent, branches run one at a time in source order instead:
-    // two tool pauses can never be outstanding at once (R3).
+    // two tool pauses can never be outstanding at once.
     private async Task<StepOutcome> ExecuteParallelAsync(
         ParallelElement parallel,
         string key,
@@ -408,8 +408,8 @@ public class PipelineRunner
             return new BranchOutcome(null, namedKey, string.Empty,
                 await PauseAsync(run, key, step, expert, invocation, calls, options, missionPath, attempt, cts.Token));
 
-        // Parallel steps may call the sink concurrently and retain their own facts/path/attempt
-        // (Task 3 imposes no global sequence across them).
+        // Parallel steps may call the sink concurrently and retain their own facts/path/attempt;
+        // there is no global sequence across them.
         var envelope = invocation.Envelope;
         if (!invocation.Replayed && options.OnTrace is { } onCompleted)
             await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope) { StepKey = key }, cts.Token);
@@ -424,7 +424,7 @@ public class PipelineRunner
     }
 
     // The one invoke point for a step's expert, shared by sequence and parallel steps. On replay a
-    // logged step returns its recorded envelope and writes, and runs or reports nothing (R4). A live
+    // logged step returns its recorded envelope and writes, and runs or reports nothing. A live
     // step runs and is logged, unless it is an agent that paused on a root tool call.
     private async Task<StepInvocation> InvokeStepAsync(
         Step step,
@@ -447,7 +447,7 @@ public class PipelineRunner
 
         var runner = RunnerFor(expert, step, options, key, attempt);
 
-        // Before invoking a real expert (Phase 43.16 Task 3): its attempt is the enclosing
+        // Before invoking a real expert: its attempt is the enclosing
         // mission's current loop attempt.
         if (options.OnTrace is { } onStarted)
             await onStarted(new PipelineStepStarted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt) { StepKey = key }, ct);
@@ -547,12 +547,11 @@ public class PipelineRunner
         return new MissionResult(scope.RootMissionName, string.Empty, MissionStatus.Pass, Attempts: attempt, Pause: pause);
     }
 
-    // One small helper (Phase 43.16 Task 3) replacing the two ad-hoc child `new
-    // PipelineRunOptions(...)` calls in ExecuteStepAsync/ExecuteParallelStepAsync. Deliberately
-    // inherits only the trace sink, delta streaming and the execution workspace — preserving today's isolated
-    // sub-mission semantics (the essential Janus fix: Proposer/Approver run under [Janus,
-    // Negotiate], Implementer under [Janus, Implement]). Root tools are not options state: they
-    // reach a child through the run's pause scope.
+    // Builds a child mission's options for ExecuteStepAsync and ExecuteParallelStepAsync.
+    // Deliberately inherits only the trace sink, delta streaming and the execution workspace, so a
+    // sub-mission runs isolated under its own path (e.g. [Janus, Negotiate] and [Janus, Implement]
+    // stay distinct). Root tools are not options state: they reach a child through the run's
+    // pause scope.
     private static PipelineRunOptions CreateChildOptions(
         PipelineRunOptions parent,
         string childMissionName,
@@ -568,9 +567,9 @@ public class PipelineRunner
             ExecutionWorkspace = parent.ExecutionWorkspace,
         };
 
-    // Phase 58: in a chat run the first step's input is the new message — the root mission's first
-    // declared parameter — not "Begin.". Seeded only when the run carries ChatHistory, so every
-    // other run keeps today's empty initial output.
+    // In a chat run the first step's input is the new message — the root mission's first
+    // declared parameter. Seeded only when the run carries ChatHistory; every other run starts
+    // with an empty initial output.
     private static string ChatInput(MissionDeclaration mission, IReadOnlyDictionary<string, string>? vars)
         => mission.Params.FirstOrDefault() is { } parameter && vars?.TryGetValue(parameter, out var value) == true
             ? value
@@ -598,14 +597,14 @@ public class PipelineRunner
     // Step keys and the replay log
     // ------------------------------------------------------------------
 
-    // One segment per call level, root to step: Mission@attempt#elementIndex[.branchIndex] (R1).
+    // One segment per call level, root to step: Mission@attempt#elementIndex[.branchIndex].
     // Names alone collide (Child -> Child, a loop retry).
     private static string StepKey(string prefix, string missionName, int attempt, int elementIndex)
         => $"{prefix}{missionName}@{attempt}#{elementIndex}";
 
     private static string ChildPrefix(string stepKey) => $"{stepKey}/";
 
-    // The context keys the expert added or changed, typed string or double (R5). Other values
+    // The context keys the expert added or changed, typed string or double. Other values
     // (tool calls, structured objects) are re-derived, never logged.
     private static Dictionary<string, PipelineLoggedValue> StepWrites(
         Dictionary<string, object> before,
@@ -743,8 +742,7 @@ public class PipelineRunner
     // Tool-call and context conversions
     // ------------------------------------------------------------------
 
-    // Converts each provider-SDK FunctionCallContent to the closed PipelineToolCall shape (Phase
-    // 43.16 Task 3) — no provider SDK object crosses into the trace. Mirrors
+    // Converts each provider-SDK FunctionCallContent to the closed PipelineToolCall shape — no provider SDK object crosses into the trace. Mirrors
     // ForgeMission.Runner's RunnerToolTurnMapper.ToJsonElement/WriteValue (Core cannot reference
     // Runner, so the small Utf8JsonWriter-based conversion is duplicated here rather than
     // reflection-serialized).
@@ -828,7 +826,7 @@ public class PipelineRunner
     // Expert invocation and streaming
     // ------------------------------------------------------------------
 
-    // The one place a sequence step's expert is invoked (Phase 53.8). It streams only when the
+    // The one place a sequence step's expert is invoked. It streams only when the
     // durable executor sets StreamLlmDeltas and the step is a tool-free, non-judge llm step.
     // OnTrace alone never forces streaming: several non-LLM runners expose a text-only streaming
     // adapter that cannot preserve a failing StepEnvelope.
@@ -911,7 +909,7 @@ public class PipelineRunner
         public bool Replaying { get; private set; }
 
         /// <summary>The logged entry for a replayed step, or null when the step runs now. A step
-        /// that is neither logged nor the paused agent means the replay diverged (R6).</summary>
+        /// that is neither logged nor the paused agent means the replay diverged.</summary>
         public PipelineStepLogEntry? Replay(string key, string expertName, ExpertDefinition expert)
         {
             if (!Replaying) return null;

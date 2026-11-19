@@ -13,7 +13,7 @@ namespace ForgeMission.Cli.Commands;
 internal static class HostedMissionCommands
 {
     // ---------------------------------------------------------------------------
-    // fms run
+    // forge run
 
     internal static Command BuildRunCommand(IHttpClientFactory clients, string ociBase)
     {
@@ -47,7 +47,7 @@ internal static class HostedMissionCommands
         option ?? Path.Combine(directory, DefaultProjectFile);
 
     // ---------------------------------------------------------------------------
-    // forge publish — package a mission directory and push it to an OCI registry (39.4)
+    // forge publish — package a mission directory and push it to an OCI registry
 
     internal static Command BuildPublishCommand()
     {

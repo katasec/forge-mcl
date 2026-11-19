@@ -15,9 +15,9 @@ using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli.Commands;
 
-// forge login (42.5): platform sign-in via loopback auth-code + PKCE against Entra External ID.
+// forge login: platform sign-in via loopback auth-code + PKCE against Entra External ID.
 // Hand-rolled public client (no MSAL — AOT-first): one localhost listener + one token call.
-// Produces Entra tokens proving identity; task 4 exchanges the access token for a platform key.
+// Produces Entra tokens proving identity; the access token is then exchanged for a platform key.
 public static class PlatformLogin
 {
     internal static async Task<int> RunAsync(IOptions<PlatformLoginOptions> options, IHttpClientFactory clients,
@@ -300,7 +300,7 @@ internal sealed class PlatformLoginOptions
     [ConfigurationKeyName("FORGE_AUTH_CLIENT_ID")]
     public string ClientId { get; set; } = "33595d97-0296-4868-9217-dfab35faa314";
 
-    // Request an access token for the Rooms app's cli.login scope (the issuance endpoint
+    // Request an access token for the cli.login scope (the issuance endpoint
     // validates this bearer), alongside the reserved OIDC scopes for id_token + refresh.
     [ConfigurationKeyName("FORGE_AUTH_SCOPE")]
     public string Scope { get; set; } = "api://4f8a95d6-2d41-416c-a1b9-9177ddec1227/cli.login openid profile email offline_access";
