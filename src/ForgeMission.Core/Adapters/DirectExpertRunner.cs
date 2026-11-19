@@ -35,23 +35,12 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         schemaName: "step_envelope",
         schemaDescription: "A step result: the answer text plus a pass/fail status and optional reason.");
 
-    // Appended to a judge's system prompt in streaming mode (structured output is not available for
-    // streaming). Every other streamed step answers in plain text and always passes.
-    private const string JudgeStreamingInstruction = """
-
-
-Respond with this exact JSON format and nothing else:
-{"text": "<your complete response>", "status": "pass"}
-Or on failure:
-{"text": "<brief summary>", "status": "fail", "reason": "<which criterion failed>"}
-""";
-
     public async Task<StepEnvelope> RunAsync(
         ExpertDefinition expert,
         Dictionary<string, object> context,
         CancellationToken ct = default)
     {
-        var (messages, _) = BuildMessages(expert, context);
+        var messages = BuildMessages(expert, context);
         AddToolTurn(messages, context);
         // Non-generic call with an explicit closed schema (see _stepFormat) rather than
         // GetResponseAsync<StepEnvelope>, whose derived schema is rejected by Anthropic. Deserialize
@@ -97,29 +86,14 @@ Or on failure:
         Dictionary<string, object> context,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var (messages, systemPrompt) = BuildMessages(expert, context);
-        AddToolTurn(messages, context);
+        var messages = BuildMessages(expert, context);
 
-        var options = new ChatOptions();
-        var toolMode = ApplyToolMode(options, context);
-        if (!toolMode && expert.IsJudge)
-        {
-            messages[0] = new ChatMessage(ChatRole.System, systemPrompt + JudgeStreamingInstruction);
-        }
-
-        var updates = new List<ChatResponseUpdate>();
-        await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options, ct))
+        await foreach (var update in chatClient.GetStreamingResponseAsync(messages, new ChatOptions(), ct))
         {
             ThrowIfProviderError(update.Contents);
-            updates.Add(update);
             if (!string.IsNullOrEmpty(update.Text))
                 yield return update.Text;
         }
-
-        if (!toolMode) yield break;
-
-        var response = ChatResponseExtensions.ToChatResponse(updates);
-        CaptureToolResponse(response, context);
     }
 
     // Tool-capable agent step: the PipelineRunner put the root tools in the bag for this step only.
@@ -163,7 +137,7 @@ Or on failure:
             messages.AddRange(turnMessages);
     }
 
-    private static (List<ChatMessage> messages, string systemPrompt) BuildMessages(
+    private static List<ChatMessage> BuildMessages(
         ExpertDefinition expert,
         Dictionary<string, object> context)
     {
@@ -179,13 +153,13 @@ Or on failure:
             && history.Turns.Count > 0)
         {
             messages.AddRange(history.AsMessages(expert.Name));
-            return (messages, systemPrompt);
+            return messages;
         }
 
         var userMessage = context.TryGetValue("output", out var output) && !string.IsNullOrWhiteSpace(output?.ToString())
             ? output.ToString()!
             : "Begin.";
         messages.Add(new ChatMessage(ChatRole.User, userMessage));
-        return (messages, systemPrompt);
+        return messages;
     }
 }

@@ -979,7 +979,7 @@ public class PipelineRunner
                 await onDelta(new PipelineStepDelta(options.MissionName, missionPath, expertName, expert.Kind, attempt, chunk) { StepKey = key }, ct);
         }
 
-        // A non-judge llm step streams plain text (no envelope instruction) and always passes.
+        // A non-judge llm step streams plain text and always passes.
         return new StepEnvelope(text.ToString());
     }
 
