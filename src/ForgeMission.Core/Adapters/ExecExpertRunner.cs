@@ -10,6 +10,9 @@ namespace ForgeMission.Core.Adapters;
 
 public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
 {
+    private const int MaxOutputBytes = 4 * 1024 * 1024;
+    private const int MaxErrorBytes = 64 * 1024;
+
     private readonly PipelineExecutionWorkspace? _workspace;
     private readonly string _stepKey = "";
     private readonly int _attempt = 1;
@@ -34,10 +37,15 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         var timeout = ParseTimeout(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
         cancellation.CancelAfter(timeout);
         Process process;
-        try { process = Process.Start(ProcessOptions(expert, inputs, context))
-            ?? throw new InvalidOperationException("No process was started."); }
+        try
+        {
+            process = Process.Start(ProcessOptions(expert, inputs, context))
+                ?? throw new InvalidOperationException("No process was started.");
+        }
         catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
-        { return new("", "fail", $"Failed to start '{expert.Command}': {exception.Message}"); }
+        {
+            return new("", "fail", $"Failed to start '{expert.Command}': {exception.Message}");
+        }
 
         using (process)
         {
@@ -50,9 +58,14 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
                 return ApplyOutput(expert, context, stdout);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            { return new("", "fail", $"Expert '{expert.Name}' timed out after {timeout}."); }
+            {
+                return new("", "fail", $"Expert '{expert.Name}' timed out after {timeout}.");
+            }
             catch (IOException exception)
-            { ct.ThrowIfCancellationRequested(); return new("", "fail", $"Executable I/O failed: {exception.Message}"); }
+            {
+                ct.ThrowIfCancellationRequested();
+                return new("", "fail", $"Executable I/O failed: {exception.Message}");
+            }
         }
     }
 
@@ -66,9 +79,6 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         var envelope = await RunAsync(expert, context, ct);
         yield return envelope.Text ?? string.Empty;
     }
-
-    private const int MaxOutputBytes = 4 * 1024 * 1024;
-    private const int MaxErrorBytes = 64 * 1024;
 
     private Dictionary<string, object> ProcessInputs(ExpertDefinition expert, Dictionary<string, object> context)
     {

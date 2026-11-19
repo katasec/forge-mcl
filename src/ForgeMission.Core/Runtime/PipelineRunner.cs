@@ -247,10 +247,11 @@ public class PipelineRunner
     // A guarded step runs only when its guard matches; when(else) runs only when no guard has.
     private static bool WhenAdmits(WhenClause? when, Dictionary<string, object> context, bool anyGuardedStepMatched) => when switch
     {
-        StringEqualsWhen sw => context.TryGetValue(sw.Key, out var val) && val?.ToString() == sw.Value,
-        NumericCompareWhen nw => context.TryGetValue(nw.Key, out var raw)
-                                 && TryParseDouble(raw, out var actual)
-                                 && EvaluateNumericOp(actual, nw.Op, nw.Threshold),
+        StringEqualsWhen stringEquals => context.TryGetValue(stringEquals.Key, out var value)
+                                         && value?.ToString() == stringEquals.Value,
+        NumericCompareWhen numericCompare => context.TryGetValue(numericCompare.Key, out var raw)
+                                             && TryParseDouble(raw, out var actual)
+                                             && EvaluateNumericOp(actual, numericCompare.Op, numericCompare.Threshold),
         ElseWhen => !anyGuardedStepMatched,
         _ => true,
     };
