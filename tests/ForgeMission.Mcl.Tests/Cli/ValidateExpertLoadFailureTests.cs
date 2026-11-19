@@ -24,6 +24,23 @@ public sealed class ValidateExpertLoadFailureTests
         Assert.Equal("", result.StandardOutput);
     }
 
+    // Several locked experts failing: every expert's errors are reported, not just the first one's.
+    [Fact]
+    public async Task Every_failing_locked_expert_is_reported()
+    {
+        await using var harness = ForgeCliHarness.Start();
+        var mission = WriteLockedMission(harness.Home, "---\nname: Writer\n---\nbody\n");
+        File.AppendAllText(Path.Combine(harness.Home, "mcl.lock"),
+            "  Reviewer:\n    source: local\n    path: experts/Reviewer/expert.md\n");
+
+        var result = await harness.RunAsync("validate", mission);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("'input'", result.StandardError);
+        Assert.Contains("MCL008", result.StandardError);
+        Assert.Contains("'Reviewer'", result.StandardError);
+    }
+
     private static string WriteLockedMission(string directory, string expertMd)
     {
         var expert = Directory.CreateDirectory(Path.Combine(directory, "experts", "Writer")).FullName;

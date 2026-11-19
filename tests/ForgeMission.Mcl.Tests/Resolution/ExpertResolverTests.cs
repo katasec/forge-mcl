@@ -228,6 +228,35 @@ public class ExpertResolverTests
         Assert.True(result.ContainsKey("ExpertC"));
     }
 
+    // Every failing lock-file expert is reported, not just the first; good experts in between do not hide them.
+    [Fact]
+    public void SeveralFailingExperts_ThrowsAggregateWithEveryError()
+    {
+        var dir      = CreateMissionDir();
+        var lockFile = BuildLockFile(dir, hash: new string('0', 64));
+        lockFile.Experts["Missing"] = new LockFileExpert { Source = "experts", Path = "experts/Missing/expert.md" };
+
+        var ex = Assert.Throws<AggregateExpertLoadException>(() => ExpertResolver.ResolveAll(lockFile, dir));
+
+        Assert.Equal(2, ex.Errors.Count);
+        Assert.Contains(ex.Errors, e => e.Message.Contains("MCL009") && e.Message.Contains("'TestExpert'"));
+        Assert.Contains(ex.Errors, e => e.Message.Contains("MCL008") && e.Message.Contains("'Missing'"));
+    }
+
+    // One failing expert among good ones still throws that expert's own exception and message.
+    [Fact]
+    public void OneFailingExpertAmongGood_ThrowsItsOwnException()
+    {
+        var dir      = CreateMissionDir();
+        var lockFile = BuildLockFile(dir);
+        lockFile.Experts["Missing"] = new LockFileExpert { Source = "experts", Path = "experts/Missing/expert.md" };
+
+        var ex = Assert.Throws<ExpertLoadException>(() => ExpertResolver.ResolveAll(lockFile, dir));
+
+        Assert.Contains("MCL008", ex.Message);
+        Assert.Contains("'Missing'", ex.Message);
+    }
+
     // mcl.lock records a home cache path as ~/...; writing and reading the lock keeps the exact text,
     // and resolution maps it back to the same absolute file.
     [Fact]
