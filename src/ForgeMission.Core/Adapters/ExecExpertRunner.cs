@@ -202,12 +202,19 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
         var text = outputValue.ValueKind == JsonValueKind.String ? outputValue.GetString() ?? "" : outputValue.GetRawText();
         context[expert.OutputKey] = text;
         context["output"] = text;
-        var status = root.TryGetProperty("status", out var sv) ? sv.GetString() : null;
         var reason = root.TryGetProperty("reason", out var rv) ? rv.GetString() : null;
-        if (expert.IsJudge && status == "fail")
-            context["feedback"] = !string.IsNullOrWhiteSpace(reason) ? reason
-                : !string.IsNullOrWhiteSpace(expert.OnFail) ? expert.OnFail : "Verification failed.";
+        if (expert.IsJudge) return ApplyVerdict(expert, context, JudgeVerdict.Read(root, text, reason));
+        var status = root.TryGetProperty("status", out var sv) ? sv.GetString() : null;
         return new(text, status ?? "pass", reason);
+    }
+
+    // A failed verdict carries its reason into the next loop attempt as feedback.
+    private static StepEnvelope ApplyVerdict(ExpertDefinition expert, Dictionary<string, object> context, StepEnvelope verdict)
+    {
+        if (verdict.Status == "fail")
+            context["feedback"] = !string.IsNullOrWhiteSpace(verdict.Reason) ? verdict.Reason
+                : !string.IsNullOrWhiteSpace(expert.OnFail) ? expert.OnFail : "Verification failed.";
+        return verdict;
     }
 
     private static JsonDocument ParseOutput(ExpertDefinition expert, string stdout)

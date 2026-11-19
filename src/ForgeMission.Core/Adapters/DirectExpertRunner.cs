@@ -18,7 +18,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         // Non-generic call with an explicit closed schema (see _stepFormat) rather than
         // GetResponseAsync<StepEnvelope>, whose derived schema is rejected by Anthropic. Deserialize
         // via the source-gen context (AOT-safe); a non-judge falls back to the raw text if the model
-        // returns non-JSON, while a judge reply that is not a verdict fails (see ParseVerdict).
+        // returns non-JSON, while a judge reply that is not a verdict fails (see JudgeVerdict).
         var options = new ChatOptions { ResponseFormat = _stepFormat };
 
         // Tool-capable agent expert: the PipelineRunner put the root tools in the bag for this step
@@ -41,7 +41,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
 
         // Non-judge experts always continue the pipeline — enforce pass regardless of LLM output.
         return expert.IsJudge
-            ? ParseVerdict(response.Text)
+            ? JudgeVerdict.Parse(response.Text)
             : ParseStep(response.Text) with { Status = "pass", Reason = null };
     }
 
@@ -58,35 +58,6 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
             return new StepEnvelope(reply);
         }
     }
-
-    // A judge reply is a verdict: anything other than a JSON envelope with a pass/fail status fails
-    // verification, so a loop retries rather than passing a verdict it cannot read.
-    private static StepEnvelope ParseVerdict(string reply)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(reply);
-            if (!HasVerdictStatus(document.RootElement))
-                return InvalidVerdict(reply, "it has no \"status\" of \"pass\" or \"fail\".");
-            return document.RootElement.Deserialize(StepEnvelopeContext.Default.StepEnvelope)
-                   ?? InvalidVerdict(reply, "it is empty.");
-        }
-        catch (JsonException exception)
-        {
-            return InvalidVerdict(reply, exception.Message);
-        }
-    }
-
-    // Matches the envelope's case-insensitive property binding.
-    private static bool HasVerdictStatus(JsonElement root) =>
-        root.ValueKind == JsonValueKind.Object
-        && root.EnumerateObject().Any(property =>
-            property.Name.Equals("status", StringComparison.OrdinalIgnoreCase)
-            && property.Value.ValueKind == JsonValueKind.String
-            && property.Value.GetString() is "pass" or "fail");
-
-    private static StepEnvelope InvalidVerdict(string reply, string error) =>
-        new(reply, "fail", $"The judge reply was not a valid verdict: {error}");
 
     public async IAsyncEnumerable<string> StreamAsync(
         ExpertDefinition expert,
