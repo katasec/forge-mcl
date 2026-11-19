@@ -10,10 +10,6 @@ public static class OciMissionPuller
     private const int MaxBundleBytes = 32 * 1024 * 1024;
     private const int MaxBundleEntries = 4096;
 
-    public static Task<(string Directory, string Status)> PullAsync(string ociReference, bool refresh,
-        CancellationToken cancellationToken = default) => PullVerifiedAsync(OciReference.Parse(ociReference),
-            RegistryCredentialStore.GetToken(OciReference.Parse(ociReference).Registry), cancellationToken);
-
     public static async Task<(string Directory, string Status)> PullVerifiedAsync(OciReference reference,
         string? credential, CancellationToken cancellationToken = default)
     {

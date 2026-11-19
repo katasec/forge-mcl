@@ -13,7 +13,7 @@ the local `~/.forge` cache used by those pull operations.
 
 The package does not own a mission catalog, baked fallback content, hosted execution, or user
 interfaces. Consumers choose the OCI reference and invoke the pull operation. Registry tokens
-are passed explicitly to the verified pull operations by the consumer. Legacy pull overloads retain their existing credential reader; this
+are passed explicitly to the verified pull operations by the consumer. The legacy `OciExpertPuller.PullAsync` overload retains its existing credential reader; this
 package never publishes or transports credentials itself.
 
 The package is Native-AOT compatible and targets `net10.0`.
