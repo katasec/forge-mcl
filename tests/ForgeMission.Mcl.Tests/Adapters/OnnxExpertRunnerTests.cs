@@ -1,3 +1,4 @@
+using System.Globalization;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
@@ -21,6 +22,22 @@ public sealed class OnnxExpertRunnerTests
         var result = await new OnnxExpertRunner().RunAsync(Expert("identity.onnx", role), context);
         Assert.Equal(status, result.Status);
         Assert.Equal(0.8, Assert.IsType<double>(context["score"]), 6);
+    }
+
+    [Fact]
+    public async Task Comma_decimal_culture_parses_and_formats_invariantly()
+    {
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+        try
+        {
+            var context = new Dictionary<string, object> { ["low"] = "0.2", ["high"] = "0.8" };
+            var result = await new OnnxExpertRunner().RunAsync(Expert("identity.onnx", "judge"), context);
+            Assert.Equal("fail", result.Status);
+            Assert.Equal("0.8000", result.Text);
+            Assert.Equal("Anomaly score 0.8000 exceeds threshold 0.5", result.Reason);
+        }
+        finally { CultureInfo.CurrentCulture = original; }
     }
 
     [Fact]

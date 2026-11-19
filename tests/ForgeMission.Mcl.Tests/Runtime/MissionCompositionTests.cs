@@ -1,3 +1,4 @@
+using System.Globalization;
 using ForgeMission.Core.Experts;
 using ForgeMission.Parser;
 using ForgeMission.Core.Runtime;
@@ -98,6 +99,38 @@ public class MissionCompositionTests
 
         var workerCtx = stub.Calls.First(c => c.ExpertName == "Worker").Context;
         Assert.Equal("build something", workerCtx["task"].ToString());
+    }
+
+    [Fact]
+    public async Task SubMission_Binding_FormatsNumericContextValueInvariantly()
+    {
+        var ast = MclParser.Parse("""
+            mission Inner(value, limit) = {
+                Worker
+            }
+            mission Outer = {
+                Scorer
+                -> Inner(value: score, limit: 3)
+            }
+            """);
+
+        var stub = new StubExpertRunner((name, context) =>
+        {
+            if (name == "Scorer") context["score"] = 0.25;
+            return $"Output from {name}";
+        });
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+        try
+        {
+            await new PipelineRunner(stub)
+                .RunAsync(ast, Experts("Scorer", "Worker"), new PipelineRunOptions("Outer"));
+        }
+        finally { CultureInfo.CurrentCulture = original; }
+
+        var workerCtx = stub.Calls.First(c => c.ExpertName == "Worker").Context;
+        Assert.Equal("0.25", workerCtx["value"]);
+        Assert.Equal("3", workerCtx["limit"]);
     }
 
     [Fact]
