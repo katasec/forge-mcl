@@ -119,7 +119,6 @@ public class PipelineRunner
             ?? throw new InvalidOperationException(
                 $"Mission '{options.MissionName}' not found in .mcl file");
 
-        var maxLoops = mission.MaxLoops;
         MissionResult? lastResult = null;
         string? loopFeedback = null;
         var history = IsNegotiationEligible(mission, experts) ? new SpeakerTranscript() : null;
@@ -129,100 +128,133 @@ public class PipelineRunner
         // nested sub-mission invocation.
         IReadOnlyList<string> missionPath = options.MissionPath ?? [options.MissionName];
 
-        for (var attempt = 1; attempt <= maxLoops; attempt++)
+        for (var attempt = 1; attempt <= mission.MaxLoops; attempt++)
         {
             ct.ThrowIfCancellationRequested();
 
-            var context = ContextBuilder.Seed(ast, options.Vars);
-            if (options.ChatHistory is not null)
-            {
-                context[ChatHistory.ContextKey] = options.ChatHistory;
-                context["output"] = ChatInput(mission, options.Vars);
-            }
-            context["attempt"]   = attempt.ToString();
-            context["max_loops"] = maxLoops.ToString();
-            if (loopFeedback is not null)
-                context["feedback"] = loopFeedback;
-            if (history is not null)
-                context["history"] = history;
-
-            string? failReason = null;
-
-            // Track whether any when()-guarded step matched — used for when(else) and error detection.
-            var anyGuardedStepMatched = false;
-            var hasGuardedSteps       = mission.Pipeline.Elements
-                .OfType<StepElement>()
-                .Any(e => e.Step.When is StringEqualsWhen or NumericCompareWhen);
-            var hasElseBranch         = mission.Pipeline.Elements
-                .OfType<StepElement>()
-                .Any(e => e.Step.When is ElseWhen);
-
-            var elements = mission.Pipeline.Elements;
-            for (var index = 0; index < elements.Count; index++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var element = elements[index];
-                var stepKey = StepKey(keyPrefix, options.MissionName, attempt, index);
-
-                if (element is ParallelElement parallel)
-                {
-                    var parallelOutcome = await ExecuteParallelAsync(
-                        parallel, stepKey, ast, experts, context, options, run, missionPath, attempt, ct);
-                    if (parallelOutcome.Halt is { } parallelHalt) return parallelHalt;
-                    failReason = parallelOutcome.FailReason;
-                    if (failReason is not null) break;
-                    continue;
-                }
-
-                if (element is StepElement se)
-                {
-                    var step = se.Step;
-
-                    if (step.When is StringEqualsWhen sw2)
-                    {
-                        var matched = context.TryGetValue(sw2.Key, out var val)
-                                      && val?.ToString() == sw2.Value;
-                        if (!matched) continue;
-                        anyGuardedStepMatched = true;
-                    }
-                    else if (step.When is NumericCompareWhen nw)
-                    {
-                        var matched = context.TryGetValue(nw.Key, out var raw)
-                                      && TryParseDouble(raw, out var actual)
-                                      && EvaluateNumericOp(actual, nw.Op, nw.Threshold);
-                        if (!matched) continue;
-                        anyGuardedStepMatched = true;
-                    }
-                    else if (step.When is ElseWhen)
-                    {
-                        if (anyGuardedStepMatched) continue;
-                    }
-
-                    var outcome = await ExecuteStepAsync(step, stepKey, ast, experts, context, options, run, missionPath, attempt, ct);
-                    if (outcome.Halt is { } halt) return halt;
-                    failReason = outcome.FailReason;
-                    if (failReason is not null) break;
-                }
-            }
-
-            if (failReason is null && hasGuardedSteps && !anyGuardedStepMatched && !hasElseBranch)
-                throw new InvalidOperationException(
-                    "No when() guard matched and no when(else) branch exists in the pipeline.");
+            var context = SeedAttemptContext(ast, mission, options, attempt, loopFeedback, history);
+            var outcome = await RunPipelineAsync(
+                mission, keyPrefix, ast, experts, context, options, run, missionPath, attempt, ct);
+            if (outcome.Halt is { } halt) return halt;
 
             // Carry feedback written by rule/judge experts into the next loop iteration.
             if (context.TryGetValue("feedback", out var fb))
                 loopFeedback = fb?.ToString();
 
-            var text = context.TryGetValue("output", out var last) ? last?.ToString() ?? string.Empty : string.Empty;
-
-            if (failReason is null)
-                return new MissionResult(options.MissionName, text, MissionStatus.Pass, null, attempt);
-
-            lastResult = new MissionResult(options.MissionName, text, MissionStatus.Fail, failReason, attempt);
+            lastResult = AttemptResult(options.MissionName, context, outcome.FailReason, attempt);
+            if (outcome.FailReason is null) return lastResult;
         }
 
         return lastResult!;
     }
+
+    // The context one loop attempt starts from: the seeded vars plus the reserved runtime keys.
+    private static Dictionary<string, object> SeedAttemptContext(
+        Program ast,
+        MissionDeclaration mission,
+        PipelineRunOptions options,
+        int attempt,
+        string? loopFeedback,
+        SpeakerTranscript? history)
+    {
+        var context = ContextBuilder.Seed(ast, options.Vars);
+        if (options.ChatHistory is not null)
+        {
+            context[ChatHistory.ContextKey] = options.ChatHistory;
+            context["output"] = ChatInput(mission, options.Vars);
+        }
+        context["attempt"]   = attempt.ToString();
+        context["max_loops"] = mission.MaxLoops.ToString();
+        if (loopFeedback is not null)
+            context["feedback"] = loopFeedback;
+        if (history is not null)
+            context["history"] = history;
+        return context;
+    }
+
+    // Runs the mission's elements once, in order. Stops at the first halt or failing step; a
+    // pipeline with when() guards must match one of them or have a when(else) branch.
+    private async Task<StepOutcome> RunPipelineAsync(
+        MissionDeclaration mission,
+        string keyPrefix,
+        Program ast,
+        Dictionary<string, ExpertDefinition> experts,
+        Dictionary<string, object> context,
+        PipelineRunOptions options,
+        RunState run,
+        IReadOnlyList<string> missionPath,
+        int attempt,
+        CancellationToken ct)
+    {
+        // Track whether any when()-guarded step matched — used for when(else) and error detection.
+        var anyGuardedStepMatched = false;
+
+        var elements = mission.Pipeline.Elements;
+        for (var index = 0; index < elements.Count; index++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var element = elements[index];
+            var stepKey = StepKey(keyPrefix, options.MissionName, attempt, index);
+
+            StepOutcome outcome;
+            if (element is ParallelElement parallel)
+                outcome = await ExecuteParallelAsync(
+                    parallel, stepKey, ast, experts, context, options, run, missionPath, attempt, ct);
+            else if (element is StepElement { Step: var step } && WhenAdmits(step.When, context, anyGuardedStepMatched))
+            {
+                anyGuardedStepMatched |= IsGuarded(step.When);
+                outcome = await ExecuteStepAsync(step, stepKey, ast, experts, context, options, run, missionPath, attempt, ct);
+            }
+            else
+                continue;
+
+            if (outcome.Halt is not null || outcome.FailReason is not null) return outcome;
+        }
+
+        if (HasUnmatchedGuards(mission, anyGuardedStepMatched))
+            throw new InvalidOperationException(
+                "No when() guard matched and no when(else) branch exists in the pipeline.");
+
+        return new StepOutcome(null, null);
+    }
+
+    private static MissionResult AttemptResult(
+        string missionName, Dictionary<string, object> context, string? failReason, int attempt)
+    {
+        var text = context.TryGetValue("output", out var last) ? last?.ToString() ?? string.Empty : string.Empty;
+        return failReason is null
+            ? new MissionResult(missionName, text, MissionStatus.Pass, null, attempt)
+            : new MissionResult(missionName, text, MissionStatus.Fail, failReason, attempt);
+    }
+
+    // ------------------------------------------------------------------
+    // when() guards
+    // ------------------------------------------------------------------
+
+    // A guarded step runs only when its guard matches; when(else) runs only when no guard has.
+    private static bool WhenAdmits(WhenClause? when, Dictionary<string, object> context, bool anyGuardedStepMatched) => when switch
+    {
+        StringEqualsWhen sw => context.TryGetValue(sw.Key, out var val) && val?.ToString() == sw.Value,
+        NumericCompareWhen nw => context.TryGetValue(nw.Key, out var raw)
+                                 && TryParseDouble(raw, out var actual)
+                                 && EvaluateNumericOp(actual, nw.Op, nw.Threshold),
+        ElseWhen => !anyGuardedStepMatched,
+        _ => true,
+    };
+
+    private static bool IsGuarded(WhenClause? when) => when is StringEqualsWhen or NumericCompareWhen;
+
+    private static bool HasUnmatchedGuards(MissionDeclaration mission, bool anyGuardedStepMatched)
+    {
+        var steps = mission.Pipeline.Elements.OfType<StepElement>().ToList();
+        return steps.Any(e => IsGuarded(e.Step.When))
+            && !anyGuardedStepMatched
+            && !steps.Any(e => e.Step.When is ElseWhen);
+    }
+
+    // ------------------------------------------------------------------
+    // Sequence and parallel steps
+    // ------------------------------------------------------------------
 
     private async Task<StepOutcome> ExecuteStepAsync(
         Step step,
@@ -236,31 +268,11 @@ public class PipelineRunner
         int attempt,
         CancellationToken ct)
     {
-        // Sub-mission: step name matches a declared mission → recurse. No synthetic lifecycle fact
-        // is emitted for the sub-mission invocation itself — the actual
-        // experts inside it, at the deeper path CreateChildOptions builds, are the visible trail.
         if (FindMission(ast, step.ExpertName) is not null)
-        {
-            var childVars = step.Context.ToDictionary(
-                b => b.Key,
-                b => ContextBuilder.ResolveBindingValue(b.Value, context),
-                StringComparer.Ordinal);
-
-            var subResult = await RunCoreAsync(ast, experts,
-                CreateChildOptions(options, step.ExpertName, childVars, missionPath), run, ChildPrefix(key), ct);
-            if (Halts(subResult)) return new StepOutcome(null, subResult);
-
-            context["output"] = subResult.Text;
-
-            return new StepOutcome(subResult.Status == MissionStatus.Fail
-                ? $"[{step.ExpertName}] {subResult.FailReason ?? "sub-mission failed"}"
-                : null, null);
-        }
+            return await ExecuteSubMissionStepAsync(step, key, ast, experts, context, options, run, missionPath, ct);
 
         var expert = ResolveExpert(experts, step);
-
-        foreach (var binding in step.Context)
-            context[binding.Key] = ContextBuilder.ResolveBindingValue(binding.Value, context);
+        ApplyBindings(step, context);
 
         var invocation = await InvokeStepAsync(step, key, expert, context, options, run, missionPath, attempt, inParallel: false, ct);
         if (invocation.RootCalls is { } calls)
@@ -268,27 +280,48 @@ public class PipelineRunner
 
         var envelope = invocation.Envelope;
         context["output"] = envelope.Text;
-
-        if (context.TryGetValue("history", out var historyValue)
-            && historyValue is SpeakerTranscript history)
-        {
-            var text = envelope.Text;
-            if (!string.IsNullOrWhiteSpace(envelope.Reason)
-                && !string.Equals(envelope.Reason, text, StringComparison.Ordinal))
-                text = $"{text}\n\nReason: {envelope.Reason}";
-
-            history.Add(step.ExpertName, text);
-        }
+        RecordHistory(step, envelope, context);
 
         // Emitted for both pass and fail envelopes, after the output/history update above and
         // before the caller decides whether the envelope fails the mission — always awaited
         // before the next step begins. A replayed step reports nothing.
-        if (!invocation.Replayed && options.OnTrace is { } onCompleted)
-            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope) { StepKey = key }, ct);
+        if (!invocation.Replayed)
+            await TraceStepCompletedAsync(step, key, expert, envelope, options, missionPath, attempt, ct);
 
-        return new StepOutcome(envelope.Status == "fail"
-            ? $"[{step.ExpertName}] {envelope.Reason ?? "step failed"}"
-            : null, null);
+        return new StepOutcome(StepFailReason(step, envelope), null);
+    }
+
+    private async Task<StepOutcome> ExecuteSubMissionStepAsync(
+        Step step,
+        string key,
+        Program ast,
+        Dictionary<string, ExpertDefinition> experts,
+        Dictionary<string, object> context,
+        PipelineRunOptions options,
+        RunState run,
+        IReadOnlyList<string> missionPath,
+        CancellationToken ct)
+    {
+        var subResult = await RunSubMissionAsync(step, key, ast, experts, context, options, run, missionPath, ct);
+        if (Halts(subResult)) return new StepOutcome(null, subResult);
+
+        context["output"] = subResult.Text;
+        return new StepOutcome(SubMissionFailReason(step, subResult), null);
+    }
+
+    // A negotiation run's transcript gets each speaker's text, plus its reason when that differs.
+    private static void RecordHistory(Step step, StepEnvelope envelope, Dictionary<string, object> context)
+    {
+        if (!context.TryGetValue("history", out var historyValue)
+            || historyValue is not SpeakerTranscript history)
+            return;
+
+        var text = envelope.Text;
+        if (!string.IsNullOrWhiteSpace(envelope.Reason)
+            && !string.Equals(envelope.Reason, text, StringComparison.Ordinal))
+            text = $"{text}\n\nReason: {envelope.Reason}";
+
+        history.Add(step.ExpertName, text);
     }
 
     // A parallel block runs its branches concurrently on one context snapshot. When the run can
@@ -373,35 +406,19 @@ public class PipelineRunner
     {
         var namedKey = $"{step.ExpertName}.output";
 
-        // Sub-mission in parallel block → recurse with isolated child context. No synthetic
-        // lifecycle fact for the sub-mission invocation itself, same as the sequential path.
+        // Sub-mission in parallel block → recurse with isolated child context.
         if (FindMission(ast, step.ExpertName) is not null)
         {
-            var childVars = step.Context.ToDictionary(
-                b => b.Key,
-                b => ContextBuilder.ResolveBindingValue(b.Value, baseContext),
-                StringComparer.Ordinal);
-
-            var subResult = await RunCoreAsync(ast, experts,
-                CreateChildOptions(options, step.ExpertName, childVars, missionPath), run, ChildPrefix(key),
-                cts.Token);
+            var subResult = await RunSubMissionAsync(step, key, ast, experts, baseContext, options, run, missionPath, cts.Token);
             if (Halts(subResult)) return new BranchOutcome(null, namedKey, subResult.Text, subResult);
-
-            if (subResult.Status == MissionStatus.Fail)
-            {
-                cts.Cancel();
-                return new BranchOutcome($"[{step.ExpertName}] {subResult.FailReason ?? "sub-mission failed"}", namedKey, subResult.Text, null);
-            }
-
-            return new BranchOutcome(null, namedKey, subResult.Text, null);
+            return CompleteBranch(SubMissionFailReason(step, subResult), namedKey, subResult.Text, cts);
         }
 
         var expert = ResolveExpert(experts, step);
 
         // Each parallel step gets its own context copy so with-bindings don't interfere.
         var localContext = new Dictionary<string, object>(baseContext, StringComparer.Ordinal);
-        foreach (var binding in step.Context)
-            localContext[binding.Key] = ContextBuilder.ResolveBindingValue(binding.Value, localContext);
+        ApplyBindings(step, localContext);
 
         var invocation = await InvokeStepAsync(step, key, expert, localContext, options, run, missionPath, attempt, inParallel: true, cts.Token);
         if (invocation.RootCalls is { } calls)
@@ -411,17 +428,74 @@ public class PipelineRunner
         // Parallel steps may call the sink concurrently and retain their own facts/path/attempt;
         // there is no global sequence across them.
         var envelope = invocation.Envelope;
-        if (!invocation.Replayed && options.OnTrace is { } onCompleted)
-            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope) { StepKey = key }, cts.Token);
+        if (!invocation.Replayed)
+            await TraceStepCompletedAsync(step, key, expert, envelope, options, missionPath, attempt, cts.Token);
 
-        if (envelope.Status == "fail")
-        {
-            cts.Cancel(); // Signal siblings to stop.
-            return new BranchOutcome($"[{step.ExpertName}] {envelope.Reason ?? "step failed"}", namedKey, envelope.Text, null);
-        }
-
-        return new BranchOutcome(null, namedKey, envelope.Text, null);
+        return CompleteBranch(StepFailReason(step, envelope), namedKey, envelope.Text, cts);
     }
+
+    // A failing branch signals its siblings to stop.
+    private static BranchOutcome CompleteBranch(string? failReason, string namedKey, string output, CancellationTokenSource cts)
+    {
+        if (failReason is not null) cts.Cancel();
+        return new BranchOutcome(failReason, namedKey, output, null);
+    }
+
+    // Sub-mission: the step name matches a declared mission, so recurse under the step's key with
+    // its with-bindings as the child's vars. No synthetic lifecycle fact is emitted for the
+    // sub-mission invocation itself — the actual experts inside it, at the deeper path
+    // CreateChildOptions builds, are the visible trail.
+    private async Task<MissionResult> RunSubMissionAsync(
+        Step step,
+        string key,
+        Program ast,
+        Dictionary<string, ExpertDefinition> experts,
+        Dictionary<string, object> context,
+        PipelineRunOptions options,
+        RunState run,
+        IReadOnlyList<string> missionPath,
+        CancellationToken ct)
+    {
+        var childVars = step.Context.ToDictionary(
+            b => b.Key,
+            b => ContextBuilder.ResolveBindingValue(b.Value, context),
+            StringComparer.Ordinal);
+
+        return await RunCoreAsync(ast, experts,
+            CreateChildOptions(options, step.ExpertName, childVars, missionPath), run, ChildPrefix(key), ct);
+    }
+
+    private static void ApplyBindings(Step step, Dictionary<string, object> context)
+    {
+        foreach (var binding in step.Context)
+            context[binding.Key] = ContextBuilder.ResolveBindingValue(binding.Value, context);
+    }
+
+    private static string? StepFailReason(Step step, StepEnvelope envelope) => envelope.Status == "fail"
+        ? $"[{step.ExpertName}] {envelope.Reason ?? "step failed"}"
+        : null;
+
+    private static string? SubMissionFailReason(Step step, MissionResult subResult) => subResult.Status == MissionStatus.Fail
+        ? $"[{step.ExpertName}] {subResult.FailReason ?? "sub-mission failed"}"
+        : null;
+
+    private static async Task TraceStepCompletedAsync(
+        Step step,
+        string key,
+        ExpertDefinition expert,
+        StepEnvelope envelope,
+        PipelineRunOptions options,
+        IReadOnlyList<string> missionPath,
+        int attempt,
+        CancellationToken ct)
+    {
+        if (options.OnTrace is { } onCompleted)
+            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, envelope) { StepKey = key }, ct);
+    }
+
+    // ------------------------------------------------------------------
+    // Step invocation
+    // ------------------------------------------------------------------
 
     // The one invoke point for a step's expert, shared by sequence and parallel steps. On replay a
     // logged step returns its recorded envelope and writes, and runs or reports nothing. A live
@@ -439,11 +513,7 @@ public class PipelineRunner
         CancellationToken ct)
     {
         if (run.Replay(key, step.ExpertName, expert) is { } logged)
-        {
-            foreach (var (name, value) in logged.Writes)
-                context[name] = value.ToContextValue();
-            return new StepInvocation(new StepEnvelope(logged.Text, logged.Status, logged.Reason), Replayed: true, null, []);
-        }
+            return ReplayLogged(logged, context);
 
         var runner = RunnerFor(expert, step, options, key, attempt);
 
@@ -457,8 +527,39 @@ public class PipelineRunner
         var turn = run.ResumeTurnFor(key);
         AttachTools(expert, context, run, turn);
 
+        var (envelope, responseMessages) = await RunExpertAsync(
+            runner, step, key, expert, context, options, missionPath, attempt, inParallel, ct);
+
+        if (TakeRootCalls(run, expert, context) is { } calls)
+            return new StepInvocation(envelope, Replayed: false, calls, NormalizeToolTurn(turn, responseMessages, calls));
+
+        run.Record(new PipelineStepLogEntry(key, envelope.Text, envelope.Status, envelope.Reason, StepWrites(before, context)));
+        return new StepInvocation(envelope, Replayed: false, null, []);
+    }
+
+    private static StepInvocation ReplayLogged(PipelineStepLogEntry logged, Dictionary<string, object> context)
+    {
+        foreach (var (name, value) in logged.Writes)
+            context[name] = value.ToContextValue();
+        return new StepInvocation(new StepEnvelope(logged.Text, logged.Status, logged.Reason), Replayed: true, null, []);
+    }
+
+    // Runs the expert, then always strips the per-call tool hand-off from the context. A sequence
+    // step's failure is wrapped with its name; a parallel step's propagates as thrown.
+    private static async Task<(StepEnvelope Envelope, object? ResponseMessages)> RunExpertAsync(
+        IExpertRunner runner,
+        Step step,
+        string key,
+        ExpertDefinition expert,
+        Dictionary<string, object> context,
+        PipelineRunOptions options,
+        IReadOnlyList<string> missionPath,
+        int attempt,
+        bool inParallel,
+        CancellationToken ct)
+    {
         StepEnvelope envelope;
-        object? responseMessages = null;
+        object? responseMessages;
         try
         {
             envelope = inParallel
@@ -472,19 +573,31 @@ public class PipelineRunner
         }
         finally
         {
-            context.Remove("tools");
-            context.Remove(PipelineRuntimeInstructions.AllowMultipleToolCalls);
-            context.Remove(PipelineToolContinuationInstructions.TurnMessages);
-            context.Remove(PipelineToolContinuationInstructions.ResponseMessages, out responseMessages);
+            responseMessages = DetachTools(context);
         }
 
-        if (run.Scope is not null && expert.IsAgent
-            && context.Remove("tool_calls", out var raw) && raw is IReadOnlyList<FunctionCallContent> calls)
-            return new StepInvocation(envelope, Replayed: false, calls, NormalizeToolTurn(turn, responseMessages, calls));
-
-        run.Record(new PipelineStepLogEntry(key, envelope.Text, envelope.Status, envelope.Reason, StepWrites(before, context)));
-        return new StepInvocation(envelope, Replayed: false, null, []);
+        return (envelope, responseMessages);
     }
+
+    // Removes what AttachTools and the runner put on the context for this call only; returns the
+    // provider's complete reply messages, when the runner left them.
+    private static object? DetachTools(Dictionary<string, object> context)
+    {
+        context.Remove("tools");
+        context.Remove(PipelineRuntimeInstructions.AllowMultipleToolCalls);
+        context.Remove(PipelineToolContinuationInstructions.TurnMessages);
+        context.Remove(PipelineToolContinuationInstructions.ResponseMessages, out var responseMessages);
+        return responseMessages;
+    }
+
+    // An agent in a pausable run that asked for root tool calls pauses instead of being logged.
+    private static IReadOnlyList<FunctionCallContent>? TakeRootCalls(
+        RunState run, ExpertDefinition expert, Dictionary<string, object> context)
+        => run.Scope is not null && expert.IsAgent
+           && context.Remove("tool_calls", out var raw) && raw is IReadOnlyList<FunctionCallContent> calls
+            ? calls
+            : null;
+
 
     // Existing call-only runners and complete provider replies converge before checkpointing.
     private static IReadOnlyList<ChatMessage> NormalizeToolTurn(IReadOnlyList<ChatMessage>? turn,
@@ -524,8 +637,7 @@ public class PipelineRunner
         CancellationToken ct)
     {
         var scope = run.Scope!;
-        if (options.OnTrace is { } onCompleted)
-            await onCompleted(new PipelineStepCompleted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt, invocation.Envelope) { StepKey = key }, ct);
+        await TraceStepCompletedAsync(step, key, expert, invocation.Envelope, options, missionPath, attempt, ct);
 
         if (calls.Count != 1) return Failure(scope.RootMissionName, PipelineFailure.MultipleOutstandingTools);
         var call = ToPipelineToolCalls(calls).Single();
@@ -547,7 +659,7 @@ public class PipelineRunner
         return new MissionResult(scope.RootMissionName, string.Empty, MissionStatus.Pass, Attempts: attempt, Pause: pause);
     }
 
-    // Builds a child mission's options for ExecuteStepAsync and ExecuteParallelStepAsync.
+    // Builds a child mission's options for RunSubMissionAsync.
     // Deliberately inherits only the trace sink, delta streaming and the execution workspace, so a
     // sub-mission runs isolated under its own path (e.g. [Janus, Negotiate] and [Janus, Implement]
     // stay distinct). Root tools are not options state: they reach a child through the run's
