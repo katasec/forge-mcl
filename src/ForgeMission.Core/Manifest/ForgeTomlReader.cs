@@ -1,3 +1,5 @@
+using ForgeMission.Core.Experts;
+
 namespace ForgeMission.Core.Manifest;
 
 // Minimal TOML reader for forge.toml — handles only the schema we need:
@@ -159,8 +161,10 @@ public static class ForgeTomlReader
     {
         if (rows.TryGetValue("backend", out var backend) && backend != "process")
             throw new ForgeTomlException($"[execution] backend \"{backend}\" is not recognised. Known backends: process", path);
-        return new ExecutionConfig { Backend = rows.GetValueOrDefault("backend", "process"),
-            DefaultTimeout = rows.GetValueOrDefault("defaultTimeout", "30s") };
+        var defaultTimeout = rows.GetValueOrDefault("defaultTimeout", ExecTimeout.Default);
+        if (!ExecTimeout.TryParse(defaultTimeout, out _))
+            throw new ForgeTomlException($"[execution] defaultTimeout \"{defaultTimeout}\" is not a valid timeout. Use <int>s or <int>m, e.g. \"30s\" or \"2m\"", path);
+        return new ExecutionConfig { Backend = rows.GetValueOrDefault("backend", "process"), DefaultTimeout = defaultTimeout };
     }
 
     private sealed record ManifestSection(string Name, string? Key = null);

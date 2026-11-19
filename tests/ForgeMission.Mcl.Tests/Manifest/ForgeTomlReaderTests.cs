@@ -312,6 +312,33 @@ public class ForgeTomlReaderTests
         Assert.Equal("30s",     manifest!.Execution.DefaultTimeout);
     }
 
+    [Theory]
+    [InlineData("45s")]
+    [InlineData("2m")]
+    [InlineData("")]
+    public void ExecutionSection_AcceptedDefaultTimeout_IsKept(string timeout)
+    {
+        var path = WriteTempManifest($"[execution]\ndefaultTimeout = \"{timeout}\"\n");
+
+        Assert.Equal(timeout, ForgeTomlReader.TryRead(path)!.Execution.DefaultTimeout);
+    }
+
+    [Theory]
+    [InlineData("30")]
+    [InlineData("soon")]
+    [InlineData("1,5m")]
+    [InlineData("-5s")]
+    [InlineData("0s")]
+    [InlineData("+5s")]
+    [InlineData(" 5s")]
+    public void ExecutionSection_UnparseableDefaultTimeout_Throws(string timeout)
+    {
+        var path = WriteTempManifest($"[execution]\ndefaultTimeout = \"{timeout}\"\n");
+
+        var error = Assert.Throws<ForgeTomlException>(() => ForgeTomlReader.TryRead(path));
+        Assert.Contains($"defaultTimeout \"{timeout}\"", error.Message);
+    }
+
     [Fact]
     public void ExecutionSection_BackendAndTimeout_ParsedCorrectly()
     {

@@ -353,6 +353,7 @@ public class ExpertLoader(string expertsDirectory)
         var errors = new List<ExpertLoadException>();
         AddMissingFieldErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
         AddKindErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
+        AddTimeoutError(errors, meta, frontmatter, frontmatterStartLine, sourceName);
 
         if (errors.Count > 0)
             throw new AggregateExpertLoadException(errors);
@@ -420,6 +421,18 @@ public class ExpertLoader(string expertsDirectory)
             errors.Add(new ExpertLoadException(
                 $"Expert '{expertName}' has kind:{kind} but is missing required field '{field}'.", sourceName, line, col, endCol));
         }
+    }
+
+    // An unparseable timeout points at the "timeout:" line; a blank one keeps the manifest default.
+    private static void AddTimeoutError(
+        List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
+    {
+        if (ExecTimeout.TryParse(meta.Timeout, out _)) return;
+        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? Path.GetFileNameWithoutExtension(sourceName) : meta.Name;
+        var (line, col, endCol) = FindField(frontmatter, "timeout", startLine);
+        errors.Add(new ExpertLoadException(
+            $"Expert '{expertName}' has invalid timeout '{meta.Timeout}'. Use <int>s or <int>m, e.g. 30s or 2m.",
+            sourceName, line, col, endCol));
     }
 
     // Returns (frontmatter text, body text, 1-based line number of the first frontmatter line in the file).

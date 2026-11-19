@@ -448,6 +448,39 @@ public class ExpertLoaderTests : IDisposable
         Runs static analysis.
         """;
 
+    private static string TimedExecExpertMarkdown(string timeout) =>
+        $"---\nname: Timed\nkind: exec\ncommand: echo\ninputs: [x]\noutputKey: y\ninput: A\noutput: B\ntimeout: {timeout}\n---\nRun.";
+
+    [Theory]
+    [InlineData("30s", "30s")]
+    [InlineData("2m", "2m")]
+    [InlineData("\"\"", "")]
+    public void ParseContent_AcceptedTimeout_IsKept(string yaml, string expected)
+    {
+        var expert = ExpertLoader.ParseContent("Timed/expert.md", TimedExecExpertMarkdown(yaml));
+        Assert.Equal(expected, expert.Timeout);
+    }
+
+    [Theory]
+    [InlineData("30", "30")]
+    [InlineData("1h", "1h")]
+    [InlineData("abc", "abc")]
+    [InlineData("1.5s", "1.5s")]
+    [InlineData("-5s", "-5s")]
+    [InlineData("0s", "0s")]
+    [InlineData("+5s", "+5s")]
+    [InlineData("\" 5s\"", " 5s")]
+    public void ParseContent_UnparseableTimeout_ThrowsNamingExpertAndValue(string yaml, string timeout)
+    {
+        var agg = Assert.Throws<AggregateExpertLoadException>(() =>
+            ExpertLoader.ParseContent("Timed/expert.md", TimedExecExpertMarkdown(yaml)));
+        var error = agg.Errors.Single();
+        Assert.Contains("'Timed'", error.Message);
+        Assert.Contains($"'{timeout}'", error.Message);
+        Assert.Equal(9, error.Line);
+        Assert.Equal(0, error.Column);
+    }
+
     private static Program ExecMission => MclParser.Parse("""
         mission Audit = {
             StaticAnalyser

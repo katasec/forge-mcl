@@ -7,7 +7,7 @@ using ForgeMission.Core.Runtime;
 
 namespace ForgeMission.Core.Adapters;
 
-public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
+public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IExpertRunner
 {
     private const int MaxOutputBytes = 4 * 1024 * 1024;
     private const int MaxErrorBytes = 64 * 1024;
@@ -33,7 +33,7 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
         if (Encoding.UTF8.GetByteCount(inputJson) > MaxOutputBytes)
             return new("", "fail", "Executable stdin JSON exceeds 4 MiB.");
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var timeout = ParseTimeout(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
+        var timeout = ExecTimeout.Parse(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
         cancellation.CancelAfter(timeout);
         Process process;
         try
@@ -244,20 +244,6 @@ public class ExecExpertRunner(string defaultTimeout = "30s") : IExpertRunner
             if (!key.StartsWith("FORGE_", StringComparison.Ordinal)) continue;
             psi.Environment[key] = value?.ToString() ?? "";
         }
-    }
-
-    private static TimeSpan ParseTimeout(string timeout)
-    {
-        if (string.IsNullOrWhiteSpace(timeout))
-            return TimeSpan.FromSeconds(30);
-
-        if (timeout.EndsWith('s') && int.TryParse(timeout[..^1], out var secs))
-            return TimeSpan.FromSeconds(secs);
-
-        if (timeout.EndsWith('m') && int.TryParse(timeout[..^1], out var mins))
-            return TimeSpan.FromMinutes(mins);
-
-        return TimeSpan.FromSeconds(30);
     }
 }
 
