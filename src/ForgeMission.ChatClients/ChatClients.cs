@@ -29,9 +29,7 @@ public static class ChatClients
 
     private static IChatClient BuildOpenAiClient(ProviderProfile profile)
     {
-        var options = new OpenAIClientOptions();
-        if (!string.IsNullOrWhiteSpace(profile.Endpoint))
-            options.Endpoint = new Uri(profile.Endpoint);
+        var options = EndpointOptions(profile.Endpoint);
 #pragma warning disable OPENAI001 // Existing SDK Responses adapter is the selected OpenAI protocol.
         return new OpenAIClient(new ApiKeyCredential(profile.ApiKey ?? string.Empty), options)
             .GetResponsesClient().AsIChatClient(profile.Model)
@@ -42,39 +40,34 @@ public static class ChatClients
 #pragma warning restore OPENAI001
     }
 
-    private static IChatClient BuildAzureClient(ProviderProfile profile)
-    {
-        var options = new OpenAIClientOptions();
-        if (!string.IsNullOrWhiteSpace(profile.Endpoint))
-            options.Endpoint = new Uri(profile.Endpoint);
-        return new OpenAIClient(new ApiKeyCredential(profile.ApiKey ?? string.Empty), options)
-            .GetChatClient(profile.Model)
-            .AsIChatClient();
-    }
+    private static IChatClient BuildAzureClient(ProviderProfile profile) =>
+        ChatCompletionsClient(profile.ApiKey ?? string.Empty, EndpointOptions(profile.Endpoint), profile.Model);
 
     // Ollama is OpenAI-compatible — point the OpenAI client at the local Ollama endpoint.
-    private static IChatClient BuildOllamaClient(ProviderProfile profile)
-    {
-        var endpoint = string.IsNullOrWhiteSpace(profile.Endpoint)
-            ? "http://localhost:11434/v1"
-            : profile.Endpoint;
-        var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
-        return new OpenAIClient(new ApiKeyCredential("ollama"), options)
-            .GetChatClient(profile.Model)
-            .AsIChatClient();
-    }
+    private static IChatClient BuildOllamaClient(ProviderProfile profile) =>
+        ChatCompletionsClient("ollama", EndpointOptions(EndpointOrDefault(profile, "http://localhost:11434/v1")), profile.Model);
 
     // xAI (Grok) is OpenAI-compatible — point the OpenAI client at api.x.ai.
-    private static IChatClient BuildXaiClient(ProviderProfile profile)
-    {
-        var endpoint = string.IsNullOrWhiteSpace(profile.Endpoint)
-            ? "https://api.x.ai/v1"
-            : profile.Endpoint;
-        var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
-        return new OpenAIClient(new ApiKeyCredential(profile.ApiKey ?? string.Empty), options)
-            .GetChatClient(profile.Model)
-            .AsIChatClient();
-    }
+    private static IChatClient BuildXaiClient(ProviderProfile profile) =>
+        ChatCompletionsClient(profile.ApiKey ?? string.Empty, EndpointOptions(EndpointOrDefault(profile, "https://api.x.ai/v1")), profile.Model);
 
     private static IChatClient BuildAnthropicClient(ProviderProfile profile) => new AnthropicChatClient(profile);
+
+    // OpenAI chat-completions protocol, shared by the OpenAI-compatible providers.
+    private static IChatClient ChatCompletionsClient(string apiKey, OpenAIClientOptions options, string model) =>
+        new OpenAIClient(new ApiKeyCredential(apiKey), options)
+            .GetChatClient(model)
+            .AsIChatClient();
+
+    // An unset endpoint leaves the SDK default in place.
+    private static OpenAIClientOptions EndpointOptions(string? endpoint)
+    {
+        var options = new OpenAIClientOptions();
+        if (!string.IsNullOrWhiteSpace(endpoint))
+            options.Endpoint = new Uri(endpoint);
+        return options;
+    }
+
+    private static string EndpointOrDefault(ProviderProfile profile, string defaultEndpoint) =>
+        string.IsNullOrWhiteSpace(profile.Endpoint) ? defaultEndpoint : profile.Endpoint;
 }
