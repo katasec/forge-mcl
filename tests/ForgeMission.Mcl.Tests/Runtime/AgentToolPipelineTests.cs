@@ -700,9 +700,9 @@ public sealed class AgentToolPipelineTests
         finally { Environment.SetEnvironmentVariable(variable, previous); }
     }
 
-    // Replayed steps publish nothing: no trace fact and no StepWriter line (R4).
+    // Replayed steps publish nothing: no trace fact (R4).
     [Fact]
-    public async Task Replay_EmitsNoTraceOrStepWriterOutputForLoggedSteps()
+    public async Task Replay_EmitsNoTraceForLoggedSteps()
     {
         var ast = MclParser.Parse("mission Root = { Enrich -> Respond -> Verify }");
         var runner = new StubExpertRunner(Scripted);
@@ -710,18 +710,15 @@ public sealed class AgentToolPipelineTests
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
 
         var events = new List<PipelineTraceEvent>();
-        var steps = new StringWriter();
         await new PipelineRunner(runner).ResumeAsync(ast, Experts(),
             new PipelineResumeRequest(pause.Continuation,
                 new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded, "probe content")),
-            new PipelineRunOptions("ignored", StepWriter: steps,
+            new PipelineRunOptions("ignored",
                 OnTrace: (trace, _) => { events.Add(trace); return Task.CompletedTask; }));
 
         Assert.DoesNotContain(events, trace => trace is PipelineStepStarted { ExpertName: "Enrich" }
             or PipelineStepCompleted { ExpertName: "Enrich" });
         Assert.Equal(["Respond", "Verify"], events.OfType<PipelineStepStarted>().Select(trace => trace.ExpertName));
-        Assert.DoesNotContain("Enrich", steps.ToString(), StringComparison.Ordinal);
-        Assert.Contains("→ Respond...", steps.ToString(), StringComparison.Ordinal);
     }
 
     // An exec step before the agent runs once across two pauses in one turn; its context write

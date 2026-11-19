@@ -133,9 +133,6 @@ public class PipelineRunner
         {
             ct.ThrowIfCancellationRequested();
 
-            if (!run.Replaying && options.StepWriter is { } sw && maxLoops > 1)
-                await sw.WriteLineAsync($"(attempt {attempt}/{maxLoops})");
-
             var context = ContextBuilder.Seed(ast, options.Vars);
             if (options.ChatHistory is not null)
             {
@@ -249,9 +246,6 @@ public class PipelineRunner
                 b => ContextBuilder.ResolveBindingValue(b.Value, context),
                 StringComparer.Ordinal);
 
-            if (!run.Replaying && options.StepWriter is { } msw)
-                await msw.WriteLineAsync($"→ {step.ExpertName} (mission)...");
-
             var subResult = await RunCoreAsync(ast, experts,
                 CreateChildOptions(options, step.ExpertName, childVars, missionPath), run, ChildPrefix(key), ct);
             if (Halts(subResult)) return new StepOutcome(null, subResult);
@@ -312,9 +306,6 @@ public class PipelineRunner
         int attempt,
         CancellationToken ct)
     {
-        if (!run.Replaying && options.StepWriter is { } writer)
-            await writer.WriteLineAsync($"→ parallel {{ {string.Join(", ", parallel.Steps.Select(s => s.ExpertName))} }}");
-
         var snapshot = new Dictionary<string, object>(context, StringComparer.Ordinal);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var branches = parallel.Steps.Select((step, branch) => (step, key: $"{key}.{branch}")).ToList();
@@ -331,9 +322,6 @@ public class PipelineRunner
 
         foreach (var result in results)
             context[result.NamedKey] = result.Output;
-
-        if (!run.Replaying && options.StepWriter is { } endWriter)
-            await endWriter.WriteLineAsync();
 
         var failReason = results.Select(result => result.FailReason).FirstOrDefault(reason => reason is not null)
             ?? (results.Count < parallel.Steps.Count ? "a parallel step was cancelled" : null);
@@ -464,9 +452,6 @@ public class PipelineRunner
         if (options.OnTrace is { } onStarted)
             await onStarted(new PipelineStepStarted(options.MissionName, missionPath, step.ExpertName, expert.Kind, attempt) { StepKey = key }, ct);
 
-        if (!inParallel && options.StepWriter is { } sw)
-            await sw.WriteLineAsync($"→ {step.ExpertName}...");
-
         // Taken after bindings and before tools: the log holds only what the expert itself wrote.
         var before = new Dictionary<string, object>(context, StringComparer.Ordinal);
         var turn = run.ResumeTurnFor(key);
@@ -564,7 +549,7 @@ public class PipelineRunner
 
     // One small helper (Phase 43.16 Task 3) replacing the two ad-hoc child `new
     // PipelineRunOptions(...)` calls in ExecuteStepAsync/ExecuteParallelStepAsync. Deliberately
-    // inherits only writers, sinks and the execution workspace — preserving today's isolated
+    // inherits only the trace sink, delta streaming and the execution workspace — preserving today's isolated
     // sub-mission semantics (the essential Janus fix: Proposer/Approver run under [Janus,
     // Negotiate], Implementer under [Janus, Implement]). Root tools are not options state: they
     // reach a child through the run's pause scope.
@@ -576,9 +561,6 @@ public class PipelineRunner
         => new(
             childMissionName,
             childVars,
-            parent.StepWriter,
-            parent.ContentWriter,
-            OnSearchProgress: parent.OnSearchProgress,
             OnTrace: parent.OnTrace,
             MissionPath: [.. parentPath, childMissionName])
         {
@@ -668,8 +650,7 @@ public class PipelineRunner
         "search"       => new SearchExpertRunner(_webSearch
                               ?? throw new InvalidOperationException(
                                   "kind: search requires a configured IWebSearch (Scout). " +
-                                  "Pass one to the PipelineRunner constructor."),
-                              options.OnSearchProgress),
+                                  "Pass one to the PipelineRunner constructor.")),
         _              => ResolveRunner(step.Using)
     };
 
@@ -847,11 +828,10 @@ public class PipelineRunner
     // Expert invocation and streaming
     // ------------------------------------------------------------------
 
-    // The one place a sequence step's expert is invoked (Phase 53.8). It streams only when a caller
-    // asked for text as it is written: a step or content writer (CLI, serve), or the durable
-    // executor's StreamLlmDeltas for a tool-free, non-judge llm step. OnTrace alone never forces
-    // streaming: several non-LLM runners expose a text-only streaming adapter that cannot preserve
-    // a failing StepEnvelope.
+    // The one place a sequence step's expert is invoked (Phase 53.8). It streams only when the
+    // durable executor sets StreamLlmDeltas and the step is a tool-free, non-judge llm step.
+    // OnTrace alone never forces streaming: several non-LLM runners expose a text-only streaming
+    // adapter that cannot preserve a failing StepEnvelope.
     private static async Task<StepEnvelope> InvokeExpertAsync(
         IExpertRunner runner,
         ExpertDefinition expert,
@@ -869,43 +849,21 @@ public class PipelineRunner
         var text = new StringBuilder();
         await foreach (var chunk in runner.StreamAsync(expert, context, ct))
         {
-            if (options.StepWriter is { } stepWriter)
-                await stepWriter.WriteAsync(chunk);
-            if (options.ContentWriter is { } contentWriter)
-                await contentWriter.WriteAsync(chunk);
             text.Append(chunk);
 
             if (options.OnTrace is { } onDelta && !string.IsNullOrEmpty(chunk))
                 await onDelta(new PipelineStepDelta(options.MissionName, missionPath, expertName, expert.Kind, attempt, chunk) { StepKey = key }, ct);
         }
-        if (options.StepWriter is { } endWriter)
-            await endWriter.WriteLineAsync("\n");
 
-        // A non-judge llm step streams plain text (no envelope instruction) and always passes; a
-        // judge and every non-llm kind still stream the envelope they always have.
-        return IsPlainTextLlm(expert) ? new StepEnvelope(text.ToString()) : ParseStreamedEnvelope(text.ToString());
+        // A non-judge llm step streams plain text (no envelope instruction) and always passes.
+        return new StepEnvelope(text.ToString());
     }
 
     private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
-        options.StepWriter is not null
-        || options.ContentWriter is not null
-        || (options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey("tools"));
+        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey("tools");
 
     private static bool IsPlainTextLlm(ExpertDefinition expert) =>
         expert.Kind.Equals("llm", StringComparison.OrdinalIgnoreCase) && !expert.IsJudge;
-
-    private static StepEnvelope ParseStreamedEnvelope(string raw)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize(raw.Trim(), StepEnvelopeContext.Default.StepEnvelope)
-                ?? new StepEnvelope(raw);
-        }
-        catch (JsonException)
-        {
-            return new StepEnvelope(raw);
-        }
-    }
 
     // ------------------------------------------------------------------
     // Run state

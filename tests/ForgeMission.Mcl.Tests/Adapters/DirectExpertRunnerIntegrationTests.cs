@@ -61,17 +61,20 @@ public class DirectExpertRunnerIntegrationTests
                 "You are a reviewer. Say whether the summary you received is concise. Reply with only 'Yes' or 'No'.")
         };
 
-        var stepWriter = new StringWriter();
+        var started    = new List<string>();
         var runner     = new PipelineRunner(new DirectExpertRunner(BuildChatClient()));
         var options    = new PipelineRunOptions(
             "TestMission",
             Vars: new Dictionary<string, string> { ["output"] = "The sky is blue because of Rayleigh scattering of sunlight." },
-            StepWriter: stepWriter);
+            OnTrace: (trace, _) =>
+            {
+                if (trace is PipelineStepStarted step) started.Add(step.ExpertName);
+                return Task.CompletedTask;
+            });
 
         var result = await runner.RunAsync(ast, experts, options);
 
         Assert.False(string.IsNullOrWhiteSpace(result.Text));
-        Assert.Contains("Summariser", stepWriter.ToString());
-        Assert.Contains("Reviewer", stepWriter.ToString());
+        Assert.Equal(["Summariser", "Reviewer"], started);
     }
 }

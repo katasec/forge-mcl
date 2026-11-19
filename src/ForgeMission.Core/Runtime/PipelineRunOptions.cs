@@ -1,19 +1,10 @@
 using Microsoft.Extensions.AI;
-using Scout;
 
 namespace ForgeMission.Core.Runtime;
 
 public record PipelineRunOptions(
     string MissionName,
     IReadOnlyDictionary<string, string>? Vars = null,
-    TextWriter? StepWriter = null,
-    TextWriter? ContentWriter = null,
-    // Fired for each sub-search a kind:search backend narrates while a single search step runs (41.7
-    // Task 2) — e.g. Grok's per-query web_search_call actions. Fills the long search step with live
-    // detail; backends that can't narrate simply never call it. Unlike OnTrace below, this is the
-    // existing synchronous callback imposed by Scout's IProgress backend, not a pipeline lifecycle
-    // fact — left unchanged by Task 3.
-    Action<WebSearchProgress>? OnSearchProgress = null,
     // Mission names, root to current, for the currently executing mission (Phase 43.16 Task 3).
     // Null at a fresh top-level call — the runner defaults it to [MissionName]; CreateChildOptions
     // appends the child's declared mission name for a nested sub-mission invocation.

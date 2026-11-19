@@ -74,29 +74,6 @@ public class PipelineRunnerTests
     }
 
     [Fact]
-    public async Task StepWriter_ReceivesEachStepOutput()
-    {
-        var ast = MclParser.Parse("""
-            mission BuildOperator = {
-                KubernetesArchitect
-                -> SecurityArchitect
-            }
-            """);
-
-        var sw     = new StringWriter();
-        var stub   = new StubExpertRunner((name, _) => $"Output from {name}");
-        await new PipelineRunner(stub)
-            .RunAsync(ast, Experts("KubernetesArchitect", "SecurityArchitect"),
-                      new PipelineRunOptions("BuildOperator", StepWriter: sw));
-
-        var written = sw.ToString();
-        Assert.Contains("→ KubernetesArchitect...", written);
-        Assert.Contains("→ SecurityArchitect...", written);
-        Assert.Contains("Output from KubernetesArchitect", written);
-        Assert.Contains("Output from SecurityArchitect", written);
-    }
-
-    [Fact]
     public async Task CancellationToken_IsRespected()
     {
         var ast = MclParser.Parse("""
