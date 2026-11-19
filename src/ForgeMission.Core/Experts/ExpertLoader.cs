@@ -361,9 +361,7 @@ public class ExpertLoader(string expertsDirectory)
         }
         catch (YamlException ex)
         {
-            var line = frontmatterStartLine + (int)ex.Start.Line - 1;
-            var col  = (int)ex.Start.Column - 1;
-            throw new ExpertLoadException(ex.InnerException?.Message ?? ex.Message, sourceName, line, col);
+            throw InvalidFrontmatter(sourceName, frontmatter, frontmatterStartLine, ex);
         }
 
         // Collect all semantic errors before surfacing them
@@ -381,6 +379,34 @@ public class ExpertLoader(string expertsDirectory)
             ExpertDirectory: Path.GetDirectoryName(sourceName) ?? "",
             OutputKeys: meta.OutputKeys.Count > 0 ? meta.OutputKeys : null,
             InputKeys:  meta.InputKeys.Count  > 0 ? meta.InputKeys  : null);
+    }
+
+    // Reports the YAML parser's own problem in plain words, at the node where deserialization failed.
+    // Typed deserialization can trip over a value's shape before the parser reaches a syntax error,
+    // so the text is parsed on its own for the reason; frontmatter that parses cleanly holds a value
+    // of the wrong type for its field.
+    private static ExpertLoadException InvalidFrontmatter(
+        string sourceName, string frontmatter, int startLine, YamlException deserializeError)
+    {
+        var reason = SyntaxError(frontmatter) ?? "value has the wrong type for its field";
+        var start  = deserializeError.Start;
+        return new ExpertLoadException(
+            $"Invalid YAML frontmatter in expert '{Path.GetFileNameWithoutExtension(sourceName)}': {reason}",
+            sourceName, startLine + (int)start.Line - 1, (int)start.Column - 1);
+    }
+
+    // The parser's syntax error in the frontmatter, or null when it parses cleanly. On some unclosed
+    // flow collections YamlDotNet's parser throws InvalidOperationException with no message of use.
+    private static string? SyntaxError(string frontmatter)
+    {
+        try
+        {
+            var parser = new YamlDotNet.Core.Parser(new StringReader(frontmatter));
+            while (parser.MoveNext()) { }
+            return null;
+        }
+        catch (YamlException ex)          { return ex.Message; }
+        catch (InvalidOperationException) { return "syntax error"; }
     }
 
     private static readonly (string Field, Func<ExpertFrontmatter, string> Value)[] RequiredFields =

@@ -68,6 +68,27 @@ public class ExpertLoaderDiagnosticsCharacterizationTests : IDisposable
             ParseErrors("R.md", "---\nname: R\ninput: a\noutput: b\nkind: rule\n---\n"));
     }
 
+    [Theory]
+    // Unclosed '[' followed by another key: the YAML parser has no message of its own here.
+    [InlineData("---\nname: X\ninput: a\noutput: b\ninputs: [a, b\nrole: r\n---\n",
+        "syntax error", 5, 9)]
+    // Unclosed '[' where a string is expected: the parser's own complaint, at the '['.
+    [InlineData("---\nname: [X\n---\n",
+        "While parsing a flow sequence, did not find expected ',' or ']'.", 2, 6)]
+    // Well-formed YAML with a mapping or a list where a string is expected.
+    [InlineData("---\nname: X\ninput:\n  nested: 1\noutput: b\n---\n",
+        "value has the wrong type for its field", 4, 2)]
+    [InlineData("---\nname: [X]\n---\n",
+        "value has the wrong type for its field", 2, 6)]
+    public void ParseContent_reports_malformed_yaml_in_plain_words_at_its_file_position(
+        string markdown, string reason, int line, int column)
+    {
+        var error = Assert.Throws<ExpertLoadException>(() => ExpertLoader.ParseContent("dir/Writer.md", markdown));
+
+        Assert.Equal(($"Invalid YAML frontmatter in expert 'Writer': {reason}", "dir/Writer.md", line, column),
+            (error.Message, error.FilePath, error.Line, error.Column));
+    }
+
     [Fact]
     public void Validate_reports_MCL011_and_MCL012_in_key_order_at_key_positions()
     {
