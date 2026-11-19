@@ -2,15 +2,7 @@ namespace ForgeMission.Core.Resolution;
 
 public enum MclErrorCode
 {
-    UnknownExpert          = 1,
-    DuplicateExpert        = 2,
-    CircularReference      = 3,
-    MissingFrontmatter     = 4,
     SourceNotFound         = 5,
-    StaleLockFile          = 6,
-    NotInitialised         = 7,
-    OciNotPulled           = 10,
-    OciPullFailed          = 11,
 }
 
 public class MclException(MclErrorCode code, string message, string? detail = null)

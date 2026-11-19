@@ -11,8 +11,8 @@ using Microsoft.Extensions.Options;
 // One top-level exit/exception handler owns every exit code: helpers signal a deliberate exit by
 // throwing ForgeExitException (see CliDiagnostics.Die) rather than calling Environment.Exit deep in
 // the stack, so teardown/finally runs on the way out. System.CommandLine's own exception handler is
-// disabled so those exceptions reach this handler; it also keeps the library's prior behaviour for
-// any unexpected exception (print it, exit 1). Ctrl+C/SIGTERM reaches every action as its token and
+// disabled so those exceptions reach this handler; an unexpected exception is printed
+// and exits 1, as the library's own handler would. Ctrl+C/SIGTERM reaches every action as its token and
 // exits 130 there (CommandActions); a cancellation that reaches this handler is not the command's own.
 var invocation = new InvocationConfiguration { EnableDefaultExceptionHandler = false };
 try

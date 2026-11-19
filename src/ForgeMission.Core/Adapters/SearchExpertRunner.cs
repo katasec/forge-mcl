@@ -1,7 +1,6 @@
-using System.Runtime.CompilerServices;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
-using Scout;
+using ForgeMission.Scout;
 
 namespace ForgeMission.Core.Adapters;
 
@@ -12,8 +11,8 @@ namespace ForgeMission.Core.Adapters;
 /// named context keys the way <c>json_extract</c> does — <c>search_results</c> (the retrieved text) and
 /// <c>search_sources</c> (newline-joined source URLs) — so a downstream <c>llm</c> expert can template
 /// <c>{{search_results}}</c> / <c>{{search_sources}}</c>.
-/// <para>Depends only on the <see cref="IWebSearch"/> abstraction — the backend (Grok today; Tavily/Exa/
-/// OpenAI later) is chosen where the <see cref="PipelineRunner"/> is built, keeping this AOT-clean and
+/// <para>Depends only on the <see cref="IWebSearch"/> abstraction — the backend (currently Grok) is
+/// chosen where the <see cref="PipelineRunner"/> is built, keeping this AOT-clean and
 /// provider-agnostic.</para>
 /// </summary>
 public sealed class SearchExpertRunner(IWebSearch search) : IExpertRunner
@@ -28,7 +27,7 @@ public sealed class SearchExpertRunner(IWebSearch search) : IExpertRunner
             throw new InvalidOperationException(
                 $"kind: search ({expert.Name}) has no query — set a 'query' binding or upstream 'output'.");
 
-        var result = await search.SearchAsync(new WebSearchRequest(query), progress: null, ct);
+        var result = await search.SearchAsync(new WebSearchRequest(query), ct);
 
         // Publish retrieval into context (the json_extract pattern) for downstream {{search_results}} / {{search_sources}}.
         context["search_results"] = result.Answer ?? string.Empty;
@@ -37,15 +36,6 @@ public sealed class SearchExpertRunner(IWebSearch search) : IExpertRunner
             : string.Empty;
 
         return new StepEnvelope(result.Answer ?? string.Empty);
-    }
-
-    public async IAsyncEnumerable<string> StreamAsync(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var envelope = await RunAsync(expert, context, ct);
-        yield return envelope.Text;
     }
 
     private static string? Resolve(Dictionary<string, object> context, string key) =>

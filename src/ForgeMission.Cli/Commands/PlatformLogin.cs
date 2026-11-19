@@ -18,7 +18,7 @@ namespace ForgeMission.Cli.Commands;
 // forge login: platform sign-in via loopback auth-code + PKCE against Entra External ID.
 // Hand-rolled public client (no MSAL — AOT-first): one localhost listener + one token call.
 // Produces Entra tokens proving identity; the access token is then exchanged for a platform key.
-public static class PlatformLogin
+internal static class PlatformLogin
 {
     internal static async Task<int> RunAsync(IOptions<PlatformLoginOptions> options, IHttpClientFactory clients,
         CancellationToken cancellationToken)

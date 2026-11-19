@@ -25,10 +25,4 @@ public record ExpertDefinition(
     // The tool-capable terminal expert: client tools attach to THIS expert's
     // provider call only; a tool call from it returns to the client (the agent segment).
     public bool IsAgent       => Role.Equals("agent",       StringComparison.OrdinalIgnoreCase);
-    public bool IsHttp        => Kind.Equals("http",        StringComparison.OrdinalIgnoreCase);
-    public bool IsRule        => Kind.Equals("rule",        StringComparison.OrdinalIgnoreCase);
-    public bool IsOnnx        => Kind.Equals("onnx",        StringComparison.OrdinalIgnoreCase);
-    public bool IsJsonExtract => Kind.Equals("json_extract",StringComparison.OrdinalIgnoreCase);
-    public bool IsExec        => Kind.Equals("exec",        StringComparison.OrdinalIgnoreCase);
-    public bool IsSearch      => Kind.Equals("search",      StringComparison.OrdinalIgnoreCase);
 }

@@ -145,7 +145,8 @@ public static class RuleExpression
     {
         try
         {
-            _ = System.Xml.Linq.XDocument.Parse(text.Trim());
+            // The parse is the check: malformed XML throws XmlException, caught below.
+            System.Xml.Linq.XDocument.Parse(text.Trim());
             return true;
         }
         catch (System.Xml.XmlException) { return false; }

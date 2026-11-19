@@ -39,7 +39,7 @@ public static class ExpertResolver
                 {
                     warnings?.WriteLine(
                         $"warning MCL010: local expert '{name}' shadows the lock-file entry " +
-                        $"({AbbrPath(recorded)}). Local version will be used. " +
+                        $"({ToLockPath(recorded)}). Local version will be used. " +
                         $"Run 'forge init' to update the lock file if this is intentional.");
                 }
             }
@@ -58,7 +58,7 @@ public static class ExpertResolver
                         $"Run 'forge init' to update the lock file.");
             }
 
-            verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({AbbrPath(absPath)})");
+            verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({ToLockPath(absPath)})");
 
             result[name] = ExpertLoader.ParseFile(absPath);
         }
@@ -86,6 +86,16 @@ public static class ExpertResolver
         return (null, "");
     }
 
+    // The mcl.lock form of a cache path: ~/... when under the user's home, otherwise unchanged.
+    // Also the verbose/warning display form.
+    public static string ToLockPath(string absolutePath)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return absolutePath.StartsWith(home, StringComparison.Ordinal)
+            ? "~/" + absolutePath[(home.Length + 1)..].Replace(Path.DirectorySeparatorChar, '/')
+            : absolutePath;
+    }
+
     private static string ResolveLockPath(string path, string missionDir)
     {
         if (path.StartsWith("~/", StringComparison.Ordinal))
@@ -97,14 +107,5 @@ public static class ExpertResolver
             return path;
 
         return Path.GetFullPath(Path.Combine(missionDir, path));
-    }
-
-    // Abbreviate the path for verbose output: ~/... for home-relative, relative for mission-relative.
-    private static string AbbrPath(string absPath)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (absPath.StartsWith(home, StringComparison.Ordinal))
-            return "~" + absPath[home.Length..].Replace(Path.DirectorySeparatorChar, '/');
-        return absPath;
     }
 }

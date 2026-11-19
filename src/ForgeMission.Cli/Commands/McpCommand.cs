@@ -16,10 +16,10 @@ using McpTextContent = ModelContextProtocol.Protocol.TextContentBlock;
 
 namespace ForgeMission.Cli.Commands;
 
-// Owns the forge mcp protocol surface: it turns an already-loaded mission into a stdio MCP server
-// exposing that mission as a single tool. Mission resolution, validation and runner construction
-// stay with the shared CLI helpers in Program and reach this surface through ServeAsync's inputs
-// and runner factory. The input schema is written with Utf8JsonWriter (AOT-safe, no STJ reflection).
+// forge mcp: serves one mission as a stdio MCP server with that mission as its single tool.
+// Mission loading and validation use CliHelpers; runners are built per tool call by
+// MissionServerBuilder.BuildRunners and reach ServeAsync as a factory. The input schema is written
+// with Utf8JsonWriter (AOT-safe, no STJ reflection).
 internal static class McpCommand
 {
     // Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared
@@ -45,7 +45,7 @@ internal static class McpCommand
 
             if (!File.Exists(lockPath)) CliDiagnostics.Die("MCL007 Mission not initialised — run 'forge init' first.");
 
-            if (await CliHelpers.TryLoadMissionAsync(mission.FullName, ct) is not (var ast, var manifest)) return;
+            var (ast, manifest) = await CliHelpers.LoadMissionAsync(mission.FullName, ct);
 
             LockFile lockFile;
             try { lockFile = LockFileIO.Read(lockPath); }
@@ -53,8 +53,8 @@ internal static class McpCommand
 
             Dictionary<string, ExpertDefinition> expertDefs;
             try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose: null, warnings: Console.Error); }
-            catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
-            catch (ExpertLoadException ex)           { CliDiagnostics.ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
+            catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+            { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
 
             if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName)) return;
 

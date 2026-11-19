@@ -55,7 +55,7 @@ public static class CredentialStore
         var envToken = Environment.GetEnvironmentVariable("FORGE_REGISTRY_TOKEN");
         if (!string.IsNullOrWhiteSpace(envToken)) return envToken;
 
-        // A null registry has always resolved to "no token" rather than throwing.
+        // A null registry resolves to no token rather than throwing.
         if (registry is null) return null;
 
         var creds = ReadCredentials();
@@ -115,16 +115,15 @@ public static class CredentialStore
         }
     }
 
-    // Reads: a missing or unreadable/corrupt credentials file is treated as missing.
+    // Reads: a missing file reads as empty; an unreadable (IO or permission) or corrupt
+    // (ReadCredentialsForUpdate's not-valid-JSON refusal) credentials file is treated as missing.
     private static ForgeCredentials? ReadCredentials()
     {
-        if (!File.Exists(CredentialsPath)) return null;
-
         try
         {
             return ReadCredentialsForUpdate();
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             return null;
         }

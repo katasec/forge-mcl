@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
 using ForgeMission.Parser;
@@ -11,21 +12,18 @@ namespace ForgeMission.Cli.Services;
 // top-down.
 internal static class CliHelpers
 {
-    internal static async Task<string?> TryReadFile(string path, CancellationToken cancellationToken)
+    internal static async Task<string> ReadFileAsync(string path, CancellationToken cancellationToken)
     {
         try { return await File.ReadAllTextAsync(path, cancellationToken); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { CliDiagnostics.Die($"Cannot read file '{path}': {ex.Message}"); return null; }
+        catch (Exception ex) when (ex is not OperationCanceledException) { CliDiagnostics.Die($"Cannot read file '{path}': {ex.Message}"); throw new UnreachableException(); }
     }
 
     // The mission-load opening shared by `forge init`, `forge validate` and `forge mcp`: read the
     // mission file, parse it, then read forge.toml beside it. Each step reports its own failure.
-    internal static async Task<(MclProgram Ast, ForgeManifest? Manifest)?> TryLoadMissionAsync(string missionPath, CancellationToken cancellationToken)
+    internal static async Task<(MclProgram Ast, ForgeManifest? Manifest)> LoadMissionAsync(string missionPath, CancellationToken cancellationToken)
     {
-        var source = await TryReadFile(missionPath, cancellationToken);
-        if (source is null) return null;
-
-        var ast = TryParse(source, missionPath);
-        if (ast is null) return null;
+        var source = await ReadFileAsync(missionPath, cancellationToken);
+        var ast    = Parse(source, missionPath);
 
         ForgeManifest? manifest = null;
         try { manifest = ForgeTomlReader.TryRead(missionPath); }
@@ -34,7 +32,7 @@ internal static class CliHelpers
         return (ast, manifest);
     }
 
-    internal static MclProgram? TryParse(string source, string filePath)
+    internal static MclProgram Parse(string source, string filePath)
     {
         var result = MclParser.TryParse(source);
         if (!result.Success)
@@ -46,12 +44,12 @@ internal static class CliHelpers
         return result.Ast!;
     }
 
-    internal static Dictionary<string, ExpertDefinition> TryLoadExperts(string expertsDir)
+    internal static Dictionary<string, ExpertDefinition> LoadExperts(string expertsDir)
     {
         if (!Directory.Exists(expertsDir)) CliDiagnostics.Die($"Experts directory not found: {expertsDir}");
         try { return new ExpertLoader(expertsDir).LoadAll(); }
-        catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); throw new ForgeExitException(1); }
-        catch (ExpertLoadException ex) { CliDiagnostics.ReportExpertDiagnostic(ex); throw new ForgeExitException(1); }
+        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+        { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
     }
 
     internal static bool TryValidate(
@@ -65,8 +63,8 @@ internal static class CliHelpers
             ExpertLoader.Validate(ast, experts, Console.Error, contractErrorsAreFatal, missionFilePath);
             return true;
         }
-        catch (AggregateExpertLoadException ex) { foreach (var e in ex.Errors) CliDiagnostics.ReportExpertDiagnostic(e); return false; }
-        catch (ExpertLoadException ex)          { CliDiagnostics.ReportExpertDiagnostic(ex); return false; }
+        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+        { CliDiagnostics.ReportExpertLoadFailure(ex); return false; }
     }
 
     // The lock file lives beside the mission; one place builds its path.

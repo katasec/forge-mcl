@@ -1,5 +1,6 @@
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
+using ForgeMission.Core.Runtime;
 
 namespace ForgeMission.Tests.Adapters;
 
@@ -76,7 +77,7 @@ public class RuleExpertRunnerTests
     [Fact]
     public async Task StreamAsync_YieldsSingleChunk()
     {
-        var runner  = new RuleExpertRunner();
+        IExpertRunner runner = new RuleExpertRunner();
         var expert  = RuleExpert("word_count > 0");
         var context = new Dictionary<string, object> { ["output"] = "hello" };
 

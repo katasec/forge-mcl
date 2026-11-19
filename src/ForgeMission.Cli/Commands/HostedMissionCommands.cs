@@ -7,9 +7,11 @@ using Katasec.OciClient;
 namespace ForgeMission.Cli.Commands;
 
 // Hosted-mission and packaging commands: `forge run` (run a mission as a cloud conversation in a
-// project) and `forge publish` (package a mission directory into an OCI artifact and push it). The
-// cloud run lives in ForgeDurableRun; OCI packaging/push lives in MissionRegistry and
-// Katasec.OciClient. This surface owns only the command wiring.
+// project) and `forge publish` (package a mission directory into an OCI artifact and push it).
+// `forge run` picks the project file (--project, else ./forge.project.json) and hands off to
+// ForgeDurableRun. `forge publish` checks for mission.mcl, splits the target with OciReference,
+// packs with MissionBundle, reads the registry token from CredentialStore and pushes with
+// Katasec.OciClient.
 internal static class HostedMissionCommands
 {
     // ---------------------------------------------------------------------------
@@ -39,7 +41,7 @@ internal static class HostedMissionCommands
         return cmd;
     }
 
-    private const string DefaultProjectFile = "forge.project.json";
+    internal const string DefaultProjectFile = "forge.project.json";
 
     /// <summary>The run's project file: --project when given, else forge.project.json in
     /// <paramref name="directory"/>.</summary>

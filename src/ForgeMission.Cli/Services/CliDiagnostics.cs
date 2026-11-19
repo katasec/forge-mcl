@@ -5,7 +5,7 @@ using ForgeMission.Parser;
 namespace ForgeMission.Cli.Services;
 
 // Shared CLI diagnostic output: the rustc-style error renderer, the two report helpers that feed it
-// (parse diagnostics and expert-load diagnostics), the ANSI bold/colour wrappers, and Die. Kept
+// (parse diagnostics and expert-load failures), the ANSI bold/colour wrappers, and Die. Kept
 // together because Die and the report helpers all route through the same ANSI wrappers, and many
 // commands depend on them.
 internal static class CliDiagnostics
@@ -19,7 +19,21 @@ internal static class CliDiagnostics
         RenderDiagnostic(d.Message, filePath, d.Line, d.Column, d.EndColumn, sourceLine);
     }
 
-    internal static void ReportExpertDiagnostic(ExpertLoadException ex)
+    // The one CLI report for a failed expert load: each error of an aggregate in order, or the single
+    // error. Callers keep their own exit/continue decision. An error without a location calls Die,
+    // which exits at once — even partway through an aggregate.
+    internal static void ReportExpertLoadFailure(Exception failure)
+    {
+        IReadOnlyList<ExpertLoadException> errors = failure switch
+        {
+            AggregateExpertLoadException aggregate => aggregate.Errors,
+            ExpertLoadException single             => [single],
+            _ => throw new ArgumentException($"Not an expert-load failure: {failure.GetType().Name}", nameof(failure)),
+        };
+        foreach (var error in errors) ReportExpertDiagnostic(error);
+    }
+
+    private static void ReportExpertDiagnostic(ExpertLoadException ex)
     {
         // No file path — fall back to plain Die-style output
         if (ex.FilePath is null || ex.Line == 0) Die(ex.Message);

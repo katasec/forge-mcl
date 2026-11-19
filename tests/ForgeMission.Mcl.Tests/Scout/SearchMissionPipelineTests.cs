@@ -3,7 +3,7 @@ using ForgeMission.Core.Experts;
 using ForgeMission.Core.Runtime;
 using ForgeMission.Parser;
 using ForgeMission.Tests.Runtime;
-using Scout;
+using ForgeMission.Scout;
 using static ForgeMission.Core.Runtime.MissionStatus;
 
 namespace ForgeMission.Tests.Scout;

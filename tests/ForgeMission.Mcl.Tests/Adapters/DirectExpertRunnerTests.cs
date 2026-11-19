@@ -64,10 +64,8 @@ public class DirectExpertRunnerTests
     private static Dictionary<string, object> EmptyContext() =>
         new Dictionary<string, object> { ["output"] = "some input" };
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ToolResponse_PreservesCompleteGenericMessages(bool stream)
+    [Fact]
+    public async Task ToolResponse_PreservesCompleteGenericMessages()
     {
         var response = new ChatResponse([new ChatMessage(ChatRole.Assistant, "first-message") { MessageId = "first" }, new ChatMessage(ChatRole.Assistant,
             [new TextReasoningContent("reason") { ProtectedData = "protected" }, new TextContent("before-tool"),
@@ -75,8 +73,7 @@ public class DirectExpertRunnerTests
         var runner = new DirectExpertRunner(new StubChatClient("pass", response: response));
         var context = EmptyContext();
         context["tools"] = new List<AITool> { AIFunctionFactory.Create(() => "", "Read") };
-        if (stream) { await foreach (var _ in runner.StreamAsync(CriticExpert(), context)) { } }
-        else await runner.RunAsync(CriticExpert(), context);
+        await runner.RunAsync(CriticExpert(), context);
         var messages = Assert.IsAssignableFrom<IReadOnlyList<ChatMessage>>(context["__pipeline_tool_response_messages"]);
         Assert.Equal(2, messages.Count);
         Assert.Equal("first-message", messages[0].Text);
@@ -193,7 +190,7 @@ public class DirectExpertRunnerTests
     }
 
     // Phase 53.8: a streamed non-judge step answers in plain text, so its system prompt carries no
-    // JSON envelope instruction; a streamed judge keeps its pass/fail envelope instruction.
+    // JSON envelope instruction.
     [Fact]
     public async Task StreamingNonJudge_SendsNoEnvelopeInstruction()
     {
@@ -205,20 +202,6 @@ public class DirectExpertRunnerTests
 
         var system = Assert.Single(client.Requests)[0];
         Assert.Equal("You are a critic.", system.Text);
-    }
-
-    [Fact]
-    public async Task StreamingJudge_KeepsEnvelopeInstruction()
-    {
-        var client = new StubChatClient("pass");
-
-        await foreach (var _ in new DirectExpertRunner(client).StreamAsync(JudgeExpert(), EmptyContext()))
-        {
-        }
-
-        var system = Assert.Single(client.Requests)[0];
-        Assert.StartsWith("You are a judge.", system.Text);
-        Assert.Contains("\"status\": \"fail\"", system.Text);
     }
 
     // ── Phase 58: durable chat history ───────────────────────────────────────────────────────
@@ -279,20 +262,6 @@ public class DirectExpertRunnerTests
         await new DirectExpertRunner(client).RunAsync(CriticExpert(), context);
 
         Assert.Equal(HistoryShape, Assert.Single(client.Requests).Select(m => m.Role));
-    }
-
-    [Fact]
-    public async Task StreamingJudge_WithChatHistory_KeepsInstructionInSystemMessage()
-    {
-        var client = new StubChatClient("pass");
-
-        await foreach (var _ in new DirectExpertRunner(client).StreamAsync(JudgeExpert(), HistoryContext()))
-        {
-        }
-
-        var messages = Assert.Single(client.Requests);
-        Assert.Equal(HistoryShape, messages.Select(m => m.Role));
-        Assert.Contains("\"status\": \"fail\"", messages[0].Text);
     }
 
     [Fact]

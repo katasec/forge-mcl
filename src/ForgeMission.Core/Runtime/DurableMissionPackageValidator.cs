@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ForgeMission.Core.Experts;
+using ForgeMission.Core.Manifest;
+using ForgeMission.Core.Resolution;
 using ForgeMission.Parser;
 using MclProgram = ForgeMission.Parser.Program;
 
@@ -24,16 +26,31 @@ public static class DurableMissionPackageValidator
         try
         {
             var root = MclParser.Parse(missionSource).Declarations.OfType<MissionDeclaration>().FirstOrDefault();
-            if (root is null) { reason = "The durable package has no root mission."; return false; }
+            if (root is null)
+            {
+                reason = "The durable package has no root mission.";
+                return false;
+            }
+
             var raw = new DurableMissionPackageInput(CurrentFormatVersion, "", missionSource, root.Name,
                 root.Params.FirstOrDefault() ?? "", resolvedExperts, assets);
-            if (!ValidShape(raw)) { reason = "The durable package shape is invalid."; return false; }
+            if (!ValidShape(raw))
+            {
+                reason = "The durable package shape is invalid.";
+                return false;
+            }
+
             raw = raw with { PackageHash = ComputeHash(raw) };
             if (!TryValidate(raw, out _, out reason)) return false;
+
             package = raw;
             return true;
         }
-        catch (ParseException exception) { reason = $"The durable package could not be parsed: {exception.Message}"; return false; }
+        catch (ParseException exception)
+        {
+            reason = $"The durable package could not be parsed: {exception.Message}";
+            return false;
+        }
     }
 
     public static bool TryValidate(DurableMissionPackageInput package,
@@ -41,11 +58,24 @@ public static class DurableMissionPackageValidator
     {
         validated = null;
         reason = null;
-        if (!ValidShape(package)) { reason = "The durable package shape is invalid."; return false; }
+        if (!ValidShape(package))
+        {
+            reason = "The durable package shape is invalid.";
+            return false;
+        }
+
         if (!string.Equals(package.PackageHash, ComputeHash(package), StringComparison.OrdinalIgnoreCase))
-        { reason = "The durable package hash does not match its canonical content."; return false; }
+        {
+            reason = "The durable package hash does not match its canonical content.";
+            return false;
+        }
+
         if (JsonSerializer.SerializeToUtf8Bytes(package, DurablePackageJsonContext.Default.DurableMissionPackageInput).Length > MaxPackageUtf8Bytes)
-        { reason = "The serialized durable package exceeds 4 MiB."; return false; }
+        {
+            reason = "The serialized durable package exceeds 4 MiB.";
+            return false;
+        }
+
         try
         {
             var experts = ParseExperts(package);
@@ -63,7 +93,10 @@ public static class DurableMissionPackageValidator
         }
         catch (Exception exception) when (exception is ExpertLoadException or AggregateExpertLoadException
             or ParseException or InvalidOperationException or ArgumentException)
-        { reason = $"The durable package is invalid: {exception.Message}"; return false; }
+        {
+            reason = $"The durable package is invalid: {exception.Message}";
+            return false;
+        }
     }
 
     public static bool TryValidateInputNames(ValidatedDurableMissionPackage package,
@@ -72,12 +105,22 @@ public static class DurableMissionPackageValidator
         reason = null;
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in names)
+        {
             if (!DurableMissionInputPolicy.IsIdentifier(name) || DurableMissionInputPolicy.IsReserved(name)
                 || !seen.Add(name) || !package.AdmittedInputNames.Contains(name, StringComparer.Ordinal))
-            { reason = $"Input name '{name}' is invalid, reserved, duplicated or undeclared."; return false; }
+            {
+                reason = $"Input name '{name}' is invalid, reserved, duplicated or undeclared.";
+                return false;
+            }
+        }
+
         var root = package.Ast.Declarations.OfType<MissionDeclaration>().First();
         if (root.Params.Any(parameter => !seen.Contains(parameter)))
-        { reason = "All root mission parameters must be supplied explicitly."; return false; }
+        {
+            reason = "All root mission parameters must be supplied explicitly.";
+            return false;
+        }
+
         return true;
     }
 
@@ -85,22 +128,31 @@ public static class DurableMissionPackageValidator
     {
         var canonical = new StringBuilder();
         Append(canonical, package.FormatVersion.ToString(CultureInfo.InvariantCulture));
-        Append(canonical, package.MissionSource); Append(canonical, package.RootMissionName); Append(canonical, package.RootInputName);
+        Append(canonical, package.MissionSource);
+        Append(canonical, package.RootMissionName);
+        Append(canonical, package.RootInputName);
         foreach (var expert in package.ResolvedExperts.OrderBy(e => e.Name, StringComparer.Ordinal))
         {
-            Append(canonical, expert.Name); Append(canonical, expert.LockSource); Append(canonical, expert.LockPath);
-            Append(canonical, expert.LockHash); Append(canonical, expert.ExpertMarkdown);
+            Append(canonical, expert.Name);
+            Append(canonical, expert.LockSource);
+            Append(canonical, expert.LockPath);
+            Append(canonical, expert.LockHash);
+            Append(canonical, expert.ExpertMarkdown);
         }
+
         if (package.Assets is { Count: > 0 } assets)
         {
-            Append(canonical, "assets"); Append(canonical, assets.Count.ToString(CultureInfo.InvariantCulture));
+            Append(canonical, "assets");
+            Append(canonical, assets.Count.ToString(CultureInfo.InvariantCulture));
             foreach (var asset in assets.OrderBy(a => a.Path, StringComparer.Ordinal))
             {
-                Append(canonical, asset.Path); Append(canonical, asset.ContentType);
+                Append(canonical, asset.Path);
+                Append(canonical, asset.ContentType);
                 Append(canonical, asset.Bytes.Length.ToString(CultureInfo.InvariantCulture));
                 Append(canonical, asset.Sha256.ToLowerInvariant());
             }
         }
+
         return Hash(Encoding.UTF8.GetBytes(canonical.ToString()));
     }
 
@@ -163,7 +215,7 @@ public static class DurableMissionPackageValidator
 
     private static void ValidateAssets(DurableMissionPackageInput package, Dictionary<string, ExpertDefinition> experts)
     {
-        var files = new HashSet<string>(["mission.mcl", "mcl.lock", "forge.toml"], StringComparer.OrdinalIgnoreCase);
+        var files = new HashSet<string>(["mission.mcl", "mcl.lock", ForgeTomlReader.FileName], StringComparer.OrdinalIgnoreCase);
         foreach (var name in experts.Keys)
             if (!files.Add($"experts/{name}/expert.md")) throw new InvalidOperationException("Expert paths collide.");
         var assets = package.Assets ?? [];

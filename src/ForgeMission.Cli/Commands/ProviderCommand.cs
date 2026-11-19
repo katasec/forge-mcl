@@ -1,5 +1,6 @@
 using System.CommandLine;
 using ForgeMission.Cli.Services;
+using ForgeMission.Core.Manifest;
 
 namespace ForgeMission.Cli.Commands;
 
@@ -61,7 +62,7 @@ internal static class ProviderCommand
 
             if (write)
             {
-                await File.AppendAllTextAsync("forge.toml", $"\n{block}\n", cancellationToken);
+                await File.AppendAllTextAsync(ForgeTomlReader.FileName, $"\n{block}\n", cancellationToken);
                 Console.WriteLine("Appended to forge.toml.");
             }
             else

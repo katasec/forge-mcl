@@ -18,8 +18,8 @@ Live retrieval is an optional execution dependency with different result shapes 
 
 ## Owns
 
-- [`IWebSearch`](IWebSearch.cs), request/progress/result records, source attribution, and search failures.
-- [`GrokWebSearch`](Grok/GrokWebSearch.cs), including buffered and SSE progress handling for xAI’s Responses API.
+- [`IWebSearch`](IWebSearch.cs), request/result records, source attribution, and search failures.
+- [`GrokWebSearch`](Grok/GrokWebSearch.cs), calling xAI’s Responses API.
 - Source-generated Grok wire types in [`GrokWire`](Grok/GrokWire.cs).
 
 ## Does not own
@@ -33,8 +33,8 @@ A change belongs here only if it advances the retrieval contract or a backend im
 ## Use these pieces
 
 - [`IWebSearch`](IWebSearch.cs) is the backend-neutral contract injected into the pipeline.
-- [`GrokWebSearch`](Grok/GrokWebSearch.cs) implements it with optional progress reporting.
-- [`GrokWebSearchStreamTests`](../../tests/ForgeMission.Mcl.Tests/Scout/GrokWebSearchStreamTests.cs) and [`SearchMissionPipelineTests`](../../tests/ForgeMission.Mcl.Tests/Scout/SearchMissionPipelineTests.cs) cover stream mapping and pipeline integration.
+- [`GrokWebSearch`](Grok/GrokWebSearch.cs) implements it.
+- [`GrokWebSearchTests`](../../tests/ForgeMission.Mcl.Tests/Scout/GrokWebSearchTests.cs) and [`SearchMissionPipelineTests`](../../tests/ForgeMission.Mcl.Tests/Scout/SearchMissionPipelineTests.cs) cover response mapping and pipeline integration.
 
 ## Communicates with
 
@@ -42,14 +42,13 @@ A change belongs here only if it advances the retrieval contract or a backend im
 flowchart LR
   CLI[Forge CLI] -->|XAI_API_KEY / GROK_API_KEY| Scout[Scout]
   Core[Mission Core] -->|IWebSearch request| Scout
-  Scout -->|HTTPS Responses API and SSE| Grok[xAI Grok]
-  Scout -->|answer, sources, progress| Core
+  Scout -->|HTTPS Responses API| Grok[xAI Grok]
+  Scout -->|answer, sources| Core
 ```
 
 ## Important flows and constraints
 
 - `Sources` are the stable result anchor; a synthesized `Answer` is optional.
-- The streaming path uses one request and reports server-side search actions without rerunning the search.
 - The backend uses source-generated JSON and direct HTTP to remain AOT-compatible.
 
 ## Related documentation

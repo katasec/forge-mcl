@@ -10,7 +10,7 @@ public static class ForgeCache
     public static string ExpertsRoot => Path.Combine(Root, "experts");
 
     public static string ExpertMdPath(string registry, string ociName, string version)
-        => Path.Combine(ExpertsRoot, registry, ociName, version, "expert.md");
+        => Path.Combine(ExpertsRoot, registry, ociName, Sanitize(version), "expert.md");
 
     public static string MissionsRoot => Path.Combine(Root, "missions");
 

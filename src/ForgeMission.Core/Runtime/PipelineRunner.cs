@@ -6,7 +6,7 @@ using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
 using ForgeMission.Parser;
 using Microsoft.Extensions.AI;
-using Scout;
+using ForgeMission.Scout;
 
 namespace ForgeMission.Core.Runtime;
 
@@ -21,7 +21,7 @@ public class PipelineRunner
     private readonly IReadOnlyDictionary<string, IExpertRunner> _runners;
     private readonly ExecutionConfig _execution;
     private readonly HashSet<string> _locallyResumedContinuations = new(StringComparer.Ordinal);
-    private readonly object _localResumeGate = new();
+    private readonly Lock _localResumeGate = new();
     private readonly Dictionary<string, LocalContinuationState> _localContinuations = new(StringComparer.Ordinal);
     // Optional live-retrieval backend for kind:search experts (Scout). Null ⇒ kind:search fails clearly.
     // Injected here (not on ExecutionConfig, a TOML POCO) because it is a runtime service like _runners.
@@ -954,8 +954,8 @@ public class PipelineRunner
 
     // The one place a sequence step's expert is invoked. It streams only when the
     // durable executor sets StreamLlmDeltas and the step is a tool-free, non-judge llm step.
-    // OnTrace alone never forces streaming: several non-LLM runners expose a text-only streaming
-    // adapter that cannot preserve a failing StepEnvelope.
+    // OnTrace alone never forces streaming: runners that do not override StreamAsync use
+    // IExpertRunner's text-only default, which cannot preserve a failing StepEnvelope.
     private static async Task<StepEnvelope> InvokeExpertAsync(
         IExpertRunner runner,
         ExpertDefinition expert,
@@ -979,7 +979,7 @@ public class PipelineRunner
                 await onDelta(new PipelineStepDelta(options.MissionName, missionPath, expertName, expert.Kind, attempt, chunk) { StepKey = key }, ct);
         }
 
-        // A non-judge llm step streams plain text (no envelope instruction) and always passes.
+        // A non-judge llm step streams plain text and always passes.
         return new StepEnvelope(text.ToString());
     }
 
@@ -1010,7 +1010,7 @@ public class PipelineRunner
     /// </summary>
     private sealed class RunState
     {
-        private readonly object _gate = new();
+        private readonly Lock _gate = new();
         private readonly Dictionary<string, PipelineStepLogEntry> _log = new(StringComparer.Ordinal);
         private readonly string? _pausedKey;
         private readonly string? _pausedExpert;

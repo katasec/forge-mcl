@@ -8,50 +8,12 @@ namespace ForgeMission.Core.Adapters;
 
 public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
 {
-    // Explicit closed schema for structured output. GetResponseAsync<StepEnvelope> auto-derives a
-    // schema from the record, but StepEnvelope.Meta is an open dictionary, which produces an object
-    // without `additionalProperties: false`. Anthropic's structured output rejects that ("For 'object'
-    // type, 'additionalProperties' must be explicitly set to false") while OpenAI tolerates it — so a
-    // hand-written closed schema (text/status/reason only; Meta is never set by the LLM path) is the
-    // only shape both providers accept. All three fields are `required` to satisfy OpenAI strict mode;
-    // `reason` is nullable. The backing JsonDocument is held statically so its JsonElement stays valid.
-    private const string StepEnvelopeSchemaJson = """
-    {
-      "type": "object",
-      "properties": {
-        "text":   { "type": "string" },
-        "status": { "type": "string", "enum": ["pass", "fail"] },
-        "reason": { "type": ["string", "null"] }
-      },
-      "required": ["text", "status", "reason"],
-      "additionalProperties": false
-    }
-    """;
-
-    private static readonly JsonDocument _schemaDoc = JsonDocument.Parse(StepEnvelopeSchemaJson);
-
-    private static readonly ChatResponseFormat _stepFormat = ChatResponseFormat.ForJsonSchema(
-        _schemaDoc.RootElement,
-        schemaName: "step_envelope",
-        schemaDescription: "A step result: the answer text plus a pass/fail status and optional reason.");
-
-    // Appended to a judge's system prompt in streaming mode (structured output is not available for
-    // streaming). Every other streamed step answers in plain text and always passes.
-    private const string JudgeStreamingInstruction = """
-
-
-Respond with this exact JSON format and nothing else:
-{"text": "<your complete response>", "status": "pass"}
-Or on failure:
-{"text": "<brief summary>", "status": "fail", "reason": "<which criterion failed>"}
-""";
-
     public async Task<StepEnvelope> RunAsync(
         ExpertDefinition expert,
         Dictionary<string, object> context,
         CancellationToken ct = default)
     {
-        var (messages, _) = BuildMessages(expert, context);
+        var messages = BuildMessages(expert, context);
         AddToolTurn(messages, context);
         // Non-generic call with an explicit closed schema (see _stepFormat) rather than
         // GetResponseAsync<StepEnvelope>, whose derived schema is rejected by Anthropic. Deserialize
@@ -97,29 +59,14 @@ Or on failure:
         Dictionary<string, object> context,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var (messages, systemPrompt) = BuildMessages(expert, context);
-        AddToolTurn(messages, context);
+        var messages = BuildMessages(expert, context);
 
-        var options = new ChatOptions();
-        var toolMode = ApplyToolMode(options, context);
-        if (!toolMode && expert.IsJudge)
-        {
-            messages[0] = new ChatMessage(ChatRole.System, systemPrompt + JudgeStreamingInstruction);
-        }
-
-        var updates = new List<ChatResponseUpdate>();
-        await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options, ct))
+        await foreach (var update in chatClient.GetStreamingResponseAsync(messages, new ChatOptions(), ct))
         {
             ThrowIfProviderError(update.Contents);
-            updates.Add(update);
             if (!string.IsNullOrEmpty(update.Text))
                 yield return update.Text;
         }
-
-        if (!toolMode) yield break;
-
-        var response = ChatResponseExtensions.ToChatResponse(updates);
-        CaptureToolResponse(response, context);
     }
 
     // Tool-capable agent step: the PipelineRunner put the root tools in the bag for this step only.
@@ -163,7 +110,7 @@ Or on failure:
             messages.AddRange(turnMessages);
     }
 
-    private static (List<ChatMessage> messages, string systemPrompt) BuildMessages(
+    private static List<ChatMessage> BuildMessages(
         ExpertDefinition expert,
         Dictionary<string, object> context)
     {
@@ -179,13 +126,40 @@ Or on failure:
             && history.Turns.Count > 0)
         {
             messages.AddRange(history.AsMessages(expert.Name));
-            return (messages, systemPrompt);
+            return messages;
         }
 
         var userMessage = context.TryGetValue("output", out var output) && !string.IsNullOrWhiteSpace(output?.ToString())
             ? output.ToString()!
             : "Begin.";
         messages.Add(new ChatMessage(ChatRole.User, userMessage));
-        return (messages, systemPrompt);
+        return messages;
     }
+
+    // Explicit closed schema for structured output. GetResponseAsync<StepEnvelope> auto-derives a
+    // schema from the record, but StepEnvelope.Meta is an open dictionary, which produces an object
+    // without `additionalProperties: false`. Anthropic's structured output rejects that ("For 'object'
+    // type, 'additionalProperties' must be explicitly set to false") while OpenAI tolerates it — so a
+    // hand-written closed schema (text/status/reason only; Meta is never set by the LLM path) is the
+    // only shape both providers accept. All three fields are `required` to satisfy OpenAI strict mode;
+    // `reason` is nullable. The backing JsonDocument is held statically so its JsonElement stays valid.
+    private const string StepEnvelopeSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "text":   { "type": "string" },
+        "status": { "type": "string", "enum": ["pass", "fail"] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "required": ["text", "status", "reason"],
+      "additionalProperties": false
+    }
+    """;
+
+    private static readonly JsonDocument _schemaDoc = JsonDocument.Parse(StepEnvelopeSchemaJson);
+
+    private static readonly ChatResponseFormat _stepFormat = ChatResponseFormat.ForJsonSchema(
+        _schemaDoc.RootElement,
+        schemaName: "step_envelope",
+        schemaDescription: "A step result: the answer text plus a pass/fail status and optional reason.");
 }
