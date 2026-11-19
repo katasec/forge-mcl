@@ -18,13 +18,13 @@ public static class ForgeProject
             Arity = ArgumentArity.ZeroOrOne,
         };
         create.Add(folder);
-        create.SetCancellableAction((result, _) => RunAsync(result.GetValue(folder), clients));
+        create.SetCancellableAction((result, cancellationToken) => RunAsync(result.GetValue(folder), clients, cancellationToken));
         project.Add(create);
         return project;
     }
 
-    internal static Task<int> RunAsync(string? folder, IHttpClientFactory clients) =>
-        RunCoreAsync(folder, request => CreateAsync(request, clients), Console.Out, Console.Error);
+    internal static Task<int> RunAsync(string? folder, IHttpClientFactory clients, CancellationToken cancellationToken) =>
+        RunCoreAsync(folder, request => CreateAsync(request, clients, cancellationToken), Console.Out, Console.Error);
 
     // The seam keeps output checks independent of the file system owner.
     internal static async Task<int> RunCoreAsync(string? folder,
@@ -57,9 +57,10 @@ public static class ForgeProject
         return 0;
     }
 
-    private static async Task<CreateProjectResponse> CreateAsync(CreateProjectRequest request, IHttpClientFactory clients)
+    private static async Task<CreateProjectResponse> CreateAsync(CreateProjectRequest request, IHttpClientFactory clients,
+        CancellationToken cancellationToken)
     {
-        await using var app = ApplicationComposition.Create(clients, CancellationToken.None);
-        return await app.MissionConversations.CreateProjectAsync(request, CancellationToken.None);
+        await using var app = ApplicationComposition.Create(clients, cancellationToken);
+        return await app.MissionConversations.CreateProjectAsync(request, cancellationToken);
     }
 }

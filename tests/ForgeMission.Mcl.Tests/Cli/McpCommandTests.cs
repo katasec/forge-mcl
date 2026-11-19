@@ -82,13 +82,39 @@ public sealed class McpCommandTests
         Assert.Equal(!string.IsNullOrWhiteSpace(key), harness.Proxy.Attempts.Contains(new ProxyAttempt("CONNECT", "api.x.ai:443")));
     }
 
-    private static string WriteSearchMission(string home, string parameters = "goal")
+    // A tool call whose provider cannot be initialised (here: no API key anywhere) returns a tool
+    // error, and the server keeps serving the next request.
+    [Fact]
+    public async Task A_provider_that_cannot_be_initialised_is_a_tool_error_and_the_server_keeps_serving()
+    {
+        await using var harness = ForgeCliHarness.Start();
+        harness.WorkingDirectory = WriteSearchMission(harness.Home, apiKey: false);
+        Assert.Equal(0, (await harness.RunAsync("init")).ExitCode);
+        JsonElement call = default, tools = default;
+
+        var result = await harness.ConverseAsync(async (stdin, stdout) =>
+        {
+            await RequestAsync(stdin, stdout, 1, "initialize",
+                """{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"pin","version":"1"}}""");
+            await stdin.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+            call = await RequestAsync(stdin, stdout, 2, "tools/call", """{"name":"Search","arguments":{"goal":"q"}}""");
+            tools = (await RequestAsync(stdin, stdout, 3, "tools/list", "{}")).GetProperty("tools");
+        }, "mcp");
+
+        Assert.True(call.GetProperty("isError").GetBoolean());
+        Assert.Equal("Cannot initialise provider — check API key env vars and forge.toml.",
+            call.GetProperty("content")[0].GetProperty("text").GetString());
+        Assert.Equal("Search", Assert.Single(tools.EnumerateArray()).GetProperty("name").GetString());
+        Assert.Equal(0, result.ExitCode);
+    }
+
+    private static string WriteSearchMission(string home, string parameters = "goal", bool apiKey = true)
     {
         var dir = Path.Combine(home, "search");
         Directory.CreateDirectory(Path.Combine(dir, "experts", "WebSearch"));
         File.WriteAllText(Path.Combine(dir, "mission.mcl"), $$"""
             let provider = env("MCL_PROVIDER", "openai")
-            let apiKey   = env("MCL_API_KEY", "stub")
+            {{(apiKey ? "let apiKey   = env(\"MCL_API_KEY\", \"stub\")" : "")}}
             let model    = env("MCL_MODEL", "gpt-4o-mini")
 
             mission Search({{parameters}}) = {
