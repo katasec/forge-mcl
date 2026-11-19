@@ -9,6 +9,7 @@ namespace ForgeMission.Core.Experts;
 public class ExpertLoader(string expertsDirectory)
 {
     private static readonly IDeserializer Yaml = BuildYaml();
+    private const string FrontmatterDelimiter = "---";
 
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ExpertFrontmatter))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(List<string>))]
@@ -195,7 +196,21 @@ public class ExpertLoader(string expertsDirectory)
         Dictionary<string, ExpertDefinition> experts,
         IReadOnlyDictionary<string, string>? expertMarkdownByName)
     {
-        // Seed with the standard runtime keys every pipeline starts with.
+        var available = RuntimeKeys(mission);
+        foreach (var step in GetSteps(mission.Pipeline))
+        {
+            if (!experts.TryGetValue(step.ExpertName, out var expert)) continue;
+
+            foreach (var issue in CheckInputKeys(mission, step, expert, available, expertMarkdownByName))
+                yield return issue;
+
+            AddOutputKeys(expert, available);
+        }
+    }
+
+    // The standard runtime keys every pipeline starts with, plus the mission's parameters.
+    private static Dictionary<string, string> RuntimeKeys(MissionDeclaration mission)
+    {
         var available = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["output"]    = "string",
@@ -204,55 +219,52 @@ public class ExpertLoader(string expertsDirectory)
         };
         foreach (var parameter in mission.Params)
             available.TryAdd(parameter, "string");
+        return available;
+    }
 
-        foreach (var element in mission.Pipeline.Elements)
+    // One diagnostic per inputKey that no upstream step declares, or declares with another type.
+    private static IEnumerable<ExpertLoadException> CheckInputKeys(
+        MissionDeclaration mission,
+        Step step,
+        ExpertDefinition expert,
+        Dictionary<string, string> available,
+        IReadOnlyDictionary<string, string>? expertMarkdownByName)
+    {
+        if (expert.InputKeys is not { } inputKeys) yield break;
+
+        var expertFile = Path.Combine(expert.ExpertDirectory, "expert.md");
+        var frontmatter = DiagnosticFrontmatter(expertFile, expert.Name, expertMarkdownByName);
+
+        foreach (var (key, declaredType) in inputKeys)
         {
-            var steps = element switch
-            {
-                StepElement se     => (IEnumerable<Step>)[se.Step],
-                ParallelElement pe => pe.Steps,
-                _                  => Enumerable.Empty<Step>()
-            };
+            if (InputKeyProblem(mission.Name, step.ExpertName, key, declaredType, available) is not { } message)
+                continue;
 
-            foreach (var step in steps)
-            {
-                if (!experts.TryGetValue(step.ExpertName, out var expert)) continue;
-
-                // Check inputKeys against what's available upstream.
-                if (expert.InputKeys is { } inputKeys)
-                {
-                    var expertFile = Path.Combine(expert.ExpertDirectory, "expert.md");
-                    var frontmatter = DiagnosticFrontmatter(expertFile, expert.Name, expertMarkdownByName);
-
-                    foreach (var (key, declaredType) in inputKeys)
-                    {
-                        if (!available.TryGetValue(key, out var upstreamType))
-                        {
-                            var (line, col, endCol) = FindKeyInBlock(frontmatter, "inputKeys", key, expertFile);
-                            yield return new ExpertLoadException(
-                                $"MCL011: expert '{step.ExpertName}' in mission '{mission.Name}' " +
-                                $"declares inputKey '{key}: {declaredType}' but no upstream expert declares this outputKey.",
-                                expertFile, line, col, endCol);
-                        }
-                        else if (!string.Equals(upstreamType, declaredType, StringComparison.OrdinalIgnoreCase))
-                        {
-                            var (line, col, endCol) = FindKeyInBlock(frontmatter, "inputKeys", key, expertFile);
-                            yield return new ExpertLoadException(
-                                $"MCL012: expert '{step.ExpertName}' in mission '{mission.Name}' " +
-                                $"expects '{key}: {declaredType}' but upstream declares '{key}: {upstreamType}'.",
-                                expertFile, line, col, endCol);
-                        }
-                    }
-                }
-
-                // Accumulate this step's outputKeys for downstream steps.
-                if (expert.OutputKeys is { } outputKeys)
-                {
-                    foreach (var (key, type) in outputKeys)
-                        available[key] = type;
-                }
-            }
+            var (line, col, endCol) = FindKeyInBlock(frontmatter, "inputKeys", key, expertFile);
+            yield return new ExpertLoadException(message, expertFile, line, col, endCol);
         }
+    }
+
+    // MCL011 when no upstream step declares the key; MCL012 when its type differs; else null.
+    private static string? InputKeyProblem(
+        string missionName, string expertName, string key, string declaredType, Dictionary<string, string> available)
+    {
+        if (!available.TryGetValue(key, out var upstreamType))
+            return $"MCL011: expert '{expertName}' in mission '{missionName}' " +
+                   $"declares inputKey '{key}: {declaredType}' but no upstream expert declares this outputKey.";
+
+        if (string.Equals(upstreamType, declaredType, StringComparison.OrdinalIgnoreCase)) return null;
+
+        return $"MCL012: expert '{expertName}' in mission '{missionName}' " +
+               $"expects '{key}: {declaredType}' but upstream declares '{key}: {upstreamType}'.";
+    }
+
+    // Makes this step's outputKeys available to downstream steps.
+    private static void AddOutputKeys(ExpertDefinition expert, Dictionary<string, string> available)
+    {
+        if (expert.OutputKeys is not { } outputKeys) return;
+        foreach (var (key, type) in outputKeys)
+            available[key] = type;
     }
 
     private static (string text, int startLine) DiagnosticFrontmatter(
@@ -270,9 +282,7 @@ public class ExpertLoader(string expertsDirectory)
     {
         if (!File.Exists(path)) return ("", 1);
         var lines = File.ReadAllLines(path);
-        int close = -1;
-        for (int i = 1; i < lines.Length; i++)
-            if (lines[i].Trim() == "---") { close = i; break; }
+        var close = ClosingDelimiterIndex(lines);
         if (close < 0) return ("", 1);
         return (string.Join('\n', lines[1..close]), 2);
     }
@@ -341,55 +351,8 @@ public class ExpertLoader(string expertsDirectory)
 
         // Collect all semantic errors before surfacing them
         var errors = new List<ExpertLoadException>();
-
-        if (string.IsNullOrWhiteSpace(meta.Name))
-        {
-            var (l, c, ec) = FindField(frontmatter, "name", frontmatterStartLine);
-            errors.Add(new ExpertLoadException($"Missing required frontmatter field 'name' in {Path.GetFileName(sourceName)}", sourceName, l, c, ec));
-        }
-        if (string.IsNullOrWhiteSpace(meta.Input))
-        {
-            var (l, c, ec) = FindField(frontmatter, "input", frontmatterStartLine);
-            errors.Add(new ExpertLoadException($"Missing required frontmatter field 'input' in {Path.GetFileName(sourceName)}", sourceName, l, c, ec));
-        }
-        if (string.IsNullOrWhiteSpace(meta.Output))
-        {
-            var (l, c, ec) = FindField(frontmatter, "output", frontmatterStartLine);
-            errors.Add(new ExpertLoadException($"Missing required frontmatter field 'output' in {Path.GetFileName(sourceName)}", sourceName, l, c, ec));
-        }
-
-        // Use filename as fallback name in kind messages if name field is missing
-        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? Path.GetFileNameWithoutExtension(sourceName) : meta.Name;
-        var kindLine   = FindField(frontmatter, "kind", frontmatterStartLine);
-
-        if (meta.Kind.Equals("http", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(meta.Endpoint))
-            errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:http but is missing required field 'endpoint'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-
-        if (meta.Kind.Equals("rule", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(meta.Check))
-            errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:rule but is missing required field 'check'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-
-        if (meta.Kind.Equals("onnx", StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(meta.Model))
-                errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:onnx but is missing required field 'model'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-            if (meta.Inputs.Count == 0)
-                errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:onnx but is missing required field 'inputs'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-            if (string.IsNullOrWhiteSpace(meta.OutputKey))
-                errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:onnx but is missing required field 'outputKey'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-            if (string.IsNullOrWhiteSpace(meta.Threshold))
-                errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:onnx but is missing required field 'threshold'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-        }
-
-        if (meta.Kind.Equals("exec", StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(meta.Command))
-                errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:exec but is missing required field 'command'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-            if (meta.Inputs.Count == 0)
-                errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:exec but is missing required field 'inputs'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-            if (string.IsNullOrWhiteSpace(meta.OutputKey))
-                errors.Add(new ExpertLoadException($"Expert '{expertName}' has kind:exec but is missing required field 'outputKey'.", sourceName, kindLine.line, kindLine.col, kindLine.endCol));
-
-        }
+        AddMissingFieldErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
+        AddMissingKindFieldErrors(errors, meta, frontmatter, frontmatterStartLine, sourceName);
 
         if (errors.Count > 0)
             throw new AggregateExpertLoadException(errors);
@@ -402,22 +365,64 @@ public class ExpertLoader(string expertsDirectory)
             InputKeys:  meta.InputKeys.Count  > 0 ? meta.InputKeys  : null);
     }
 
+    private static readonly (string Field, Func<ExpertFrontmatter, string> Value)[] RequiredFields =
+    [
+        ("name",   meta => meta.Name),
+        ("input",  meta => meta.Input),
+        ("output", meta => meta.Output),
+    ];
+
+    // Fields a kind requires, in diagnostic order. Each check runs only for its own kind.
+    private static readonly (string Kind, string Field, Func<ExpertFrontmatter, bool> IsMissing)[] KindRequiredFields =
+    [
+        ("http", "endpoint",  meta => string.IsNullOrWhiteSpace(meta.Endpoint)),
+        ("rule", "check",     meta => string.IsNullOrWhiteSpace(meta.Check)),
+        ("onnx", "model",     meta => string.IsNullOrWhiteSpace(meta.Model)),
+        ("onnx", "inputs",    meta => meta.Inputs.Count == 0),
+        ("onnx", "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
+        ("onnx", "threshold", meta => string.IsNullOrWhiteSpace(meta.Threshold)),
+        ("exec", "command",   meta => string.IsNullOrWhiteSpace(meta.Command)),
+        ("exec", "inputs",    meta => meta.Inputs.Count == 0),
+        ("exec", "outputKey", meta => string.IsNullOrWhiteSpace(meta.OutputKey)),
+    ];
+
+    private static void AddMissingFieldErrors(
+        List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
+    {
+        foreach (var (field, value) in RequiredFields)
+        {
+            if (!string.IsNullOrWhiteSpace(value(meta))) continue;
+            var (l, c, ec) = FindField(frontmatter, field, startLine);
+            errors.Add(new ExpertLoadException(
+                $"Missing required frontmatter field '{field}' in {Path.GetFileName(sourceName)}", sourceName, l, c, ec));
+        }
+    }
+
+    // Kind errors point at the "kind:" line and name the expert, falling back to the file name.
+    private static void AddMissingKindFieldErrors(
+        List<ExpertLoadException> errors, ExpertFrontmatter meta, string frontmatter, int startLine, string sourceName)
+    {
+        var expertName = string.IsNullOrWhiteSpace(meta.Name) ? Path.GetFileNameWithoutExtension(sourceName) : meta.Name;
+        var (line, col, endCol) = FindField(frontmatter, "kind", startLine);
+
+        foreach (var (kind, field, isMissing) in KindRequiredFields)
+        {
+            if (!meta.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase) || !isMissing(meta)) continue;
+            errors.Add(new ExpertLoadException(
+                $"Expert '{expertName}' has kind:{kind} but is missing required field '{field}'.", sourceName, line, col, endCol));
+        }
+    }
+
     // Returns (frontmatter text, body text, 1-based line number of the first frontmatter line in the file).
     private static (string Frontmatter, string Body, int FrontmatterStartLine) SplitFrontmatter(string path, string content)
     {
-        const string delimiter = "---";
         var lines = content.Split('\n');
 
-        if (lines.Length < 2 || lines[0].Trim() != delimiter)
+        if (lines.Length < 2 || lines[0].Trim() != FrontmatterDelimiter)
             throw new ExpertLoadException(
                 $"Missing frontmatter delimiter '---' at start of {Path.GetFileName(path)}", path, 1, 0, 3);
 
-        int closingIndex = -1;
-        for (int i = 1; i < lines.Length; i++)
-        {
-            if (lines[i].Trim() == delimiter) { closingIndex = i; break; }
-        }
-
+        var closingIndex = ClosingDelimiterIndex(lines);
         if (closingIndex < 0)
             throw new ExpertLoadException(
                 $"Unclosed frontmatter block in {Path.GetFileName(path)}", path, 1, 0, 3);
@@ -425,6 +430,14 @@ public class ExpertLoader(string expertsDirectory)
         var frontmatter = string.Join('\n', lines[1..closingIndex]);
         var body        = string.Join('\n', lines[(closingIndex + 1)..]);
         return (frontmatter, body, FrontmatterStartLine: 2); // line 1 is "---", fields start at line 2
+    }
+
+    // Index of the first "---" line after line 0, or -1 when the block is never closed.
+    private static int ClosingDelimiterIndex(string[] lines)
+    {
+        for (int i = 1; i < lines.Length; i++)
+            if (lines[i].Trim() == FrontmatterDelimiter) return i;
+        return -1;
     }
 
     // Scans frontmatter text for "fieldName:" and returns its file-absolute line/col span.
