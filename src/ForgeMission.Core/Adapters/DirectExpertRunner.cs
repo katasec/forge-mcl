@@ -8,33 +8,6 @@ namespace ForgeMission.Core.Adapters;
 
 public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
 {
-    // Explicit closed schema for structured output. GetResponseAsync<StepEnvelope> auto-derives a
-    // schema from the record, but StepEnvelope.Meta is an open dictionary, which produces an object
-    // without `additionalProperties: false`. Anthropic's structured output rejects that ("For 'object'
-    // type, 'additionalProperties' must be explicitly set to false") while OpenAI tolerates it — so a
-    // hand-written closed schema (text/status/reason only; Meta is never set by the LLM path) is the
-    // only shape both providers accept. All three fields are `required` to satisfy OpenAI strict mode;
-    // `reason` is nullable. The backing JsonDocument is held statically so its JsonElement stays valid.
-    private const string StepEnvelopeSchemaJson = """
-    {
-      "type": "object",
-      "properties": {
-        "text":   { "type": "string" },
-        "status": { "type": "string", "enum": ["pass", "fail"] },
-        "reason": { "type": ["string", "null"] }
-      },
-      "required": ["text", "status", "reason"],
-      "additionalProperties": false
-    }
-    """;
-
-    private static readonly JsonDocument _schemaDoc = JsonDocument.Parse(StepEnvelopeSchemaJson);
-
-    private static readonly ChatResponseFormat _stepFormat = ChatResponseFormat.ForJsonSchema(
-        _schemaDoc.RootElement,
-        schemaName: "step_envelope",
-        schemaDescription: "A step result: the answer text plus a pass/fail status and optional reason.");
-
     public async Task<StepEnvelope> RunAsync(
         ExpertDefinition expert,
         Dictionary<string, object> context,
@@ -162,4 +135,31 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         messages.Add(new ChatMessage(ChatRole.User, userMessage));
         return messages;
     }
+
+    // Explicit closed schema for structured output. GetResponseAsync<StepEnvelope> auto-derives a
+    // schema from the record, but StepEnvelope.Meta is an open dictionary, which produces an object
+    // without `additionalProperties: false`. Anthropic's structured output rejects that ("For 'object'
+    // type, 'additionalProperties' must be explicitly set to false") while OpenAI tolerates it — so a
+    // hand-written closed schema (text/status/reason only; Meta is never set by the LLM path) is the
+    // only shape both providers accept. All three fields are `required` to satisfy OpenAI strict mode;
+    // `reason` is nullable. The backing JsonDocument is held statically so its JsonElement stays valid.
+    private const string StepEnvelopeSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "text":   { "type": "string" },
+        "status": { "type": "string", "enum": ["pass", "fail"] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "required": ["text", "status", "reason"],
+      "additionalProperties": false
+    }
+    """;
+
+    private static readonly JsonDocument _schemaDoc = JsonDocument.Parse(StepEnvelopeSchemaJson);
+
+    private static readonly ChatResponseFormat _stepFormat = ChatResponseFormat.ForJsonSchema(
+        _schemaDoc.RootElement,
+        schemaName: "step_envelope",
+        schemaDescription: "A step result: the answer text plus a pass/fail status and optional reason.");
 }
