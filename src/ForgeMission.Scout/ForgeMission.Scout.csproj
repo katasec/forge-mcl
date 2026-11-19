@@ -15,7 +15,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <!-- AOT-clean by construction (will be referenced by the AOT `forge` CLI eventually):
+    <!-- AOT-clean by construction (the Native AOT `forge` CLI references it):
          no reflection, no bare JsonSerializerOptions — STJ source-gen only (see Grok/GrokWire.cs). -->
   </PropertyGroup>
 

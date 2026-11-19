@@ -4,14 +4,14 @@ namespace ForgeMission.Scout;
 /// The single swap point for live-internet retrieval. Callers depend only on this interface and the
 /// provider-neutral <see cref="WebSearchRequest"/> / <see cref="WebSearchResult"/> types — never on a
 /// backend's SDK or wire types. Adding a backend (OpenAI, Tavily, Exa, Grok x_search) is one new
-/// implementing class, zero caller changes. See docs/phases/phase-41-live-retrieval-scout.md.
+/// implementing class, zero caller changes.
 /// </summary>
 public interface IWebSearch
 {
     Task<WebSearchResult> SearchAsync(WebSearchRequest request, CancellationToken ct = default);
 }
 
-/// <summary>What to search for, provider-neutrally. POC exposes a query + optional domain scoping.</summary>
+/// <summary>What to search for, provider-neutrally: a query plus optional domain scoping.</summary>
 public sealed record WebSearchRequest(
     string Query,
     IReadOnlyList<string>? AllowedDomains = null);

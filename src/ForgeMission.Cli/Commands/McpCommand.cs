@@ -16,10 +16,10 @@ using McpTextContent = ModelContextProtocol.Protocol.TextContentBlock;
 
 namespace ForgeMission.Cli.Commands;
 
-// Owns the forge mcp protocol surface: it turns an already-loaded mission into a stdio MCP server
-// exposing that mission as a single tool. Mission resolution, validation and runner construction
-// stay with the shared CLI helpers in Program and reach this surface through ServeAsync's inputs
-// and runner factory. The input schema is written with Utf8JsonWriter (AOT-safe, no STJ reflection).
+// forge mcp: serves one mission as a stdio MCP server with that mission as its single tool.
+// Mission loading and validation use CliHelpers; runners are built per tool call by
+// MissionServerBuilder.BuildRunners and reach ServeAsync as a factory. The input schema is written
+// with Utf8JsonWriter (AOT-safe, no STJ reflection).
 internal static class McpCommand
 {
     // Thin shell: loads and validates the mission with the shared CLI helpers, then hands the prepared

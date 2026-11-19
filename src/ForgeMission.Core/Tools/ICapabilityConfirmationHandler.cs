@@ -1,6 +1,7 @@
 namespace ForgeMission.Core.Tools;
 
-// Presentation implements this contract in a later phase. The dispatcher only needs a yes/no
+// A surface that can ask the user implements this; without one, a request that needs
+// confirmation is treated as declined. The dispatcher only needs a yes/no
 // answer for one already-policy-evaluated request; it never grants implicit session-wide consent.
 public interface ICapabilityConfirmationHandler
 {

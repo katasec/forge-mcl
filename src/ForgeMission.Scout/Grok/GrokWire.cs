@@ -2,8 +2,8 @@ using System.Text.Json.Serialization;
 
 namespace ForgeMission.Scout.Grok;
 
-// Internal wire DTOs for the xAI Responses API (POST https://api.x.ai/v1/responses), verified live
-// 2026-07-12. These never leak past GrokWebSearch — callers see only the provider-neutral types in
+// Internal wire DTOs for the xAI Responses API (POST https://api.x.ai/v1/responses).
+// These never leak past GrokWebSearch — callers see only the provider-neutral types in
 // IWebSearch.cs. Only the fields Scout needs are modelled; unknown fields are ignored on deserialize.
 
 // ---- Request ------------------------------------------------------------------------------------
@@ -71,7 +71,7 @@ internal sealed class GrokUsage
     [JsonPropertyName("total_tokens")] public int TotalTokens { get; init; }
 }
 
-// ---- STJ source-gen context (AOT-safe; no bare JsonSerializerOptions per CLAUDE.md) --------------
+// ---- STJ source-gen context (AOT-safe; no bare JsonSerializerOptions) ---------------------------
 
 [JsonSourceGenerationOptions(
     PropertyNameCaseInsensitive = true,

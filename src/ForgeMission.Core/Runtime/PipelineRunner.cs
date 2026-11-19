@@ -954,8 +954,8 @@ public class PipelineRunner
 
     // The one place a sequence step's expert is invoked. It streams only when the
     // durable executor sets StreamLlmDeltas and the step is a tool-free, non-judge llm step.
-    // OnTrace alone never forces streaming: several non-LLM runners expose a text-only streaming
-    // adapter that cannot preserve a failing StepEnvelope.
+    // OnTrace alone never forces streaming: runners that do not override StreamAsync use
+    // IExpertRunner's text-only default, which cannot preserve a failing StepEnvelope.
     private static async Task<StepEnvelope> InvokeExpertAsync(
         IExpertRunner runner,
         ExpertDefinition expert,

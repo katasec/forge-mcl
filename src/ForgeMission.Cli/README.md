@@ -42,16 +42,26 @@ forge-client.
 
 | Piece | Responsibility |
 |---|---|
-| [Program](Program.cs) | Executable entry point, command registration, and command handlers. |
+| [Program](Program.cs) | Entry point: builds the host (settings, HTTP clients, options), registers every command, and owns the one top-level exit-code handler. |
+| [CommandActions](Commands/CommandActions.cs) | Sets each command's async action and maps Ctrl+C/SIGTERM to exit code 130. |
+| [MissionDevCommands](Commands/MissionDevCommands.cs) | `forge init`, `forge validate`, `forge list experts` and `forge expert init`. |
+| [HostedMissionCommands](Commands/HostedMissionCommands.cs) | `forge run` wiring and project-file choice; `forge publish` packs a mission and pushes it to an OCI registry. |
 | [ForgeDurableRun](Commands/ForgeDurableRun.cs) | `forge run`: one turn of a mission as a cloud conversation in the project, with Hands. |
 | [RunInputs](Commands/RunInputs.cs) | `forge run --input`: parses and checks named inputs and builds the turn's `MissionNamedInputs`. |
 | [RunTranscript](Commands/RunTranscript.cs) | `forge run --verbose`: one stderr line per expert step, Hands use, error or unfinished run. |
+| [ForgeProject](Commands/ForgeProject.cs) | `forge project create`: writes `forge.project.json` through the shared Client. |
+| [AuthCommands](Commands/AuthCommands.cs) | `forge registry login`, `forge login`, `forge whoami` and `forge logout`. |
+| [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in (loopback + PKCE), key exchange, `whoami` and logout; its wire types are in [PlatformLoginContracts](Contracts/PlatformLoginContracts.cs). |
+| [ProviderCommand](Commands/ProviderCommand.cs) | `forge provider list` and `forge provider scaffold` (prints or appends a `forge.toml` provider block). |
+| [CleanCommand](Commands/CleanCommand.cs) | `forge clean`: removes cached OCI experts from `~/.forge/experts`. |
 | [McpCommand](Commands/McpCommand.cs) | `forge mcp`: serves one validated mission over stdio, runners built by [MissionServerBuilder](Services/MissionServerBuilder.cs). |
-| [PlatformLogin](Commands/PlatformLogin.cs) | Platform sign-in, key retrieval, `whoami`, and logout. |
-| [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
-| [ForgeProject](Commands/ForgeProject.cs) | Explicit portable Project creation through the shared Client. |
-| [ImmediateProgress](Services/ImmediateProgress.cs) | Shows the shared Client's Hands reports at once, in order. |
+| [CliHelpers](Services/CliHelpers.cs) | Shared mission loading, parsing, expert loading and validation, the `mcl.lock` path and the expert template. |
+| [CliDiagnostics](Services/CliDiagnostics.cs) | Error rendering and `Die`, which throws [ForgeExitException](Services/ForgeExitException.cs) for Program's handler. |
+| [CliHttpClients](Services/CliHttpClients.cs) | The named outbound HTTP clients registered on the host. |
 | [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (API endpoint, OCI endpoint for short mission selectors) bound by the CLI host. |
+| [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
+| [ImmediateProgress](Services/ImmediateProgress.cs) | Shows the shared Client's Hands reports at once, in order. |
+| [FreePort](Services/FreePort.cs) | Picks a free loopback port for the sign-in listener. |
 
 ## Communicates with
 
@@ -85,7 +95,7 @@ flowchart LR
   prompt. Agent experts may Read/Write/Edit inside the project's folders and nowhere else; terminal
   tools are not granted. Hands owns path and symlink containment. Hands reports print on stderr
   as `error: …`.
-- **Composition:** `Program` wires existing owners. Provider and search behavior belong in
+- **Composition:** `Program` registers the commands; each command file wires existing owners. Provider and search behavior belong in
   [Chat Clients](../ForgeMission.ChatClients/README.md) and [Scout](../ForgeMission.Scout/README.md);
   OCI retrieval belongs in [Mission Registry](../ForgeMission.MissionRegistry/README.md).
 - **Project creation:** `forge project create [folder]` writes `forge.project.json` (`folders: ["."]` and a new `projectId`) unless one is already there. The folder defaults to cwd and must exist. It makes no server call and needs no sign-in; forge-client's Projects owner holds the file rules. A rerun keeps the existing Project.

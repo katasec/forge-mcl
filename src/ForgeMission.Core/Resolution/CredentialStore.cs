@@ -55,7 +55,7 @@ public static class CredentialStore
         var envToken = Environment.GetEnvironmentVariable("FORGE_REGISTRY_TOKEN");
         if (!string.IsNullOrWhiteSpace(envToken)) return envToken;
 
-        // A null registry has always resolved to "no token" rather than throwing.
+        // A null registry resolves to no token rather than throwing.
         if (registry is null) return null;
 
         var creds = ReadCredentials();
