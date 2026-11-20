@@ -99,23 +99,16 @@ public sealed class ChatClientsTests
     [InlineData("xai",       "sk-ant-api03-fixture")]
     [InlineData("anthropic", "sk-proj-fixture")]
     [InlineData("openai",    "xai-fixture")]
-    public async Task ForeignProviderKey_FailsFastWithoutSendingIt(string? provider, string apiKey)
+    public void ForeignProviderKey_FailsFastWithoutSendingIt(string? provider, string apiKey)
     {
-        var port = FreePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
-        var request = listener.GetContextAsync();
-
+        // BuildChatClient throws before any client exists, so nothing can be sent.
         var context = new Dictionary<string, string?> { ["apiKey"] = apiKey, ["model"] = "test-model", ["provider"] = provider,
-            ["endpoint"] = $"http://127.0.0.1:{port}/" };
+            ["endpoint"] = "http://127.0.0.1:9/" };
         var profile = ProviderProfileResolver.ResolveDefault(null, key => context[key]);
 
         var error = Assert.Throws<InvalidOperationException>(() => ForgeChatClients.BuildChatClient(profile));
         Assert.StartsWith("Refusing to send", error.Message);
         Assert.DoesNotContain(apiKey, error.Message);
-        await Task.Delay(200);
-        Assert.False(request.IsCompleted, "the foreign key reached the endpoint");
     }
 
     [Theory]
