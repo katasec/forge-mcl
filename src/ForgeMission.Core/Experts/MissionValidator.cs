@@ -240,16 +240,14 @@ public static class MissionValidator
         {
             var trimmed = lines[i].TrimStart();
             if (trimmed.StartsWith(blockName + ":", StringComparison.Ordinal)) { inBlock = true; continue; }
-            if (inBlock)
-            {
-                // Leave the block when we hit a non-indented line that isn't this key.
-                if (lines[i].Length > 0 && lines[i][0] != ' ' && lines[i][0] != '\t') inBlock = false;
-                else if (trimmed.StartsWith(keyName + ":", StringComparison.Ordinal))
-                {
-                    var col = lines[i].Length - trimmed.Length;
-                    return (frontmatter.startLine + i, col, col + keyName.Length);
-                }
-            }
+            if (!inBlock) continue;
+
+            // Leave the block when we hit a non-indented line that isn't this key.
+            if (lines[i].Length > 0 && lines[i][0] != ' ' && lines[i][0] != '\t') { inBlock = false; continue; }
+            if (!trimmed.StartsWith(keyName + ":", StringComparison.Ordinal)) continue;
+
+            var col = lines[i].Length - trimmed.Length;
+            return (frontmatter.startLine + i, col, col + keyName.Length);
         }
         // Fall back to pointing at the inputKeys: heading itself.
         return ExpertLoader.FindField(frontmatter.text, blockName, frontmatter.startLine);
