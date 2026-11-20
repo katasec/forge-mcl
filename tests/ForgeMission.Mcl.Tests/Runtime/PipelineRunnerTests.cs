@@ -167,15 +167,16 @@ public class PipelineRunnerTests
     [Fact]
     public async Task ProviderBindings_AllFourSeededInContext()
     {
-        var ast = MclParser.Parse("""
-            let provider = env("MCL_PROVIDER", "openai")
-            let apiKey   = env("MCL_API_KEY")
-            let model    = env("MCL_MODEL", "gpt-4o-mini")
-            let endpoint = env("MCL_ENDPOINT", "")
+        var keyVar = UniqueEnvName("API_KEY");
+        var ast = MclParser.Parse($$"""
+            let provider = env("{{UniqueEnvName("PROVIDER")}}", "openai")
+            let apiKey   = env("{{keyVar}}")
+            let model    = env("{{UniqueEnvName("MODEL")}}", "gpt-4o-mini")
+            let endpoint = env("{{UniqueEnvName("ENDPOINT")}}", "")
             mission Demo = { Worker }
             """);
 
-        Environment.SetEnvironmentVariable("MCL_API_KEY", "sk-test");
+        Environment.SetEnvironmentVariable(keyVar, "sk-test");
         try
         {
             var stub = new StubExpertRunner();
@@ -190,21 +191,22 @@ public class PipelineRunnerTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("MCL_API_KEY", null);
+            Environment.SetEnvironmentVariable(keyVar, null);
         }
     }
 
     [Fact]
     public async Task ProviderBinding_VarFlagOverridesProvider()
     {
-        var ast = MclParser.Parse("""
-            let provider = env("MCL_PROVIDER", "openai")
-            let apiKey   = env("MCL_API_KEY")
-            let model    = env("MCL_MODEL", "gpt-4o-mini")
+        var keyVar = UniqueEnvName("API_KEY");
+        var ast = MclParser.Parse($$"""
+            let provider = env("{{UniqueEnvName("PROVIDER")}}", "openai")
+            let apiKey   = env("{{keyVar}}")
+            let model    = env("{{UniqueEnvName("MODEL")}}", "gpt-4o-mini")
             mission Demo = { Worker }
             """);
 
-        Environment.SetEnvironmentVariable("MCL_API_KEY", "sk-test");
+        Environment.SetEnvironmentVariable(keyVar, "sk-test");
         try
         {
             var stub = new StubExpertRunner();
@@ -216,9 +218,12 @@ public class PipelineRunnerTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("MCL_API_KEY", null);
+            Environment.SetEnvironmentVariable(keyVar, null);
         }
     }
+
+    // A per-test name no shell defines, so the developer's MCL_* settings cannot change the result.
+    private static string UniqueEnvName(string suffix) => $"MCLTEST_{suffix}_{Guid.NewGuid():N}";
 
     // ── StepEnvelope / fail-fast ──────────────────────────────────────────────
 
