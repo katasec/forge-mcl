@@ -485,7 +485,7 @@ public class PipelineRunner
             context[binding.Key] = ContextBuilder.ResolveBindingValue(binding.Value, context);
     }
 
-    private static string? StepFailReason(Step step, StepEnvelope envelope) => envelope.Status == "fail"
+    private static string? StepFailReason(Step step, StepEnvelope envelope) => envelope.Status == StepEnvelope.Fail
         ? $"[{step.ExpertName}] {envelope.Reason ?? "step failed"}"
         : null;
 

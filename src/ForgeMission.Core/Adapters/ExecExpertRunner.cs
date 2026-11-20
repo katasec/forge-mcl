@@ -31,7 +31,7 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
         var inputs = ProcessInputs(expert, context);
         var inputJson = BuildInputJson(expert, inputs);
         if (Encoding.UTF8.GetByteCount(inputJson) > MaxOutputBytes)
-            return new("", "fail", "Executable stdin JSON exceeds 4 MiB.");
+            return new("", StepEnvelope.Fail, "Executable stdin JSON exceeds 4 MiB.");
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var timeout = ExecTimeout.Parse(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
         cancellation.CancelAfter(timeout);
@@ -43,7 +43,7 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
         }
         catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            return new("", "fail", $"Failed to start '{expert.Command}': {exception.Message}");
+            return new("", StepEnvelope.Fail, $"Failed to start '{expert.Command}': {exception.Message}");
         }
 
         using (process)
@@ -54,17 +54,17 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
                     process, inputJson, new(MaxOutputBytes, MaxErrorBytes, "Executable"), cancellation);
                 ct.ThrowIfCancellationRequested();
                 if (exitCode != 0)
-                    return new(stderr, "fail", $"Expert '{expert.Name}' exited with code {exitCode}. stderr: {stderr}".TrimEnd());
+                    return new(stderr, StepEnvelope.Fail, $"Expert '{expert.Name}' exited with code {exitCode}. stderr: {stderr}".TrimEnd());
                 return ApplyOutput(expert, context, stdout);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                return new("", "fail", $"Expert '{expert.Name}' timed out after {timeout}.");
+                return new("", StepEnvelope.Fail, $"Expert '{expert.Name}' timed out after {timeout}.");
             }
             catch (IOException exception)
             {
                 ct.ThrowIfCancellationRequested();
-                return new("", "fail", $"Executable I/O failed: {exception.Message}");
+                return new("", StepEnvelope.Fail, $"Executable I/O failed: {exception.Message}");
             }
         }
     }
@@ -137,13 +137,13 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
         var reason = root.TryGetProperty("reason", out var rv) ? rv.GetString() : null;
         if (expert.IsJudge) return ApplyVerdict(expert, context, JudgeVerdict.Read(root, text, reason));
         var status = root.TryGetProperty("status", out var sv) ? sv.GetString() : null;
-        return new(text, status ?? "pass", reason);
+        return new(text, status ?? StepEnvelope.Pass, reason);
     }
 
     // A failed verdict carries its reason into the next loop attempt as feedback.
     private static StepEnvelope ApplyVerdict(ExpertDefinition expert, Dictionary<string, object> context, StepEnvelope verdict)
     {
-        if (verdict.Status == "fail")
+        if (verdict.Status == StepEnvelope.Fail)
             context[ContextKeys.Feedback] = !string.IsNullOrWhiteSpace(verdict.Reason) ? verdict.Reason
                 : !string.IsNullOrWhiteSpace(expert.OnFail) ? expert.OnFail : "Verification failed.";
         return verdict;

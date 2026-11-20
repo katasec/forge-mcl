@@ -19,6 +19,6 @@ public class RuleExpertRunner : IExpertRunner
         // Write feedback to context so PipelineRunner can propagate it to the next loop iteration.
         var message = string.IsNullOrWhiteSpace(expert.OnFail) ? "Rule check failed." : expert.OnFail;
         context[ContextKeys.Feedback] = message;
-        return Task.FromResult(new StepEnvelope(text, "fail", message));
+        return Task.FromResult(new StepEnvelope(text, StepEnvelope.Fail, message));
     }
 }

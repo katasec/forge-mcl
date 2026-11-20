@@ -42,7 +42,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         // Non-judge experts always continue the pipeline — enforce pass regardless of LLM output.
         return expert.IsJudge
             ? JudgeVerdict.Parse(response.Text)
-            : ParseStep(response.Text) with { Status = "pass", Reason = null };
+            : ParseStep(response.Text) with { Status = StepEnvelope.Pass, Reason = null };
     }
 
     // A non-judge reply is its output; non-JSON falls back to the raw text.
