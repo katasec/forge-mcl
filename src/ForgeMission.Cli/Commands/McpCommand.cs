@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Buffers;
 using System.CommandLine;
 using System.Text.Json;
@@ -49,7 +50,7 @@ internal static class McpCommand
 
             LockFile lockFile;
             try { lockFile = LockFileIO.Read(lockPath); }
-            catch (Exception ex) { CliDiagnostics.Die($"Cannot read mcl.lock: {ex.Message}"); return; }
+            catch (Exception ex) { CliDiagnostics.Die($"Cannot read mcl.lock: {ex.Message}"); throw new UnreachableException(); }
 
             Dictionary<string, ExpertDefinition> expertDefs;
             try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose: null, warnings: Console.Error); }

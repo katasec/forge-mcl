@@ -157,7 +157,7 @@ public sealed class CapabilityDispatcher(
     {
         resolved = string.Empty;
         error = null;
-        if (!capabilities.TryGetProvider(out files) || files is null)
+        if (!capabilities.TryGetProvider(out files))
         {
             error = ToolExecutionResult.Error("File capability is unavailable.");
             return false;
@@ -176,7 +176,7 @@ public sealed class CapabilityDispatcher(
         CancellationToken ct,
         Action providerInvoked)
     {
-        if (!capabilities.TryGetProvider<ITerminalProvider>(out var terminal) || terminal is null)
+        if (!capabilities.TryGetProvider<ITerminalProvider>(out var terminal))
             return ToolExecutionResult.Error("Terminal capability is unavailable.");
 
         providerInvoked();

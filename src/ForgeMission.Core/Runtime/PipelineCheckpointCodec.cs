@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.AI;
@@ -19,13 +20,13 @@ internal static class PipelineCheckpointCodec
     /// <summary>The checkpoint format inside the payload. Formats 1 and 2 are rejected.</summary>
     internal const int CheckpointVersion = 3;
 
-    internal static bool TryRead(PipelineContinuation continuation, out PipelineContinuationCheckpoint checkpoint)
+    internal static bool TryRead(PipelineContinuation continuation, [NotNullWhen(true)] out PipelineContinuationCheckpoint? checkpoint)
     {
-        checkpoint = null!;
+        checkpoint = null;
         if (continuation.FormatVersion != EnvelopeVersion || continuation.Payload is null) return false;
         try
         {
-            checkpoint = JsonSerializer.Deserialize(continuation.Payload, CheckpointInfo)!;
+            checkpoint = JsonSerializer.Deserialize(continuation.Payload, CheckpointInfo);
             return checkpoint is not null && ValidIdentity(checkpoint)
                 && ValidCollections(checkpoint) && ValidMessages(checkpoint.TurnMessages);
         }

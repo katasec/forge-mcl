@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.AI;
 
 namespace ForgeMission.Core.Tools;
@@ -25,7 +26,7 @@ public sealed class CapabilityRegistry
     // Derived from the actual provider set, rather than a fixed tool list assumed for every client.
     public IReadOnlyList<AITool> ToolDeclarations { get; }
 
-    public bool TryGetProvider<TProvider>(out TProvider? provider)
+    public bool TryGetProvider<TProvider>([NotNullWhen(true)] out TProvider? provider)
         where TProvider : class, ICapabilityProvider
     {
         provider = _providers.OfType<TProvider>().SingleOrDefault();
