@@ -598,16 +598,16 @@ public class PipelineRunnerTests
     }
 
     [Theory]
-    [InlineData(">",  0.9, true)]
-    [InlineData(">",  0.5, false)]
-    [InlineData(">=", 0.8, true)]
-    [InlineData(">=", 0.7, false)]
-    [InlineData("<",  0.5, true)]
-    [InlineData("<",  0.9, false)]
-    [InlineData("<=", 0.8, true)]
-    [InlineData("==", 0.8, true)]
-    [InlineData("==", 0.9, false)]
-    public async Task When_NumericCompare_RoutesCorrectly(string op, double scoreInContext, bool highExpected)
+    [InlineData(">",  0.9, "HighPath", "LowPath")]
+    [InlineData(">",  0.5, "LowPath",  "HighPath")]
+    [InlineData(">=", 0.8, "HighPath", "LowPath")]
+    [InlineData(">=", 0.7, "LowPath",  "HighPath")]
+    [InlineData("<",  0.5, "HighPath", "LowPath")]
+    [InlineData("<",  0.9, "LowPath",  "HighPath")]
+    [InlineData("<=", 0.8, "HighPath", "LowPath")]
+    [InlineData("==", 0.8, "HighPath", "LowPath")]
+    [InlineData("==", 0.9, "LowPath",  "HighPath")]
+    public async Task When_NumericCompare_RoutesCorrectly(string op, double scoreInContext, string takenPath, string skippedPath)
     {
         var source = $$"""
             mission Score = {
@@ -629,16 +629,8 @@ public class PipelineRunnerTests
                       new PipelineRunOptions("Score"));
 
         var calledNames = stub.Calls.Select(c => c.ExpertName).ToList();
-        if (highExpected)
-        {
-            Assert.Contains("HighPath", calledNames);
-            Assert.DoesNotContain("LowPath", calledNames);
-        }
-        else
-        {
-            Assert.DoesNotContain("HighPath", calledNames);
-            Assert.Contains("LowPath", calledNames);
-        }
+        Assert.Contains(takenPath, calledNames);
+        Assert.DoesNotContain(skippedPath, calledNames);
     }
 
     [Fact]
