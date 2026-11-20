@@ -49,14 +49,13 @@ internal static class ChildProcess
         catch (InvalidOperationException) { } // already exited
     }
 
-    private static async Task<string> WriteInputAsync(Stream stream, string input, CancellationTokenSource cancellation)
+    private static async Task WriteInputAsync(Stream stream, string input, CancellationTokenSource cancellation)
     {
         try { await stream.WriteAsync(Encoding.UTF8.GetBytes(input), cancellation.Token); }
         catch (IOException exception) when (DeclinedInput(exception, cancellation.Token)) { }
         catch (Exception exception) when (exception is IOException or OperationCanceledException)
         { cancellation.Cancel(); throw; }
         finally { stream.Dispose(); }
-        return "";
     }
 
     private static bool DeclinedInput(IOException exception, CancellationToken cancellationToken)

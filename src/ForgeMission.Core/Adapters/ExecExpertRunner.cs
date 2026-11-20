@@ -78,7 +78,7 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
             if (inputs.TryGetValue(name, out var value) && VerifiedPath(value) is { } absolute)
                 inputs[name] = absolute;
         var outputDirectory = _workspace.GetStepOutputDirectory(_stepKey, _attempt);
-        CreateOutputDirectory(outputDirectory);
+        Directory.CreateDirectory(outputDirectory);
         inputs[ContextKeys.WorkDir] = _workspace.RootDirectory;
         inputs[ContextKeys.InputDir] = Path.Combine(_workspace.RootDirectory, "inputs");
         inputs[ContextKeys.OutputDir] = outputDirectory;
@@ -92,8 +92,6 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
             throw new InvalidOperationException("Verified artifact registry contains a noncanonical path.");
         return Path.Combine(_workspace.RootDirectory, relative.Replace('/', Path.DirectorySeparatorChar));
     }
-
-    private static void CreateOutputDirectory(string path) => Directory.CreateDirectory(path);
 
     private ProcessStartInfo ProcessOptions(ExpertDefinition expert, Dictionary<string, object> inputs, Dictionary<string, object> context)
     {
