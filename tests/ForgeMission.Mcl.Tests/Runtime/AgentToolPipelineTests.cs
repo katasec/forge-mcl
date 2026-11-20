@@ -139,41 +139,57 @@ public sealed class AgentToolPipelineTests
         var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
         Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
     }
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ToolResponseMetadata_IsConsumedOnNormalAndExceptionalExit(bool fail)
+    private const string ToolResponseKey = "__pipeline_tool_response_messages";
+
+    [Fact]
+    public async Task ToolResponseMetadata_IsConsumedOnNormalExit()
     {
-        const string responseKey = "__pipeline_tool_response_messages";
-        Dictionary<string, object>? captured = null;
+        var (runner, captured) = ToolResponseRunner(fail: false);
+        var pause = Assert.IsType<PipelineToolPause>((await runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        using var checkpoint = JsonDocument.Parse(pause.Continuation.Payload);
+        var message = Assert.Single(checkpoint.RootElement.GetProperty("turnMessages").EnumerateArray());
+        Assert.Equal(2, message.GetProperty("contents").GetArrayLength());
+        Assert.Equal("protected", message.GetProperty("contents")[0].GetProperty("protectedData").GetString());
+        AssertResponseKeyConsumed(captured);
+    }
+
+    [Fact]
+    public async Task ToolResponseMetadata_IsConsumedOnExceptionalExit()
+    {
+        var (runner, captured) = ToolResponseRunner(fail: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools())));
+        AssertResponseKeyConsumed(captured);
+    }
+
+    private static readonly Program ToolResponseAst = MclParser.Parse("mission Root = { Respond }");
+
+    private static Dictionary<string, ExpertDefinition> ToolResponseExperts() => new()
+    { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
+
+    // A runner whose step writes tool-response metadata, then either throws or asks for a tool.
+    private static (PipelineRunner Runner, StrongBox<Dictionary<string, object>?> Captured) ToolResponseRunner(bool fail)
+    {
+        var captured = new StrongBox<Dictionary<string, object>?>();
         var call = new FunctionCallContent("read-once", "Read", new Dictionary<string, object?>());
         var modelReply = new ChatMessage(ChatRole.Assistant,
             [new TextReasoningContent("reason") { ProtectedData = "protected" }, call]);
         var runner = new PipelineRunner(new StubExpertRunner((_, context) =>
         {
-            captured = context;
-            context[responseKey] = new ChatMessage[] { modelReply };
+            captured.Value = context;
+            context[ToolResponseKey] = new ChatMessage[] { modelReply };
             if (fail) throw new InvalidOperationException("fixture failure");
             context["tool_calls"] = new List<FunctionCallContent> { call };
             return new StepEnvelope("");
         }));
-        var ast = MclParser.Parse("mission Root = { Respond }");
-        var experts = new Dictionary<string, ExpertDefinition>
-        { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
-        if (fail)
-            await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ast, experts,
-                new PipelineRunOptions("Root", RootTools: ClientTools())));
-        else
-        {
-            var pause = Assert.IsType<PipelineToolPause>((await runner.RunAsync(ast, experts,
-                new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
-            using var checkpoint = JsonDocument.Parse(pause.Continuation.Payload);
-            var message = Assert.Single(checkpoint.RootElement.GetProperty("turnMessages").EnumerateArray());
-            Assert.Equal(2, message.GetProperty("contents").GetArrayLength());
-            Assert.Equal("protected", message.GetProperty("contents")[0].GetProperty("protectedData").GetString());
-        }
-        Assert.NotNull(captured);
-        Assert.False(captured.ContainsKey(responseKey));
+        return (runner, captured);
+    }
+
+    private static void AssertResponseKeyConsumed(StrongBox<Dictionary<string, object>?> captured)
+    {
+        Assert.NotNull(captured.Value);
+        Assert.False(captured.Value.ContainsKey(ToolResponseKey));
     }
 
     private static readonly Program Ast = MclParser.Parse("""
