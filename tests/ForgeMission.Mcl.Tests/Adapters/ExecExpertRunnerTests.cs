@@ -13,7 +13,7 @@ public class ExecExpertRunnerTests : IDisposable
     [Fact]
     public void Declined_input_classifier_preserves_other_IO_failures_and_cancellation()
     {
-        var classify = typeof(ExecExpertRunner).GetMethod("DeclinedInput", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        var classify = typeof(ChildProcess).GetMethod("DeclinedInput", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
         Assert.Equal(false, classify.Invoke(null, [new IOException("unrelated storage failure"), CancellationToken.None]));
         var closed = OperatingSystem.IsWindows() ? new IOException("closed", unchecked((int)0x8007006D))
             : new IOException("closed", new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.Shutdown));

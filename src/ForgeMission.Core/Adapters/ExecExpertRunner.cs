@@ -50,7 +50,8 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
         {
             try
             {
-                var (stdout, stderr, exitCode) = await ExchangeAsync(process, inputJson, cancellation);
+                var (stdout, stderr, exitCode) = await ChildProcess.ExchangeAsync(
+                    process, inputJson, new(MaxOutputBytes, MaxErrorBytes, "Executable"), cancellation);
                 ct.ThrowIfCancellationRequested();
                 if (exitCode != 0)
                     return new(stderr, "fail", $"Expert '{expert.Name}' exited with code {exitCode}. stderr: {stderr}".TrimEnd());
@@ -122,75 +123,6 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
             options.Environment["FORGE_INPUT_" + name] = absolute;
             if (name == "source_file") options.Environment["FORGE_SOURCE_FILE"] = absolute;
         }
-    }
-
-    /// <summary>Writes stdin and reads bounded stdout/stderr until the child exits. A timeout, the
-    /// caller's cancellation or a failed read kills the child and its process tree, and the child is
-    /// joined before this returns or throws.</summary>
-    private static async Task<(string Output, string Error, int ExitCode)> ExchangeAsync(
-        Process process, string input, CancellationTokenSource cancellation)
-    {
-        var write = WriteInputAsync(process.StandardInput.BaseStream, input, cancellation);
-        var output = ReadBoundedAsync(process.StandardOutput.BaseStream, MaxOutputBytes, "stdout", cancellation);
-        var error = ReadBoundedAsync(process.StandardError.BaseStream, MaxErrorBytes, "stderr", cancellation);
-        var io = Task.WhenAll(write, output, error);
-        try
-        {
-            await io;
-            await process.WaitForExitAsync(cancellation.Token);
-        }
-        catch
-        {
-            cancellation.Cancel();
-            KillTree(process);
-            await process.WaitForExitAsync(CancellationToken.None);
-            try { await io; }
-            catch (Exception exception) when (exception is IOException or OperationCanceledException) { }
-            throw;
-        }
-        return (await output, await error, process.ExitCode);
-    }
-
-    private static void KillTree(Process process)
-    {
-        try { process.Kill(entireProcessTree: true); }
-        catch (InvalidOperationException) { } // already exited
-    }
-
-    private static async Task<string> WriteInputAsync(Stream stream, string input, CancellationTokenSource cancellation)
-    {
-        try { await stream.WriteAsync(Encoding.UTF8.GetBytes(input), cancellation.Token); }
-        catch (IOException exception) when (DeclinedInput(exception, cancellation.Token)) { }
-        catch (Exception exception) when (exception is IOException or OperationCanceledException)
-        { cancellation.Cancel(); throw; }
-        finally { stream.Dispose(); }
-        return "";
-    }
-
-    private static bool DeclinedInput(IOException exception, CancellationToken cancellationToken)
-    {
-        if (cancellationToken.IsCancellationRequested) return false;
-        if (OperatingSystem.IsWindows())
-            return exception.HResult is unchecked((int)0x8007006D) or unchecked((int)0x800700E8) or unchecked((int)0x800700E9);
-        return exception.InnerException is System.Net.Sockets.SocketException
-            { NativeErrorCode: 32, SocketErrorCode: System.Net.Sockets.SocketError.Shutdown };
-    }
-    private static async Task<string> ReadBoundedAsync(Stream stream, int limit, string name, CancellationTokenSource cancellation)
-    {
-        using var bytes = new MemoryStream();
-        var buffer = new byte[8192];
-        try
-        {
-            int count;
-            while ((count = await stream.ReadAsync(buffer, cancellation.Token)) > 0)
-            {
-                if (bytes.Length + count > limit) throw new IOException($"Executable {name} exceeds {limit} bytes.");
-                bytes.Write(buffer, 0, count);
-            }
-            return Encoding.UTF8.GetString(bytes.GetBuffer(), 0, (int)bytes.Length);
-        }
-        catch (Exception exception) when (exception is IOException or OperationCanceledException)
-        { cancellation.Cancel(); throw; }
     }
 
     private static StepEnvelope ApplyOutput(ExpertDefinition expert, Dictionary<string, object> context, string stdout)
