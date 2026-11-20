@@ -88,11 +88,10 @@ public sealed class ForgeProjectTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Success_forwards_home_once_and_prints_the_next_command(bool explicitFolder)
+    [InlineData(null, "Run `forge run <mission> \"<prompt>\"`.")]
+    [InlineData("project folder", "Run `forge run --project '{projectFile}' <mission> \"<prompt>\"`.")]
+    public async Task Success_forwards_home_once_and_prints_the_next_command(string? folder, string guidance)
     {
-        var folder = explicitFolder ? "project folder" : null;
         var expectedHome = Path.GetFullPath(folder ?? Directory.GetCurrentDirectory());
         var calls = 0;
         using var output = new StringWriter();
@@ -107,7 +106,7 @@ public sealed class ForgeProjectTests
         Assert.Equal(1, calls);
         Assert.Equal("", error.ToString());
         Assert.Contains($"Project: {Path.Combine(expectedHome, "forge.project.json")}", output.ToString());
-        Assert.Contains(explicitFolder ? $"Run `forge run --project '{Path.Combine(expectedHome, "forge.project.json")}' <mission> \"<prompt>\"`." : "Run `forge run <mission> \"<prompt>\"`.", output.ToString());
+        Assert.Contains(guidance.Replace("{projectFile}", Path.Combine(expectedHome, "forge.project.json")), output.ToString());
     }
 
     [Fact]
