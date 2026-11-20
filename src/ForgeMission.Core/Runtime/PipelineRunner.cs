@@ -598,9 +598,9 @@ public class PipelineRunner
     private static object? DetachTools(Dictionary<string, object> context)
     {
         context.Remove(ContextKeys.Tools);
-        context.Remove(PipelineRuntimeInstructions.AllowMultipleToolCalls);
-        context.Remove(PipelineToolContinuationInstructions.TurnMessages);
-        context.Remove(PipelineToolContinuationInstructions.ResponseMessages, out var responseMessages);
+        context.Remove(ContextKeys.AllowMultipleToolCalls);
+        context.Remove(ContextKeys.ToolTurnMessages);
+        context.Remove(ContextKeys.ToolResponseMessages, out var responseMessages);
         return responseMessages;
     }
 
@@ -631,9 +631,9 @@ public class PipelineRunner
 
         context[ContextKeys.Tools] = scope.Tools;
         // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
-        context[PipelineRuntimeInstructions.AllowMultipleToolCalls] = false;
+        context[ContextKeys.AllowMultipleToolCalls] = false;
         if (turn is not null)
-            context[PipelineToolContinuationInstructions.TurnMessages] = turn;
+            context[ContextKeys.ToolTurnMessages] = turn;
     }
 
     // A root tool call ends the whole run. The checkpoint holds the log of completed steps, this

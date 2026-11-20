@@ -83,7 +83,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         options.Tools = tools;
 
         // Closed runtime instruction — set only by PipelineRunner; never a mission-authorable variable.
-        if (context.TryGetValue(PipelineRuntimeInstructions.AllowMultipleToolCalls, out var allowValue)
+        if (context.TryGetValue(ContextKeys.AllowMultipleToolCalls, out var allowValue)
             && allowValue is bool allowMultiple)
             options.AllowMultipleToolCalls = allowMultiple;
         return true;
@@ -102,7 +102,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         var calls = response.Messages.LastOrDefault()?.Contents.OfType<FunctionCallContent>().ToList();
         if (calls is not { Count: > 0 }) return false;
         context[ContextKeys.ToolCalls] = calls;
-        context[PipelineToolContinuationInstructions.ResponseMessages] = response.Messages.ToArray();
+        context[ContextKeys.ToolResponseMessages] = response.Messages.ToArray();
         return true;
     }
 
@@ -110,7 +110,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
     // input, as the provider protocol expects the conversation resent.
     private static void AddToolTurn(List<ChatMessage> messages, Dictionary<string, object> context)
     {
-        if (context.Remove(PipelineToolContinuationInstructions.TurnMessages, out var turn)
+        if (context.Remove(ContextKeys.ToolTurnMessages, out var turn)
             && turn is IReadOnlyList<ChatMessage> turnMessages)
             messages.AddRange(turnMessages);
     }

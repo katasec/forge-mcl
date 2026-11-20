@@ -27,6 +27,24 @@ internal static class ContextKeys
     internal const string InputDir  = "input_dir";
     internal const string OutputDir = "output_dir";
 
+    // One-shot instructions the runner passes to an expert runner and removes before the next step.
+    // The "__" prefix keeps them out of mission authoring (see IsReserved).
+
+    /// <summary>bool mirroring <see cref="Microsoft.Extensions.AI.ChatOptions.AllowMultipleToolCalls"/>.
+    /// Set to false on an agent expert's call when root tools are attached: one tool call per pause.</summary>
+    internal const string AllowMultipleToolCalls = "__pipeline_allow_multiple_tool_calls";
+
+    /// <summary>The resumed agent step's tool calls and results so far, in provider order; set only
+    /// by PipelineRunner, added after the step's own input by DirectExpertRunner.</summary>
+    internal const string ToolTurnMessages = "__pipeline_tool_turn_messages";
+
+    /// <summary>Complete provider response messages accompanying the existing calls. Consumed by
+    /// PipelineRunner at the invocation boundary, never retained in step context.</summary>
+    internal const string ToolResponseMessages = "__pipeline_tool_response_messages";
+
+    /// <summary>The earlier turns of a durable chat (<see cref="Runtime.ChatHistory"/>).</summary>
+    internal const string ChatHistory = "__chat_history";
+
     internal static bool IsRuntimeDirectory(string name) => name is WorkDir or InputDir or OutputDir;
 
     internal static bool IsReserved(string name) => name is Output or Feedback or Attempt or MaxLoops
