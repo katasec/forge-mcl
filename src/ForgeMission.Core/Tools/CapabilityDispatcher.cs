@@ -57,10 +57,10 @@ public sealed class CapabilityDispatcher(
         (capabilityName, request) switch
         {
             (_, InvalidCapabilityRequest invalid) => Task.FromResult(ToolExecutionResult.Error(invalid.Error)),
-            ("file", ReadFileCapabilityRequest read) => ReadFileAsync(read, ct, providerInvoked),
-            ("file", EditFileCapabilityRequest edit) => EditFileAsync(edit, ct, providerInvoked),
-            ("file", WriteFileCapabilityRequest write) => WriteFileAsync(write, ct, providerInvoked),
-            ("terminal", ExecuteTerminalCapabilityRequest terminal) => ExecuteTerminalAsync(terminal, ct, providerInvoked),
+            (CapabilityNames.File, ReadFileCapabilityRequest read) => ReadFileAsync(read, ct, providerInvoked),
+            (CapabilityNames.File, EditFileCapabilityRequest edit) => EditFileAsync(edit, ct, providerInvoked),
+            (CapabilityNames.File, WriteFileCapabilityRequest write) => WriteFileAsync(write, ct, providerInvoked),
+            (CapabilityNames.Terminal, ExecuteTerminalCapabilityRequest terminal) => ExecuteTerminalAsync(terminal, ct, providerInvoked),
             _ => Task.FromResult(ToolExecutionResult.Error($"Unsupported capability request for {capabilityName}.")),
         };
 

@@ -11,6 +11,7 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
 {
     private const int MaxOutputBytes = 4 * 1024 * 1024;
     private const int MaxErrorBytes = 64 * 1024;
+    private const int MaxInputBytes = 4 * 1024 * 1024;
 
     private readonly PipelineExecutionWorkspace? _workspace;
     private readonly string _stepKey = "";
@@ -30,8 +31,8 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
         ct.ThrowIfCancellationRequested();
         var inputs = ProcessInputs(expert, context);
         var inputJson = BuildInputJson(expert, inputs);
-        if (Encoding.UTF8.GetByteCount(inputJson) > MaxOutputBytes)
-            return new("", StepEnvelope.Fail, "Executable stdin JSON exceeds 4 MiB.");
+        if (Encoding.UTF8.GetByteCount(inputJson) > MaxInputBytes)
+            return new("", StepEnvelope.Fail, $"Executable stdin JSON exceeds {MaxInputBytes / (1024 * 1024)} MiB.");
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var timeout = ExecTimeout.Parse(string.IsNullOrWhiteSpace(expert.Timeout) ? defaultTimeout : expert.Timeout);
         cancellation.CancelAfter(timeout);

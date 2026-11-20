@@ -34,9 +34,9 @@ public sealed class CapabilityAuthorizationPolicy
     public static CapabilityAuthorizationPolicy Default { get; } = new(
     [
         new KeyValuePair<string, CapabilityAuthorizationRule>(
-            "file", new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
+            CapabilityNames.File, new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
         new KeyValuePair<string, CapabilityAuthorizationRule>(
-            "terminal", new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
+            CapabilityNames.Terminal, new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
     ]);
 }
 

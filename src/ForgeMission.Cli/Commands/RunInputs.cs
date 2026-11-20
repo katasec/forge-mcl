@@ -72,7 +72,7 @@ internal static class RunInputs
     // Text inputs travel in the turn's body, which ForgeAPI caps at 4 MiB.
     private static string TextWithinLimit(Input input, string text) =>
         Encoding.UTF8.GetByteCount(text) <= ConversationBodyLimits.MaxBodyBytes ? text
-            : throw new ArgumentException($"--input {input.Name}: text file is larger than 4 MiB.");
+            : throw new ArgumentException($"--input {input.Name}: text file is larger than {ConversationBodyLimits.MaxBodyBytes / (1024 * 1024)} MiB.");
 
     private static string FilePath(string name, string path, string invocationDirectory)
     {
@@ -82,7 +82,7 @@ internal static class RunInputs
         if (!File.Exists(full))
             throw new ArgumentException($"--input {name}=@{path}: file not found.");
         if (new FileInfo(full).Length > MissionContentLimits.MaxContentBytes)
-            throw new ArgumentException($"--input {name}=@{path} is larger than 100 MiB.");
+            throw new ArgumentException($"--input {name}=@{path} is larger than {MissionContentLimits.MaxContentBytes / (1024 * 1024)} MiB.");
         return full;
     }
 

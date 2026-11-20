@@ -20,6 +20,9 @@ namespace ForgeMission.Cli.Commands;
 // Produces Entra tokens proving identity; the access token is then exchanged for a platform key.
 internal static class PlatformLogin
 {
+    private static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(5);
+    private const string UnknownUser = "(unknown user)";
+
     internal static async Task<int> RunAsync(IOptions<PlatformLoginOptions> options, IHttpClientFactory clients,
         CancellationToken cancellationToken)
     {
@@ -175,14 +178,14 @@ internal static class PlatformLogin
         CancellationToken cancellationToken)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromMinutes(5));
+        deadline.CancelAfter(SignInTimeout);
         while (true)
         {
             HttpListenerContext ctx;
             try { ctx = await listener.GetContextAsync().WaitAsync(deadline.Token); }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                Console.Error.WriteLine("Timed out waiting for the browser sign-in (5 minutes).");
+                Console.Error.WriteLine($"Timed out waiting for the browser sign-in ({SignInTimeout.TotalMinutes} minutes).");
                 return null;
             }
 
@@ -267,13 +270,13 @@ internal static class PlatformLogin
     // arrived over the TLS channel we initiated (standard native-client posture).
     private static string ReadUserLabel(string? idToken)
     {
-        if (idToken?.Split('.') is not [_, var payload, _]) return "(unknown user)";
+        if (idToken?.Split('.') is not [_, var payload, _]) return UnknownUser;
         try
         {
             var claims = JsonSerializer.Deserialize(Base64Url.DecodeFromChars(payload), PlatformLoginJsonContext.Default.IdTokenClaims);
-            return claims?.Email ?? claims?.PreferredUsername ?? claims?.Name ?? claims?.Sub ?? "(unknown user)";
+            return claims?.Email ?? claims?.PreferredUsername ?? claims?.Name ?? claims?.Sub ?? UnknownUser;
         }
-        catch (Exception e) when (e is JsonException or FormatException) { return "(unknown user)"; }
+        catch (Exception e) when (e is JsonException or FormatException) { return UnknownUser; }
     }
 
     private static void OpenBrowser(string url)

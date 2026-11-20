@@ -21,7 +21,7 @@ public static class OciExpertPuller
         {
             OciMissionPuller.RequireRegularFile(cachePath);
             if ((File.GetAttributes(cachePath) & FileAttributes.ReparsePoint) != 0 ||
-                new FileInfo(cachePath).Length > 33554432 || await File.ReadAllTextAsync(cachePath, cancellationToken) != pulled.Content)
+                new FileInfo(cachePath).Length > OciMissionPuller.MaxBundleBytes || await File.ReadAllTextAsync(cachePath, cancellationToken) != pulled.Content)
                 throw new InvalidDataException("Expert cache differs from verified content.");
             return (cachePath, "verified");
         }

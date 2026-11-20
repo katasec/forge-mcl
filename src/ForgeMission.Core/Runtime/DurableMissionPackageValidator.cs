@@ -72,7 +72,7 @@ public static class DurableMissionPackageValidator
 
         if (JsonSerializer.SerializeToUtf8Bytes(package, DurablePackageJsonContext.Default.DurableMissionPackageInput).Length > MaxPackageUtf8Bytes)
         {
-            reason = "The serialized durable package exceeds 4 MiB.";
+            reason = $"The serialized durable package exceeds {MaxPackageUtf8Bytes / (1024 * 1024)} MiB.";
             return false;
         }
 
