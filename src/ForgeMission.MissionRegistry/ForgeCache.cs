@@ -3,14 +3,16 @@ namespace ForgeMission.MissionRegistry;
 /// <summary>Resolves paths inside the global Forge OCI cache and is the only owner that deletes it.</summary>
 public static class ForgeCache
 {
-    private static readonly string Root = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".forge");
+    // ~/.forge; ForgeMission.Core.Resolution.ForgeHome owns the same root for assemblies that reference Core.
+    internal static readonly string Root = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".forge");
+
+    internal const string ExpertFile = "expert.md";
 
     public static string ExpertsRoot => Path.Combine(Root, "experts");
 
     public static string ExpertMdPath(string registry, string ociName, string version)
-        => Path.Combine(ExpertsRoot, registry, ociName, Sanitize(version), "expert.md");
+        => Path.Combine(ExpertsRoot, registry, ociName, Sanitize(version), ExpertFile);
 
     public static string MissionsRoot => Path.Combine(Root, "missions");
 

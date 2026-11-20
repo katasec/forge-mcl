@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ForgeMission.Core.Resolution;
 
 namespace ForgeMission.Cli.Services;
 
@@ -11,8 +12,7 @@ namespace ForgeMission.Cli.Services;
 // whatever is already there.
 internal static class ForgeSettings
 {
-    public static string DefaultPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".forge", "config.json");
+    public static string DefaultPath { get; } = ForgeHome.ConfigPath;
 
     /// <summary>Adds each missing endpoint default to the config file at <paramref name="path"/>,
     /// creating the file when absent. A present value, a section that is not an object and a file

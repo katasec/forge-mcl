@@ -85,7 +85,7 @@ public static class ExpertResolver
     private static (string? Path, string Source) Locate(string name, LockFileExpert entry, string missionDir)
     {
         // 1. Local expert directory always wins over the recorded lock path
-        var localPath = Path.Combine(missionDir, SourceResolver.DefaultExpertsDir, name, "expert.md");
+        var localPath = Path.Combine(missionDir, SourceResolver.DefaultExpertsDir, name, SourceResolver.ExpertFile);
         if (File.Exists(localPath))
             return (localPath, "local");
 

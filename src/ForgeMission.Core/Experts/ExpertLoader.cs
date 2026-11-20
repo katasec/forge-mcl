@@ -52,7 +52,7 @@ public class ExpertLoader(string expertsDirectory)
         // Directory-per-expert: experts/Name/expert.md
         foreach (var dir in Directory.GetDirectories(expertsDirectory))
         {
-            var expertMd = Path.Combine(dir, "expert.md");
+            var expertMd = Path.Combine(dir, SourceResolver.ExpertFile);
             if (File.Exists(expertMd)) TryLoad(expertMd);
         }
 
@@ -69,7 +69,7 @@ public class ExpertLoader(string expertsDirectory)
     // The expert name an error shows when frontmatter has none (or cannot be read): the folder
     // name for experts/Name/expert.md, else the file name.
     private static string NameFromSource(string sourceName) =>
-        Path.GetFileName(sourceName) == "expert.md" && Path.GetDirectoryName(sourceName) is { Length: > 0 } dir
+        Path.GetFileName(sourceName) == SourceResolver.ExpertFile && Path.GetDirectoryName(sourceName) is { Length: > 0 } dir
             ? Path.GetFileName(dir)
             : Path.GetFileNameWithoutExtension(sourceName);
 
@@ -257,7 +257,7 @@ public class ExpertLoader(string expertsDirectory)
     {
         if (expert.InputKeys is not { } inputKeys) yield break;
 
-        var expertFile = Path.Combine(expert.ExpertDirectory, "expert.md");
+        var expertFile = Path.Combine(expert.ExpertDirectory, SourceResolver.ExpertFile);
         var frontmatter = DiagnosticFrontmatter(expertFile, expert.Name, expertMarkdownByName);
 
         foreach (var (key, declaredType) in inputKeys)

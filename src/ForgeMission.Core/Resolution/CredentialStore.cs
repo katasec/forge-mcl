@@ -44,10 +44,7 @@ internal partial class CredentialsJsonContext : JsonSerializerContext { }
 
 public static class CredentialStore
 {
-    private static string CredentialsPath =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".forge", "credentials.json");
+    private static string CredentialsPath => ForgeHome.CredentialsPath;
 
     public static string? GetToken(string registry)
     {

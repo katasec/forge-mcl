@@ -7,6 +7,9 @@ public class SourceResolver
 {
     public const string DefaultExpertsDir = "experts";
 
+    /// <summary>The file that defines an expert inside its directory.</summary>
+    public const string ExpertFile = "expert.md";
+
     public Dictionary<string, ResolvedExpert> Resolve(string missionDirectory)
     {
         var sourcePath = Path.GetFullPath(Path.Combine(missionDirectory, DefaultExpertsDir));
@@ -21,7 +24,7 @@ public class SourceResolver
 
         foreach (var expertDir in Directory.GetDirectories(sourcePath))
         {
-            var expertMd = Path.Combine(expertDir, "expert.md");
+            var expertMd = Path.Combine(expertDir, ExpertFile);
             if (!File.Exists(expertMd)) continue;
 
             var name = Path.GetFileName(expertDir);

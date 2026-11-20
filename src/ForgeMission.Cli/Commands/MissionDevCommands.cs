@@ -197,7 +197,7 @@ internal static class MissionDevCommands
                 CliDiagnostics.Die($"Expert name must be PascalCase (got '{name}').");
 
             var expertDir = Path.Combine(expertsDir, name);
-            var expertMd  = Path.Combine(expertDir, "expert.md");
+            var expertMd  = Path.Combine(expertDir, SourceResolver.ExpertFile);
 
             if (File.Exists(expertMd))
                 CliDiagnostics.Die($"Expert '{name}' already exists at {expertMd}");
