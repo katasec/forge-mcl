@@ -4,13 +4,13 @@ using Microsoft.Extensions.Options;
 
 namespace ForgeMission.Cli.Services;
 
-// Live-retrieval wiring stays in CLI; chat-provider construction lives in ForgeMission.ChatClients.
-internal static class ProviderClientBuilder
+// Builds the live-retrieval backend for kind:search experts (always Grok). Chat-provider
+// construction lives in ForgeMission.ChatClients.
+internal static class WebSearchBuilder
 {
-    // Live-retrieval backend for kind:search experts. Always Grok.
     // Returns null when no xAI key is present — missions without kind:search are unaffected; a
-    // kind:search step then fails with a clear "IWebSearch not configured" error.
-    internal static IWebSearch? BuildWebSearch(IOptions<WebSearchOptions> options, IHttpClientFactory clients)
+    // kind:search step then fails with "kind: search requires a configured IWebSearch (Scout)".
+    internal static IWebSearch? Build(IOptions<WebSearchOptions> options, IHttpClientFactory clients)
     {
         var key = options.Value.ApiKey;
         return string.IsNullOrWhiteSpace(key) ? null : new GrokWebSearch(clients.CreateClient(CliHttpClients.WebSearch), key);

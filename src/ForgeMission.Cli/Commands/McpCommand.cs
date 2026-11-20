@@ -144,7 +144,7 @@ internal static class McpCommand
             var runOptions  = new PipelineRunOptions(toolName, callVars);
 
             MissionResult missionResult;
-            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions, ct); }
+            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, WebSearchBuilder.Build(webSearch, clients)).RunAsync(ast, expertDefs, runOptions, ct); }
             catch (Exception ex) when (!ct.IsCancellationRequested) { return ErrorResult(ex.Message); }
 
             return ToToolResult(missionResult);

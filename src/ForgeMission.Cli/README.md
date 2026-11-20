@@ -60,7 +60,7 @@ forge-client.
 | [CliDiagnostics](Services/CliDiagnostics.cs) | Error rendering and `Die`, which throws [ForgeExitException](Services/ForgeExitException.cs) for Program's handler. |
 | [CliHttpClients](Services/CliHttpClients.cs) | The named outbound HTTP clients registered on the host. |
 | [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (API endpoint, OCI endpoint for short mission selectors) bound by the CLI host. |
-| [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
+| [WebSearchBuilder](Services/WebSearchBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
 | [ImmediateProgress](Services/ImmediateProgress.cs) | Shows the shared Client's Hands reports at once, in order. |
 | [FreePort](Services/FreePort.cs) | Picks a free loopback port for the sign-in listener. |
 
