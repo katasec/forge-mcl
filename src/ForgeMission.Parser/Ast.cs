@@ -23,7 +23,16 @@ public record MissionDeclaration(string Name, IReadOnlyList<string> Params, Pipe
     : Declaration(Name);
 
 // Pipeline is a sequence of elements — each element is a step or a parallel block.
-public record Pipeline(IReadOnlyList<PipelineElement> Elements, SourceSpan? Span = null);
+public record Pipeline(IReadOnlyList<PipelineElement> Elements, SourceSpan? Span = null)
+{
+    /// <summary>Every step in pipeline order, with each parallel block's steps in place.</summary>
+    public IEnumerable<Step> Steps() => Elements.SelectMany(element => element switch
+    {
+        StepElement step => (IEnumerable<Step>)[step.Step],
+        ParallelElement parallel => parallel.Steps,
+        _ => [],
+    });
+}
 
 public abstract record PipelineElement;
 public record StepElement(Step Step) : PipelineElement;

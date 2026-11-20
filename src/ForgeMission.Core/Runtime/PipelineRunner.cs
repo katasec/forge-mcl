@@ -794,12 +794,7 @@ public class PipelineRunner
     private static bool CanReachAgent(Step step, Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts)
     {
         if (experts.TryGetValue(step.ExpertName, out var expert)) return expert.IsAgent;
-        return FindMission(ast, step.ExpertName) is { } mission && mission.Pipeline.Elements.Any(element => element switch
-        {
-            StepElement child => CanReachAgent(child.Step, ast, experts),
-            ParallelElement child => child.Steps.Any(childStep => CanReachAgent(childStep, ast, experts)),
-            _ => false,
-        });
+        return FindMission(ast, step.ExpertName) is { } mission && mission.Pipeline.Steps().Any(child => CanReachAgent(child, ast, experts));
     }
 
     // ------------------------------------------------------------------

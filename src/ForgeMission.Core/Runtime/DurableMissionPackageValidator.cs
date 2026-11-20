@@ -200,7 +200,7 @@ public static class DurableMissionPackageValidator
             throw new InvalidOperationException("Root metadata must select the first mission and its first parameter.");
         if (ast.Bindings.Any(b => b.Value is EnvLetValue || ContextKeys.IsReserved(b.Name))
             || missions.SelectMany(m => m.Params).Any(ContextKeys.IsReserved)
-            || missions.SelectMany(m => DurableMissionInputPolicy.Steps(m.Pipeline)).SelectMany(s => s.Context)
+            || missions.SelectMany(m => m.Pipeline.Steps()).SelectMany(s => s.Context)
                 .Any(b => b.Value is EnvBindingValue || ContextKeys.IsReserved(b.Key)))
             throw new InvalidOperationException("Environment expressions and reserved authored bindings are not admitted.");
         foreach (var expert in experts.Values)

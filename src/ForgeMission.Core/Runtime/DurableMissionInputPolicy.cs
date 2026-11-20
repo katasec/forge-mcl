@@ -26,20 +26,13 @@ internal static class DurableMissionInputPolicy
         IEnumerable<Step> Visit(string name)
         {
             if (!visited.Add(name) || !missions.TryGetValue(name, out var mission)) yield break;
-            foreach (var step in Steps(mission.Pipeline))
+            foreach (var step in mission.Pipeline.Steps())
             {
                 if (!missions.ContainsKey(step.ExpertName)) { yield return step; continue; }
                 foreach (var child in Visit(step.ExpertName)) yield return child;
             }
         }
     }
-
-    internal static IEnumerable<Step> Steps(Pipeline pipeline) => pipeline.Elements.SelectMany(element => element switch
-    {
-        StepElement step => (IEnumerable<Step>)[step.Step],
-        ParallelElement parallel => parallel.Steps,
-        _ => [],
-    });
 
     internal static bool IsIdentifier(string name) => !string.IsNullOrEmpty(name)
         && char.IsAsciiLetter(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');

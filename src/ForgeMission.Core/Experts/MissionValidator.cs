@@ -31,7 +31,7 @@ public static class MissionValidator
 
         var allSteps = ast.Declarations
             .OfType<MissionDeclaration>()
-            .SelectMany(m => GetStepNames(m.Pipeline))
+            .SelectMany(m => m.Pipeline.Steps().Select(s => s.ExpertName))
             .Distinct(StringComparer.Ordinal);
 
         var missing = allSteps
@@ -114,7 +114,7 @@ public static class MissionValidator
         var graph = new Dictionary<string, List<MissionReferenceEdge>>(StringComparer.Ordinal);
         foreach (var mission in missionsByName.Values)
         {
-            foreach (var step in GetSteps(mission.Pipeline))
+            foreach (var step in mission.Pipeline.Steps())
             {
                 if (!missionsByName.ContainsKey(step.ExpertName)) continue;
 
@@ -149,7 +149,7 @@ public static class MissionValidator
         IReadOnlyDictionary<string, string>? expertMarkdownByName)
     {
         var available = RuntimeKeys(mission);
-        foreach (var step in GetSteps(mission.Pipeline))
+        foreach (var step in mission.Pipeline.Steps())
         {
             if (!experts.TryGetValue(step.ExpertName, out var expert)) continue;
 
@@ -254,17 +254,6 @@ public static class MissionValidator
         // Fall back to pointing at the inputKeys: heading itself.
         return ExpertLoader.FindField(frontmatter.text, blockName, frontmatter.startLine);
     }
-
-    private static IEnumerable<string> GetStepNames(Pipeline pipeline)
-        => GetSteps(pipeline).Select(s => s.ExpertName);
-
-    private static IEnumerable<Step> GetSteps(Pipeline pipeline)
-        => pipeline.Elements.SelectMany(e => e switch
-        {
-            StepElement se     => (IEnumerable<Step>)[se.Step],
-            ParallelElement pe => pe.Steps,
-            _                  => Enumerable.Empty<Step>()
-        });
 
     private sealed record MissionReferenceEdge(string FromMission, string ToMission, Step Step);
 }
