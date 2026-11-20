@@ -128,18 +128,17 @@ public class PipelineRunnerTests
     }
 
     [Fact]
-    public void MissingEnvVar_ThrowsClearly()
+    public async Task MissingEnvVar_ThrowsClearly()
     {
         var ast = MclParser.Parse("""
             let apiKey = env("MCLTEST_MISSING_VAR_XYZ")
             mission BuildOperator = { KubernetesArchitect }
             """);
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new PipelineRunner(new StubExpertRunner())
                 .RunAsync(ast, Experts("KubernetesArchitect"),
-                          new PipelineRunOptions("BuildOperator"))
-                .GetAwaiter().GetResult());
+                          new PipelineRunOptions("BuildOperator")));
 
         Assert.Contains("MCLTEST_MISSING_VAR_XYZ", ex.Message);
     }
