@@ -824,10 +824,9 @@ public class PipelineRunner
     // Tool-call and context conversions
     // ------------------------------------------------------------------
 
-    // Converts each provider-SDK FunctionCallContent to the closed PipelineToolCall shape — no provider SDK object crosses into the trace. Mirrors
-    // ForgeMission.Runner's RunnerToolTurnMapper.ToJsonElement/WriteValue (Core cannot reference
-    // Runner, so the small Utf8JsonWriter-based conversion is duplicated here rather than
-    // reflection-serialized).
+    // Converts each provider-SDK FunctionCallContent to the closed PipelineToolCall shape — no
+    // provider SDK object crosses into the trace. A small Utf8JsonWriter conversion keeps it
+    // reflection-free for Native AOT.
     private static IReadOnlyList<PipelineToolCall> ToPipelineToolCalls(IReadOnlyList<FunctionCallContent> calls)
         => calls.Select(call => new PipelineToolCall(
             call.CallId,
