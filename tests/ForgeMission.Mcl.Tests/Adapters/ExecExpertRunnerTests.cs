@@ -146,24 +146,63 @@ public class ExecExpertRunnerTests : IDisposable
         Assert.Equal(4194304 - "{\"result\": \"\"}".Length, result.Text.Length);
     }
 
-    [SkippableTheory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Caller_cancel_and_timeout_join_child_before_return(bool timeout)
+    [SkippableFact]
+    public async Task Caller_cancel_joins_child_before_return()
     {
-        var python = RequirePython();
-        var sentinel = Path.Combine(_dir, "late.txt");
-        var pid = Path.Combine(_dir, "child.pid");
-        var script = Script("import subprocess,sys,time,pathlib\np=subprocess.Popen([sys.executable,'-c',\"import time,pathlib;time.sleep(2);pathlib.Path('late.txt').write_text('escaped')\"])\npathlib.Path('child.pid').write_text(str(p.pid))\ntime.sleep(30)\n");
         using var cancellation = new CancellationTokenSource();
-        var task = new ExecExpertRunner().RunAsync(ExecExpert(script, timeout: timeout ? "1s" : "30s"), [], cancellation.Token);
-        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while (!File.Exists(pid)) await Task.Delay(10, lifetime.Token);
-        if (!timeout) cancellation.Cancel();
-        if (timeout) Assert.Equal("fail", (await task.WaitAsync(lifetime.Token)).Status);
-        else await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task.WaitAsync(lifetime.Token));
-        await Task.Delay(2200, lifetime.Token);
-        Assert.False(File.Exists(sentinel));
+        var (task, childPid, lifetime) = await StartScriptWithChild("30s", cancellation.Token);
+        using (lifetime)
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task.WaitAsync(lifetime.Token));
+            await AssertChildGone(childPid);
+        }
+    }
+
+    [SkippableFact]
+    public async Task Timeout_joins_child_before_return()
+    {
+        var (task, childPid, lifetime) = await StartScriptWithChild("1s", CancellationToken.None);
+        using (lifetime)
+        {
+            Assert.Equal("fail", (await task.WaitAsync(lifetime.Token)).Status);
+            await AssertChildGone(childPid);
+        }
+    }
+
+    // Starts a script that spawns a child which would write late.txt after 2 s, and returns once
+    // the child's pid is known.
+    private async Task<(Task<StepEnvelope> Task, int ChildPid, CancellationTokenSource Lifetime)> StartScriptWithChild(
+        string timeout, CancellationToken ct)
+    {
+        RequirePython();
+        var pidFile = Path.Combine(_dir, "child.pid");
+        var script = Script("import subprocess,sys,time,pathlib\np=subprocess.Popen([sys.executable,'-c',\"import time,pathlib;time.sleep(2);pathlib.Path('late.txt').write_text('escaped')\"])\npathlib.Path('child.pid').write_text(str(p.pid))\ntime.sleep(30)\n");
+        var task = new ExecExpertRunner().RunAsync(ExecExpert(script, timeout: timeout), [], ct);
+        var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!File.Exists(pidFile) || string.IsNullOrWhiteSpace(File.ReadAllText(pidFile)))
+            await Task.Delay(10, lifetime.Token);
+        return (task, int.Parse(File.ReadAllText(pidFile)), lifetime);
+    }
+
+    // The child sleeps 2 s before writing late.txt, so it must be gone well inside that window.
+    private async Task AssertChildGone(int pid)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(1);
+        while (IsAlive(pid) && DateTime.UtcNow < deadline) await Task.Delay(20);
+        Assert.False(IsAlive(pid), $"child process {pid} is still running");
+        Assert.False(File.Exists(Path.Combine(_dir, "late.txt")));
+    }
+
+    private static bool IsAlive(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return !process.HasExited;
+        }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
     }
     private static readonly Lazy<PythonInvocation?> WorkingPython = new(FindWorkingPython);
 
