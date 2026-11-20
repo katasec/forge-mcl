@@ -128,7 +128,7 @@ public sealed class ChatClientsTests
     {
         using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
         { Provider = provider, Model = "test-model", ApiKey = apiKey, Endpoint = endpoint ?? "http://127.0.0.1:9/" });
-        Assert.NotNull(client);
+        AssertBuiltFor(provider, client);
     }
 
     [Fact]
@@ -262,7 +262,7 @@ public sealed class ChatClientsTests
     [InlineData("ollama")]
     [InlineData("anthropic")]
     [InlineData("xai")]
-    public void BuildChatClient_SupportedProvider_CreatesClientWithoutNetworkCall(string provider)
+    public void BuildChatClient_SupportedProvider_CreatesClientForThatProvider(string provider)
     {
         using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
         {
@@ -271,7 +271,35 @@ public sealed class ChatClientsTests
             ApiKey = "test-key"
         });
 
-        Assert.NotNull(client);
+        AssertBuiltFor(provider, client);
+    }
+
+    [Theory]
+    [InlineData("openai", "https://api.openai.com/v1")]
+    [InlineData("ollama", "http://localhost:11434/v1")]
+    [InlineData("xai",    "https://api.x.ai/v1")]
+    public void BuildChatClient_DefaultEndpoint_IsTheProvidersOwn(string provider, string expectedEndpoint)
+    {
+        using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
+        {
+            Provider = provider,
+            Model = "test-model",
+            ApiKey = "test-key"
+        });
+
+        Assert.Equal(new Uri(expectedEndpoint), client.GetService<ChatClientMetadata>()?.ProviderUri);
+    }
+
+    // Anthropic has its own client; every other provider goes through the OpenAI-compatible
+    // client, which reports the configured model.
+    private static void AssertBuiltFor(string provider, IChatClient client)
+    {
+        if (provider == "anthropic")
+        {
+            Assert.Equal("AnthropicChatClient", client.GetType().Name);
+            return;
+        }
+        Assert.Equal("test-model", client.GetService<ChatClientMetadata>()?.DefaultModelId);
     }
 
     [Fact]
