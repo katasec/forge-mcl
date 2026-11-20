@@ -66,12 +66,7 @@ internal static class PlatformLogin
     // Show the signed-in user + live balance (reads the stored key, calls /me on its endpoint).
     internal static async Task<int> WhoAmIAsync(IHttpClientFactory clients, CancellationToken cancellationToken)
     {
-        var platform = CredentialStore.GetPlatform();
-        if (platform is null || string.IsNullOrEmpty(platform.Key))
-        {
-            Console.Error.WriteLine("Not signed in. Run `forge login`.");
-            return 1;
-        }
+        if (SignedInPlatform() is not { } platform) return 1;
 
         var me = await FetchMeAsync(clients.CreateClient(CliHttpClients.Login), platform.Endpoint, platform.Key,
             cancellationToken);
@@ -80,6 +75,16 @@ internal static class PlatformLogin
         Console.WriteLine($"Signed in as {me.Email ?? platform.User}");
         Console.WriteLine($"  {FormatBalance(me.BalanceMicroUsd)} credit · {platform.Endpoint}");
         return 0;
+    }
+
+    // The stored platform credential (GetPlatform already treats a blank key as none), or null
+    // after telling the user to sign in.
+    internal static PlatformCredential? SignedInPlatform()
+    {
+        var platform = CredentialStore.GetPlatform();
+        if (platform is null)
+            Console.Error.WriteLine("Not signed in. Run `forge login`.");
+        return platform;
     }
 
     // Clear the stored platform key.
