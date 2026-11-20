@@ -55,7 +55,7 @@ public class PipelineRunner
         var admittedNames = DurableMissionInputPolicy.AdmittedNames(ast, experts, options.MissionName);
         var rootInputs = RootInputs(admittedNames, options.Vars);
         var scope = new PauseScope(rootTools, rootTools.Select(ToDeclaration).ToList(), options.MissionName,
-            RootDefinitionFingerprint(ast, experts, options.MissionName), rootInputs, admittedNames,
+            PipelineDefinitionFingerprint.Compute(ast, experts, options.MissionName), rootInputs, admittedNames,
             Guid.NewGuid().ToString("N"), ordinal: 0);
         return await RunCoreAsync(ast, experts, options with { Vars = rootInputs }, new RunState(scope), string.Empty, ct);
     }
@@ -117,7 +117,7 @@ public class PipelineRunner
             && checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, pending.Name, StringComparison.Ordinal))
             && string.Equals(checkpoint.RootToolScopeFingerprint, ScopeFingerprint(checkpoint.ToolDeclarations), StringComparison.Ordinal)
             && string.Equals(checkpoint.RootDefinitionFingerprint,
-                RootDefinitionFingerprint(ast, experts, checkpoint.RootMissionName), StringComparison.Ordinal);
+                PipelineDefinitionFingerprint.Compute(ast, experts, checkpoint.RootMissionName), StringComparison.Ordinal);
     }
 
     private async Task<MissionResult> RunCoreAsync(
@@ -798,8 +798,6 @@ public class PipelineRunner
     // Continuation identity: fingerprints, root inputs, local resume ordinals
     // ------------------------------------------------------------------
 
-    private static string RootDefinitionFingerprint(Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts, string rootMission)
-        => PipelineDefinitionFingerprint.Compute(ast, experts, rootMission);
     // Pause hashes the declared schemas; resume hashes the checkpoint's re-serialized copies. Both
     // hash the same compact form so schema whitespace never invalidates a continuation.
     private static string ScopeFingerprint(IEnumerable<PipelineToolDeclaration> declarations) => Convert.ToHexString(
