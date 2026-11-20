@@ -19,7 +19,7 @@ namespace ForgeMission.Cli.Commands;
 
 // forge mcp: serves one mission as a stdio MCP server with that mission as its single tool.
 // Mission loading and validation use CliHelpers; runners are built per tool call by
-// MissionServerBuilder.BuildRunners and reach ServeAsync as a factory. The input schema is written
+// MissionServerBuilder.BuildRunners. The input schema is written
 // with Utf8JsonWriter (AOT-safe, no STJ reflection).
 internal static class McpCommand
 {
@@ -55,16 +55,15 @@ internal static class McpCommand
             var firstMission = ast.Missions.FirstOrDefault();
             if (firstMission is null) CliDiagnostics.Die("No mission declaration found in mission file.");
 
-            await ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName,
-                callSeedContext => MissionServerBuilder.BuildRunners(manifest, callSeedContext), ct);
+            await ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName, ct);
         });
 
         return cmd;
     }
 
     // Serves one validated mission over stdio until the transport closes or cancellationToken
-    // (the command's Ctrl+C/SIGTERM token) is cancelled. Runners are built lazily through
-    // buildRunners at each tool call so startup never needs the provider API key. The server logs
+    // (the command's Ctrl+C/SIGTERM token) is cancelled. Runners are built lazily at each tool
+    // call so startup never needs the provider API key. The server logs
     // through the CLI host's logger factory (stderr only; stdout is the protocol).
     internal static async Task ServeAsync(
         ILoggerFactory loggerFactory,
@@ -75,7 +74,6 @@ internal static class McpCommand
         Dictionary<string, ExpertDefinition> expertDefs,
         ForgeManifest? manifest,
         string missionPath,
-        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>> buildRunners,
         CancellationToken cancellationToken)
     {
         var toolName    = firstMission.Name;
@@ -97,7 +95,7 @@ internal static class McpCommand
                 }
             ]
         });
-        var tool = new MissionTool(toolName, ast, expertDefs, manifest, buildRunners, webSearch, clients);
+        var tool = new MissionTool(toolName, ast, expertDefs, manifest, webSearch, clients);
         options.Handlers.CallToolHandler = (request, ct) => tool.CallAsync(request.Params, ct);
 
         await using var server = McpServer.Create(new StdioServerTransport("forge", loggerFactory), options, loggerFactory);
@@ -113,7 +111,6 @@ internal static class McpCommand
         MclProgram ast,
         Dictionary<string, ExpertDefinition> expertDefs,
         ForgeManifest? manifest,
-        Func<Dictionary<string, object>, IReadOnlyDictionary<string, IExpertRunner>> buildRunners,
         IOptions<WebSearchOptions> webSearch,
         IHttpClientFactory clients)
     {
@@ -129,7 +126,7 @@ internal static class McpCommand
             catch (InvalidOperationException ex) { return ErrorResult(ex.Message); }
 
             IReadOnlyDictionary<string, IExpertRunner> callRunners;
-            try { callRunners = buildRunners(callSeedContext); }
+            try { callRunners = MissionServerBuilder.BuildRunners(manifest, callSeedContext); }
             catch (ForgeExitException) { return ErrorResult(ProviderInitError); }
             catch (Exception ex) { return ErrorResult($"{ProviderInitError} {ex.Message}"); }
 
