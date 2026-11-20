@@ -105,6 +105,21 @@ public sealed class CapabilityDispatcherFileTests : IDisposable
     }
 
     [Fact]
+    public async Task Edit_EmptyOldString_ReturnsErrorWithoutTouchingFile()
+    {
+        var path = Path.Combine(_root, "a.txt");
+        File.WriteAllText(path, "hello world");
+
+        // WaitAsync turns the old infinite loop into a test failure instead of a hung run.
+        var result = await Dispatch(new EditFileCapabilityRequest("a.txt", "", "x", ReplaceAll: true))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.IsError);
+        Assert.Contains("old_string must not be empty", result.Content);
+        Assert.Equal("hello world", File.ReadAllText(path));
+    }
+
+    [Fact]
     public async Task Edit_NonexistentFile_ReturnsError_PointsToWrite()
     {
         var result = await Dispatch(new EditFileCapabilityRequest("nope.txt", "a", "b", ReplaceAll: false));
