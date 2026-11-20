@@ -195,38 +195,66 @@ public static class DurableMissionPackageValidator
         Dictionary<string, ExpertDefinition> experts)
     {
         var missions = ast.Missions.ToArray();
-        var root = missions.FirstOrDefault();
+        RequireRootMetadata(package, missions.FirstOrDefault());
+        RejectEnvAndReservedBindings(ast, missions);
+        foreach (var expert in experts.Values)
+            ValidateExpert(expert);
+    }
+
+    private static void RequireRootMetadata(DurableMissionPackageInput package, MissionDeclaration? root)
+    {
         if (root is null || root.Name != package.RootMissionName || (root.Params.FirstOrDefault() ?? "") != package.RootInputName)
             throw new InvalidOperationException("Root metadata must select the first mission and its first parameter.");
+    }
+
+    private static void RejectEnvAndReservedBindings(MclProgram ast, MissionDeclaration[] missions)
+    {
         if (ast.Bindings.Any(b => b.Value is EnvLetValue || ContextKeys.IsReserved(b.Name))
             || missions.SelectMany(m => m.Params).Any(ContextKeys.IsReserved)
             || missions.SelectMany(m => m.Pipeline.Steps()).SelectMany(s => s.Context)
                 .Any(b => b.Value is EnvBindingValue || ContextKeys.IsReserved(b.Key)))
             throw new InvalidOperationException("Environment expressions and reserved authored bindings are not admitted.");
-        foreach (var expert in experts.Values)
-        {
-            if (!ExpertKinds.IsKnown(expert.Kind))
-                throw new InvalidOperationException($"Unknown expert kind '{expert.Kind}'.");
-            if ((expert.Inputs ?? []).Any(name => !DurableMissionInputPolicy.IsIdentifier(name)
-                || (ContextKeys.IsReserved(name) && !ContextKeys.IsRuntimeDirectory(name))))
-                throw new InvalidOperationException("Expert inputs contain invalid or reserved names.");
-        }
+    }
+
+    private static void ValidateExpert(ExpertDefinition expert)
+    {
+        if (!ExpertKinds.IsKnown(expert.Kind))
+            throw new InvalidOperationException($"Unknown expert kind '{expert.Kind}'.");
+        if ((expert.Inputs ?? []).Any(name => !DurableMissionInputPolicy.IsIdentifier(name)
+            || (ContextKeys.IsReserved(name) && !ContextKeys.IsRuntimeDirectory(name))))
+            throw new InvalidOperationException("Expert inputs contain invalid or reserved names.");
     }
 
     private static void ValidateAssets(DurableMissionPackageInput package, Dictionary<string, ExpertDefinition> experts)
     {
+        var files = RegisterFixedPaths(experts);
+        var assets = package.Assets ?? [];
+        foreach (var asset in assets)
+            AdmitAsset(asset, files);
+        RequireOnnxModelAssets(experts, assets);
+    }
+
+    // The package's own files and expert markdown paths, which no asset may collide with.
+    private static HashSet<string> RegisterFixedPaths(Dictionary<string, ExpertDefinition> experts)
+    {
         var files = new HashSet<string>(["mission.mcl", "mcl.lock", ForgeTomlReader.FileName], StringComparer.OrdinalIgnoreCase);
         foreach (var name in experts.Keys)
             if (!files.Add($"experts/{name}/expert.md")) throw new InvalidOperationException("Expert paths collide.");
-        var assets = package.Assets ?? [];
-        foreach (var asset in assets)
-        {
-            if (!IsCanonicalPath(asset.Path) || asset.Path.Split('/')[0].Equals("inputs", StringComparison.OrdinalIgnoreCase)
-                || asset.Path.Split('/')[0].Equals("outputs", StringComparison.OrdinalIgnoreCase)
-                || files.Any(path => Collides(path, asset.Path)) || !IsHash(asset.Sha256, asset.Bytes))
-                throw new InvalidOperationException("Asset path, collision or content hash is invalid.");
-            files.Add(asset.Path);
-        }
+        return files;
+    }
+
+    private static void AdmitAsset(DurableMissionAssetInput asset, HashSet<string> files)
+    {
+        if (!IsCanonicalPath(asset.Path) || asset.Path.Split('/')[0].Equals("inputs", StringComparison.OrdinalIgnoreCase)
+            || asset.Path.Split('/')[0].Equals("outputs", StringComparison.OrdinalIgnoreCase)
+            || files.Any(path => Collides(path, asset.Path)) || !IsHash(asset.Sha256, asset.Bytes))
+            throw new InvalidOperationException("Asset path, collision or content hash is invalid.");
+        files.Add(asset.Path);
+    }
+
+    private static void RequireOnnxModelAssets(
+        Dictionary<string, ExpertDefinition> experts, IReadOnlyList<DurableMissionAssetInput> assets)
+    {
         foreach (var expert in experts.Values.Where(e => e.Kind == ExpertKinds.Onnx))
             if (!assets.Any(asset => asset.Path.Equals(ResolveModelPath(expert), StringComparison.Ordinal)))
                 throw new InvalidOperationException($"ONNX model for '{expert.Name}' is not an admitted asset.");
