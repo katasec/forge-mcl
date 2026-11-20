@@ -5,7 +5,7 @@ set -euo pipefail
 package_directory=${1:?usage: verify-scout-package.sh <package-directory> <repository-commit>}
 repository_commit=${2:?usage: verify-scout-package.sh <package-directory> <repository-commit>}
 package_id=Katasec.Forge.Mcl.Scout
-package_version=0.1.0
+package_version=0.2.0
 package_path="$package_directory/$package_id.$package_version.nupkg"
 
 if [[ ! -f "$package_path" ]]; then

@@ -5,7 +5,7 @@
     <NoWarn>$(NoWarn);3021</NoWarn>
     <IsPackable>true</IsPackable>
     <PackageId>Katasec.Forge.Mcl.Parser</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Katasec</Authors>
     <Description>Pure Mission Control Language syntax parsing into source-spanned ASTs and diagnostics.</Description>
     <PackageTags>mcl;mission-control-language;parser;antlr;ast</PackageTags>
