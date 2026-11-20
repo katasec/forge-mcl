@@ -177,9 +177,7 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
             if (!first) sb.Append(',');
             sb.Append(JsonSerializer.Serialize(key, ExecSerializerContext.Default.String));
             sb.Append(':');
-            sb.Append(value is string s
-                ? JsonSerializer.Serialize(s, ExecSerializerContext.Default.String)
-                : JsonSerializer.Serialize(value?.ToString() ?? "", ExecSerializerContext.Default.String));
+            sb.Append(JsonSerializer.Serialize(value?.ToString() ?? "", ExecSerializerContext.Default.String));
             first = false;
         }
         sb.Append('}');
