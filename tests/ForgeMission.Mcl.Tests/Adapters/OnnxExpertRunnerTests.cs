@@ -1,3 +1,4 @@
+using Microsoft.ML.OnnxRuntime;
 using System.Globalization;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
@@ -84,10 +85,17 @@ public sealed class OnnxExpertRunnerTests
     }
 
     [Fact]
-    public async Task Missing_numeric_features_and_model_fail_explicitly()
+    public async Task Missing_numeric_features_fail_explicitly()
     {
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new OnnxExpertRunner().RunAsync(Expert("identity.onnx"), []));
-        await Assert.ThrowsAnyAsync<Exception>(() => new OnnxExpertRunner().RunAsync(Expert("missing.onnx"),
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new OnnxExpertRunner().RunAsync(Expert("identity.onnx"), []));
+        Assert.Contains("ONNX feature", ex.Message);
+    }
+
+    [Fact]
+    public async Task Missing_model_file_fails_naming_the_file()
+    {
+        var ex = await Assert.ThrowsAsync<OnnxRuntimeException>(() => new OnnxExpertRunner().RunAsync(Expert("missing.onnx"),
             new() { ["low"] = 0.2, ["high"] = 0.8 }));
+        Assert.Contains("missing.onnx", ex.Message);
     }
 }
