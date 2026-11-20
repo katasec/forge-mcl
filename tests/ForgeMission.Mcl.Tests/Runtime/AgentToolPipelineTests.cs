@@ -518,7 +518,7 @@ public sealed class AgentToolPipelineTests
             ["First"] = new("First", "any", "text", "First."),
             ["Second"] = new("Second", "any", "text", "Second."),
         };
-        var runner = new DelayedRunner();
+        var runner = new OverlapRunner();
         var result = await new PipelineRunner(runner).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()));
         Assert.Equal(MissionStatus.Pass, result.Status);
@@ -1038,17 +1038,33 @@ public sealed class AgentToolPipelineTests
         public object? GetService(Type serviceType, object? key = null) => null;
     }
 
-    private sealed class DelayedRunner : IExpertRunner
+    // Each call waits until both parallel calls have entered, so the test proves overlap
+    // without depending on timing. A sequential run times out instead of passing.
+    private sealed class OverlapRunner : IExpertRunner
     {
+        private readonly TaskCompletionSource _bothEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _active;
-        public int MaximumConcurrent { get; private set; }
+        private int _maximumConcurrent;
+        public int MaximumConcurrent => Volatile.Read(ref _maximumConcurrent);
 
         public async Task<StepEnvelope> RunAsync(ExpertDefinition expert, Dictionary<string, object> context, CancellationToken ct)
         {
             var active = Interlocked.Increment(ref _active);
-            MaximumConcurrent = Math.Max(MaximumConcurrent, active);
-            try { await Task.Delay(60, ct); return new StepEnvelope(expert.Name); }
+            RecordMaximum(active);
+            if (active == 2) _bothEntered.TrySetResult();
+            try
+            {
+                await _bothEntered.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+                return new StepEnvelope(expert.Name);
+            }
             finally { Interlocked.Decrement(ref _active); }
+        }
+
+        private void RecordMaximum(int active)
+        {
+            int seen;
+            while (active > (seen = Volatile.Read(ref _maximumConcurrent)))
+                if (Interlocked.CompareExchange(ref _maximumConcurrent, active, seen) == seen) return;
         }
 
         public async IAsyncEnumerable<string> StreamAsync(ExpertDefinition expert, Dictionary<string, object> context,
