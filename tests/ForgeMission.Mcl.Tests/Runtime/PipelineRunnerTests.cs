@@ -128,18 +128,17 @@ public class PipelineRunnerTests
     }
 
     [Fact]
-    public void MissingEnvVar_ThrowsClearly()
+    public async Task MissingEnvVar_ThrowsClearly()
     {
         var ast = MclParser.Parse("""
             let apiKey = env("MCLTEST_MISSING_VAR_XYZ")
             mission BuildOperator = { KubernetesArchitect }
             """);
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new PipelineRunner(new StubExpertRunner())
                 .RunAsync(ast, Experts("KubernetesArchitect"),
-                          new PipelineRunOptions("BuildOperator"))
-                .GetAwaiter().GetResult());
+                          new PipelineRunOptions("BuildOperator")));
 
         Assert.Contains("MCLTEST_MISSING_VAR_XYZ", ex.Message);
     }
@@ -167,15 +166,16 @@ public class PipelineRunnerTests
     [Fact]
     public async Task ProviderBindings_AllFourSeededInContext()
     {
-        var ast = MclParser.Parse("""
-            let provider = env("MCL_PROVIDER", "openai")
-            let apiKey   = env("MCL_API_KEY")
-            let model    = env("MCL_MODEL", "gpt-4o-mini")
-            let endpoint = env("MCL_ENDPOINT", "")
+        var keyVar = UniqueEnvName("API_KEY");
+        var ast = MclParser.Parse($$"""
+            let provider = env("{{UniqueEnvName("PROVIDER")}}", "openai")
+            let apiKey   = env("{{keyVar}}")
+            let model    = env("{{UniqueEnvName("MODEL")}}", "gpt-4o-mini")
+            let endpoint = env("{{UniqueEnvName("ENDPOINT")}}", "")
             mission Demo = { Worker }
             """);
 
-        Environment.SetEnvironmentVariable("MCL_API_KEY", "sk-test");
+        Environment.SetEnvironmentVariable(keyVar, "sk-test");
         try
         {
             var stub = new StubExpertRunner();
@@ -190,21 +190,22 @@ public class PipelineRunnerTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("MCL_API_KEY", null);
+            Environment.SetEnvironmentVariable(keyVar, null);
         }
     }
 
     [Fact]
     public async Task ProviderBinding_VarFlagOverridesProvider()
     {
-        var ast = MclParser.Parse("""
-            let provider = env("MCL_PROVIDER", "openai")
-            let apiKey   = env("MCL_API_KEY")
-            let model    = env("MCL_MODEL", "gpt-4o-mini")
+        var keyVar = UniqueEnvName("API_KEY");
+        var ast = MclParser.Parse($$"""
+            let provider = env("{{UniqueEnvName("PROVIDER")}}", "openai")
+            let apiKey   = env("{{keyVar}}")
+            let model    = env("{{UniqueEnvName("MODEL")}}", "gpt-4o-mini")
             mission Demo = { Worker }
             """);
 
-        Environment.SetEnvironmentVariable("MCL_API_KEY", "sk-test");
+        Environment.SetEnvironmentVariable(keyVar, "sk-test");
         try
         {
             var stub = new StubExpertRunner();
@@ -216,9 +217,12 @@ public class PipelineRunnerTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("MCL_API_KEY", null);
+            Environment.SetEnvironmentVariable(keyVar, null);
         }
     }
+
+    // A per-test name no shell defines, so the developer's MCL_* settings cannot change the result.
+    private static string UniqueEnvName(string suffix) => $"MCLTEST_{suffix}_{Guid.NewGuid():N}";
 
     // ── StepEnvelope / fail-fast ──────────────────────────────────────────────
 
@@ -593,16 +597,16 @@ public class PipelineRunnerTests
     }
 
     [Theory]
-    [InlineData(">",  0.9, true)]
-    [InlineData(">",  0.5, false)]
-    [InlineData(">=", 0.8, true)]
-    [InlineData(">=", 0.7, false)]
-    [InlineData("<",  0.5, true)]
-    [InlineData("<",  0.9, false)]
-    [InlineData("<=", 0.8, true)]
-    [InlineData("==", 0.8, true)]
-    [InlineData("==", 0.9, false)]
-    public async Task When_NumericCompare_RoutesCorrectly(string op, double scoreInContext, bool highExpected)
+    [InlineData(">",  0.9, "HighPath", "LowPath")]
+    [InlineData(">",  0.5, "LowPath",  "HighPath")]
+    [InlineData(">=", 0.8, "HighPath", "LowPath")]
+    [InlineData(">=", 0.7, "LowPath",  "HighPath")]
+    [InlineData("<",  0.5, "HighPath", "LowPath")]
+    [InlineData("<",  0.9, "LowPath",  "HighPath")]
+    [InlineData("<=", 0.8, "HighPath", "LowPath")]
+    [InlineData("==", 0.8, "HighPath", "LowPath")]
+    [InlineData("==", 0.9, "LowPath",  "HighPath")]
+    public async Task When_NumericCompare_RoutesCorrectly(string op, double scoreInContext, string takenPath, string skippedPath)
     {
         var source = $$"""
             mission Score = {
@@ -624,16 +628,8 @@ public class PipelineRunnerTests
                       new PipelineRunOptions("Score"));
 
         var calledNames = stub.Calls.Select(c => c.ExpertName).ToList();
-        if (highExpected)
-        {
-            Assert.Contains("HighPath", calledNames);
-            Assert.DoesNotContain("LowPath", calledNames);
-        }
-        else
-        {
-            Assert.DoesNotContain("HighPath", calledNames);
-            Assert.Contains("LowPath", calledNames);
-        }
+        Assert.Contains(takenPath, calledNames);
+        Assert.DoesNotContain(skippedPath, calledNames);
     }
 
     [Fact]

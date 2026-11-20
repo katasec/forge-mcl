@@ -99,23 +99,16 @@ public sealed class ChatClientsTests
     [InlineData("xai",       "sk-ant-api03-fixture")]
     [InlineData("anthropic", "sk-proj-fixture")]
     [InlineData("openai",    "xai-fixture")]
-    public async Task ForeignProviderKey_FailsFastWithoutSendingIt(string? provider, string apiKey)
+    public void ForeignProviderKey_FailsFastWithoutSendingIt(string? provider, string apiKey)
     {
-        var port = FreePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
-        var request = listener.GetContextAsync();
-
+        // BuildChatClient throws before any client exists, so nothing can be sent.
         var context = new Dictionary<string, string?> { ["apiKey"] = apiKey, ["model"] = "test-model", ["provider"] = provider,
-            ["endpoint"] = $"http://127.0.0.1:{port}/" };
+            ["endpoint"] = "http://127.0.0.1:9/" };
         var profile = ProviderProfileResolver.ResolveDefault(null, key => context[key]);
 
         var error = Assert.Throws<InvalidOperationException>(() => ForgeChatClients.BuildChatClient(profile));
         Assert.StartsWith("Refusing to send", error.Message);
         Assert.DoesNotContain(apiKey, error.Message);
-        await Task.Delay(200);
-        Assert.False(request.IsCompleted, "the foreign key reached the endpoint");
     }
 
     [Theory]
@@ -128,7 +121,7 @@ public sealed class ChatClientsTests
     {
         using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
         { Provider = provider, Model = "test-model", ApiKey = apiKey, Endpoint = endpoint ?? "http://127.0.0.1:9/" });
-        Assert.NotNull(client);
+        AssertBuiltFor(provider, client);
     }
 
     [Fact]
@@ -262,7 +255,7 @@ public sealed class ChatClientsTests
     [InlineData("ollama")]
     [InlineData("anthropic")]
     [InlineData("xai")]
-    public void BuildChatClient_SupportedProvider_CreatesClientWithoutNetworkCall(string provider)
+    public void BuildChatClient_SupportedProvider_CreatesClientForThatProvider(string provider)
     {
         using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
         {
@@ -271,7 +264,35 @@ public sealed class ChatClientsTests
             ApiKey = "test-key"
         });
 
-        Assert.NotNull(client);
+        AssertBuiltFor(provider, client);
+    }
+
+    [Theory]
+    [InlineData("openai", "https://api.openai.com/v1")]
+    [InlineData("ollama", "http://localhost:11434/v1")]
+    [InlineData("xai",    "https://api.x.ai/v1")]
+    public void BuildChatClient_DefaultEndpoint_IsTheProvidersOwn(string provider, string expectedEndpoint)
+    {
+        using var client = ForgeChatClients.BuildChatClient(new ProviderProfile
+        {
+            Provider = provider,
+            Model = "test-model",
+            ApiKey = "test-key"
+        });
+
+        Assert.Equal(new Uri(expectedEndpoint), client.GetService<ChatClientMetadata>()?.ProviderUri);
+    }
+
+    // Anthropic has its own client; every other provider goes through the OpenAI-compatible
+    // client, which reports the configured model.
+    private static void AssertBuiltFor(string provider, IChatClient client)
+    {
+        if (provider == "anthropic")
+        {
+            Assert.Equal("AnthropicChatClient", client.GetType().Name);
+            return;
+        }
+        Assert.Equal("test-model", client.GetService<ChatClientMetadata>()?.DefaultModelId);
     }
 
     [Fact]

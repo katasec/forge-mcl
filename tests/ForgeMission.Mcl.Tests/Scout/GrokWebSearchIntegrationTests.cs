@@ -5,21 +5,19 @@ namespace ForgeMission.Tests.Scout;
 
 /// <summary>
 /// Integration test for the Grok-backed <see cref="IWebSearch"/> (Phase 41.1). Hits the real xAI
-/// Responses API, so it is skipped automatically when XAI_API_KEY is not set.
-/// Run with: XAI_API_KEY=... dotnet test --filter Category=Integration
+/// Responses API, so it is skipped unless FORGE_RUN_INTEGRATION=1 and XAI_API_KEY are set.
+/// Run with: FORGE_RUN_INTEGRATION=1 XAI_API_KEY=... dotnet test --filter Category=Integration
 /// </summary>
 public class GrokWebSearchIntegrationTests
 {
-    private static readonly string? ApiKey = Environment.GetEnvironmentVariable("XAI_API_KEY");
-
     [SkippableFact]
     [Trait("Category", "Integration")]
     public async Task WebSearch_RealGrok_ReturnsSourceTaggedAnswer()
     {
-        Skip.If(string.IsNullOrWhiteSpace(ApiKey), "XAI_API_KEY not set — skipping integration test");
+        var apiKey = IntegrationGate.SkipUnlessOptedIn("XAI_API_KEY");
 
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
-        IWebSearch search = new GrokWebSearch(http, ApiKey!);
+        IWebSearch search = new GrokWebSearch(http, apiKey);
 
         var result = await search.SearchAsync(
             new WebSearchRequest("Summarize the latest news from Mario Nawfal's YouTube channel in 3 bullet points."));

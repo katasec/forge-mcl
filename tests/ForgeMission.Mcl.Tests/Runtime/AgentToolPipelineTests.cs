@@ -17,34 +17,51 @@ namespace ForgeMission.Tests.Runtime;
 /// </summary>
 public sealed class AgentToolPipelineTests
 {
+    // Each checkpoint field, once removed and once set to null.
+    public static TheoryData<string, bool> CheckpointFieldDamage()
+    {
+        var data = new TheoryData<string, bool>();
+        foreach (var field in new[]
+        {
+            "rootInputs",
+            "rootExecutionId",
+            "rootMissionName",
+            "rootDefinitionFingerprint",
+            "rootToolScopeFingerprint",
+            "expertName",
+            "missionPath",
+            "toolDeclarations",
+            "turnMessages",
+            "admittedInputNames",
+            "log",
+        })
+        {
+            data.Add(field, true);
+            data.Add(field, false);
+        }
+        return data;
+    }
+
     [Theory]
-    [InlineData("rootInputs")]
-    [InlineData("rootExecutionId")]
-    [InlineData("rootMissionName")]
-    [InlineData("rootDefinitionFingerprint")]
-    [InlineData("rootToolScopeFingerprint")]
-    [InlineData("expertName")]
-    [InlineData("missionPath")]
-    [InlineData("toolDeclarations")]
-    [InlineData("turnMessages")]
-    [InlineData("admittedInputNames")]
-    [InlineData("log")]
-    public async Task Malformed_current_checkpoint_is_rejected_before_any_invocation(string field)
+    [MemberData(nameof(CheckpointFieldDamage))]
+    public async Task Malformed_current_checkpoint_is_rejected_before_any_invocation(string field, bool removed)
     {
         var ast = MclParser.Parse("mission Root = { Enrich -> Respond }");
         var runner = new StubExpertRunner(Scripted);
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
         var count = runner.Calls.Count;
-        foreach (var missing in new[] { false, true })
-        {
-            var checkpoint = System.Text.Json.Nodes.JsonNode.Parse(pause.Continuation.Payload)!.AsObject();
-            if (missing) checkpoint.Remove(field);
-            else checkpoint[field] = null;
-            var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
-            Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
-            Assert.Equal(count, runner.Calls.Count);
-        }
+        var checkpoint = System.Text.Json.Nodes.JsonNode.Parse(pause.Continuation.Payload)!.AsObject();
+        Damage(checkpoint, field, removed);
+        var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
+        Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
+        Assert.Equal(count, runner.Calls.Count);
+    }
+
+    private static void Damage(System.Text.Json.Nodes.JsonObject checkpoint, string field, bool removed)
+    {
+        if (removed) checkpoint.Remove(field);
+        else checkpoint[field] = null;
     }
 
     [Theory]
@@ -139,41 +156,57 @@ public sealed class AgentToolPipelineTests
         var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
         Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
     }
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ToolResponseMetadata_IsConsumedOnNormalAndExceptionalExit(bool fail)
+    private const string ToolResponseKey = "__pipeline_tool_response_messages";
+
+    [Fact]
+    public async Task ToolResponseMetadata_IsConsumedOnNormalExit()
     {
-        const string responseKey = "__pipeline_tool_response_messages";
-        Dictionary<string, object>? captured = null;
+        var (runner, captured) = ToolResponseRunner(fail: false);
+        var pause = Assert.IsType<PipelineToolPause>((await runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        using var checkpoint = JsonDocument.Parse(pause.Continuation.Payload);
+        var message = Assert.Single(checkpoint.RootElement.GetProperty("turnMessages").EnumerateArray());
+        Assert.Equal(2, message.GetProperty("contents").GetArrayLength());
+        Assert.Equal("protected", message.GetProperty("contents")[0].GetProperty("protectedData").GetString());
+        AssertResponseKeyConsumed(captured);
+    }
+
+    [Fact]
+    public async Task ToolResponseMetadata_IsConsumedOnExceptionalExit()
+    {
+        var (runner, captured) = ToolResponseRunner(fail: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
+            new PipelineRunOptions("Root", RootTools: ClientTools())));
+        AssertResponseKeyConsumed(captured);
+    }
+
+    private static readonly Program ToolResponseAst = MclParser.Parse("mission Root = { Respond }");
+
+    private static Dictionary<string, ExpertDefinition> ToolResponseExperts() => new()
+    { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
+
+    // A runner whose step writes tool-response metadata, then either throws or asks for a tool.
+    private static (PipelineRunner Runner, StrongBox<Dictionary<string, object>?> Captured) ToolResponseRunner(bool fail)
+    {
+        var captured = new StrongBox<Dictionary<string, object>?>();
         var call = new FunctionCallContent("read-once", "Read", new Dictionary<string, object?>());
         var modelReply = new ChatMessage(ChatRole.Assistant,
             [new TextReasoningContent("reason") { ProtectedData = "protected" }, call]);
         var runner = new PipelineRunner(new StubExpertRunner((_, context) =>
         {
-            captured = context;
-            context[responseKey] = new ChatMessage[] { modelReply };
+            captured.Value = context;
+            context[ToolResponseKey] = new ChatMessage[] { modelReply };
             if (fail) throw new InvalidOperationException("fixture failure");
             context["tool_calls"] = new List<FunctionCallContent> { call };
             return new StepEnvelope("");
         }));
-        var ast = MclParser.Parse("mission Root = { Respond }");
-        var experts = new Dictionary<string, ExpertDefinition>
-        { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
-        if (fail)
-            await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ast, experts,
-                new PipelineRunOptions("Root", RootTools: ClientTools())));
-        else
-        {
-            var pause = Assert.IsType<PipelineToolPause>((await runner.RunAsync(ast, experts,
-                new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
-            using var checkpoint = JsonDocument.Parse(pause.Continuation.Payload);
-            var message = Assert.Single(checkpoint.RootElement.GetProperty("turnMessages").EnumerateArray());
-            Assert.Equal(2, message.GetProperty("contents").GetArrayLength());
-            Assert.Equal("protected", message.GetProperty("contents")[0].GetProperty("protectedData").GetString());
-        }
-        Assert.NotNull(captured);
-        Assert.False(captured.ContainsKey(responseKey));
+        return (runner, captured);
+    }
+
+    private static void AssertResponseKeyConsumed(StrongBox<Dictionary<string, object>?> captured)
+    {
+        Assert.NotNull(captured.Value);
+        Assert.False(captured.Value.ContainsKey(ToolResponseKey));
     }
 
     private static readonly Program Ast = MclParser.Parse("""
@@ -431,6 +464,34 @@ public sealed class AgentToolPipelineTests
         Assert.Single(multipleClient.Calls);
     }
 
+    [Theory]
+    [InlineData("unparseable payload")]
+    [InlineData("unknown format version")]
+    [InlineData("changed tool name")]
+    public async Task RootScopedToolPause_MalformedContinuation_DoesNotInvokeProvider(string damage)
+    {
+        var ast = MclParser.Parse("mission Root = { Respond }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+        { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
+        var client = new ContinuationClient();
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        var continuation = damage switch
+        {
+            "unparseable payload" => new PipelineContinuation(1, "{"),
+            "unknown format version" => pause.Continuation with { FormatVersion = 42 },
+            "changed tool name" => pause.Continuation with { Payload = pause.Continuation.Payload.Replace("Read", "Other", StringComparison.Ordinal) },
+            _ => throw new ArgumentOutOfRangeException(nameof(damage), damage, null),
+        };
+
+        var result = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
+            new PipelineResumeRequest(continuation, new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
+            new PipelineRunOptions("ignored"));
+
+        Assert.Equal(PipelineFailure.InvalidContinuation, result.Failure);
+        Assert.Single(client.Calls);
+    }
+
     [Fact]
     public async Task RootScopedToolPause_InvalidContinuations_DoNotInvokeProvider()
     {
@@ -440,19 +501,6 @@ public sealed class AgentToolPipelineTests
         var client = new ContinuationClient();
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
-
-        foreach (var continuation in new[]
-        {
-            new PipelineContinuation(1, "{"),
-            pause.Continuation with { FormatVersion = 42 },
-            pause.Continuation with { Payload = pause.Continuation.Payload.Replace("Read", "Other", StringComparison.Ordinal) },
-        })
-        {
-            var result = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
-                new PipelineResumeRequest(continuation, new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
-                new PipelineRunOptions("ignored"));
-            Assert.Equal(PipelineFailure.InvalidContinuation, result.Failure);
-        }
 
         var wrongCall = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
             new PipelineResumeRequest(pause.Continuation, new PipelineToolResult("wrong", PipelineToolResultStatus.Succeeded)),
@@ -518,7 +566,7 @@ public sealed class AgentToolPipelineTests
             ["First"] = new("First", "any", "text", "First."),
             ["Second"] = new("Second", "any", "text", "Second."),
         };
-        var runner = new DelayedRunner();
+        var runner = new OverlapRunner();
         var result = await new PipelineRunner(runner).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()));
         Assert.Equal(MissionStatus.Pass, result.Status);
@@ -1038,17 +1086,33 @@ public sealed class AgentToolPipelineTests
         public object? GetService(Type serviceType, object? key = null) => null;
     }
 
-    private sealed class DelayedRunner : IExpertRunner
+    // Each call waits until both parallel calls have entered, so the test proves overlap
+    // without depending on timing. A sequential run times out instead of passing.
+    private sealed class OverlapRunner : IExpertRunner
     {
+        private readonly TaskCompletionSource _bothEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _active;
-        public int MaximumConcurrent { get; private set; }
+        private int _maximumConcurrent;
+        public int MaximumConcurrent => Volatile.Read(ref _maximumConcurrent);
 
         public async Task<StepEnvelope> RunAsync(ExpertDefinition expert, Dictionary<string, object> context, CancellationToken ct)
         {
             var active = Interlocked.Increment(ref _active);
-            MaximumConcurrent = Math.Max(MaximumConcurrent, active);
-            try { await Task.Delay(60, ct); return new StepEnvelope(expert.Name); }
+            RecordMaximum(active);
+            if (active == 2) _bothEntered.TrySetResult();
+            try
+            {
+                await _bothEntered.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+                return new StepEnvelope(expert.Name);
+            }
             finally { Interlocked.Decrement(ref _active); }
+        }
+
+        private void RecordMaximum(int active)
+        {
+            int seen;
+            while (active > (seen = Volatile.Read(ref _maximumConcurrent)))
+                if (Interlocked.CompareExchange(ref _maximumConcurrent, active, seen) == seen) return;
         }
 
         public async IAsyncEnumerable<string> StreamAsync(ExpertDefinition expert, Dictionary<string, object> context,

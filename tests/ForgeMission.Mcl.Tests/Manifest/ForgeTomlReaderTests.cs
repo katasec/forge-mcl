@@ -2,8 +2,16 @@ using ForgeMission.Core.Manifest;
 
 namespace ForgeMission.Tests.Manifest;
 
-public class ForgeTomlReaderTests
+public class ForgeTomlReaderTests : IDisposable
 {
+    // One temp root per test (xUnit makes a new instance per test), deleted in Dispose, so no
+    // test leaves folders behind even when it fails.
+    private readonly string _tempRoot = Directory.CreateTempSubdirectory("forge-toml-tests-").FullName;
+
+    public void Dispose() => Directory.Delete(_tempRoot, recursive: true);
+
+    private string NewTempDir(string prefix) => Directory.CreateDirectory(Path.Combine(_tempRoot, prefix + Path.GetRandomFileName())).FullName;
+
     [Fact]
     public void Repeated_named_sections_reset_rows_and_unknown_section_preserves_line_validation()
     {
@@ -80,9 +88,9 @@ public class ForgeTomlReaderTests
         finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
     }
     // Write a forge.toml to a temp dir next to a fake mission.mcl and return the mission path.
-    private static string WriteTempManifest(string toml)
+    private string WriteTempManifest(string toml)
     {
-        var dir         = Directory.CreateTempSubdirectory("forge-toml-test-").FullName;
+        var dir         = NewTempDir("forge-toml-test-");
         var missionPath = Path.Combine(dir, "mission.mcl");
         var tomlPath    = Path.Combine(dir, "forge.toml");
         File.WriteAllText(missionPath, "");
@@ -93,7 +101,7 @@ public class ForgeTomlReaderTests
     [Fact]
     public void NoForgeToml_ReturnsNull()
     {
-        var dir         = Directory.CreateTempSubdirectory("forge-toml-missing-").FullName;
+        var dir         = NewTempDir("forge-toml-missing-");
         var missionPath = Path.Combine(dir, "mission.mcl");
         File.WriteAllText(missionPath, "");
 
@@ -164,18 +172,22 @@ public class ForgeTomlReaderTests
     [Fact]
     public void EnvCall_NoDefault_ResolvesVariable()
     {
+        var previous = Environment.GetEnvironmentVariable("FORGE_TEST_KEY");
         Environment.SetEnvironmentVariable("FORGE_TEST_KEY", "resolved-from-env");
-        var path = WriteTempManifest("""
-            [providers.default]
-            provider = "openai"
-            model    = "gpt-4o-mini"
-            apiKey   = env("FORGE_TEST_KEY")
-            """);
+        try
+        {
+            var path = WriteTempManifest("""
+                [providers.default]
+                provider = "openai"
+                model    = "gpt-4o-mini"
+                apiKey   = env("FORGE_TEST_KEY")
+                """);
 
-        var manifest = ForgeTomlReader.TryRead(path);
+            var manifest = ForgeTomlReader.TryRead(path);
 
-        Assert.Equal("resolved-from-env", manifest!.Providers["default"].ApiKey);
-        Environment.SetEnvironmentVariable("FORGE_TEST_KEY", null);
+            Assert.Equal("resolved-from-env", manifest!.Providers["default"].ApiKey);
+        }
+        finally { Environment.SetEnvironmentVariable("FORGE_TEST_KEY", previous); }
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using Microsoft.ML.OnnxRuntime;
 using System.Globalization;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
@@ -46,6 +47,7 @@ public sealed class OnnxExpertRunnerTests
         using var cancellation = new CancellationTokenSource();
         var context = new Dictionary<string, object> { ["low"] = "0.2", ["high"] = "0.8" };
         var task = new OnnxExpertRunner().RunAsync(Expert("cancellable-loop.onnx"), context, cancellation.Token);
+        // The runner has no start signal, so give native work time to begin before cancelling.
         await Task.Delay(300);
         Assert.False(task.IsCompleted);
         cancellation.Cancel();
@@ -59,6 +61,7 @@ public sealed class OnnxExpertRunnerTests
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var sibling = new TaskCompletionSource<Dictionary<string, object>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var facts = new System.Collections.Concurrent.ConcurrentBag<PipelineTraceEvent>();
+        var bothObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var runner = new PipelineRunner(new StubExpertRunner((_, context) =>
         {
             sibling.SetResult(context);
@@ -68,11 +71,16 @@ public sealed class OnnxExpertRunnerTests
             ["Sibling"] = new("Sibling", "text", "text", "") };
         var run = runner.RunAsync(MclParser.Parse("mission Root(low, high) = { parallel { Numeric Sibling } }"), experts,
             new PipelineRunOptions("Root", new Dictionary<string, string> { ["low"] = "0.2", ["high"] = "0.8" },
-                OnTrace: (fact, _) => { facts.Add(fact); return Task.CompletedTask; }), cancellation.Token);
+                OnTrace: (fact, _) =>
+                {
+                    facts.Add(fact);
+                    if (NumericStartedAndSiblingCompleted(facts)) bothObserved.TrySetResult();
+                    return Task.CompletedTask;
+                }), cancellation.Token);
         try
         {
             var context = await sibling.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            await Task.Delay(300);
+            await bothObserved.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.False(run.IsCompleted);
             Assert.Contains(facts, fact => fact is PipelineStepStarted { ExpertName: "Numeric" });
             Assert.Contains(facts, fact => fact is PipelineStepCompleted { ExpertName: "Sibling" });
@@ -83,11 +91,22 @@ public sealed class OnnxExpertRunnerTests
         Assert.DoesNotContain(facts, fact => fact is PipelineStepCompleted { ExpertName: "Numeric" });
     }
 
+    private static bool NumericStartedAndSiblingCompleted(IEnumerable<PipelineTraceEvent> facts) =>
+        facts.Any(fact => fact is PipelineStepStarted { ExpertName: "Numeric" })
+        && facts.Any(fact => fact is PipelineStepCompleted { ExpertName: "Sibling" });
+
     [Fact]
-    public async Task Missing_numeric_features_and_model_fail_explicitly()
+    public async Task Missing_numeric_features_fail_explicitly()
     {
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new OnnxExpertRunner().RunAsync(Expert("identity.onnx"), []));
-        await Assert.ThrowsAnyAsync<Exception>(() => new OnnxExpertRunner().RunAsync(Expert("missing.onnx"),
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new OnnxExpertRunner().RunAsync(Expert("identity.onnx"), []));
+        Assert.Contains("ONNX feature", ex.Message);
+    }
+
+    [Fact]
+    public async Task Missing_model_file_fails_naming_the_file()
+    {
+        var ex = await Assert.ThrowsAsync<OnnxRuntimeException>(() => new OnnxExpertRunner().RunAsync(Expert("missing.onnx"),
             new() { ["low"] = 0.2, ["high"] = 0.8 }));
+        Assert.Contains("missing.onnx", ex.Message);
     }
 }

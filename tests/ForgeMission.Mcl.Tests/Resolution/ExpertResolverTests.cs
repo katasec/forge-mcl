@@ -3,8 +3,16 @@ using ForgeMission.Core.Resolution;
 
 namespace ForgeMission.Tests.Resolution;
 
-public class ExpertResolverTests
+public class ExpertResolverTests : IDisposable
 {
+    // One temp root per test (xUnit makes a new instance per test), deleted in Dispose, so no
+    // test leaves folders behind even when it fails.
+    private readonly string _tempRoot = Directory.CreateTempSubdirectory("forge-resolver-tests-").FullName;
+
+    public void Dispose() => Directory.Delete(_tempRoot, recursive: true);
+
+    private string NewTempDir(string prefix) => Directory.CreateDirectory(Path.Combine(_tempRoot, prefix + Path.GetRandomFileName())).FullName;
+
     private static readonly string ExpertMd = """
         ---
         name: TestExpert
@@ -15,9 +23,9 @@ public class ExpertResolverTests
         You are a test expert. Answer: {{question}}
         """;
 
-    private static string CreateMissionDir(string? expertContent = null)
+    private string CreateMissionDir(string? expertContent = null)
     {
-        var dir        = Directory.CreateTempSubdirectory("forge-resolver-test-").FullName;
+        var dir        = NewTempDir("forge-resolver-test-");
         var expertDir  = Path.Combine(dir, "experts", "TestExpert");
         Directory.CreateDirectory(expertDir);
         File.WriteAllText(Path.Combine(expertDir, "expert.md"), expertContent ?? ExpertMd);
@@ -81,7 +89,7 @@ public class ExpertResolverTests
     [Fact]
     public void ExpertFileMissing_ThrowsExpertLoadException()
     {
-        var dir      = Directory.CreateTempSubdirectory("forge-resolver-missing-").FullName;
+        var dir      = NewTempDir("forge-resolver-missing-");
         var lockFile = new LockFile
         {
             Experts =
@@ -141,8 +149,8 @@ public class ExpertResolverTests
     public void LocalExpert_ShadowingCacheEntry_EmitsWarning()
     {
         // Two dirs: "cache" holds the OCI version, "mission" holds a local override.
-        var cacheDir   = Directory.CreateTempSubdirectory("forge-cache-").FullName;
-        var missionDir = Directory.CreateTempSubdirectory("forge-mission-").FullName;
+        var cacheDir   = NewTempDir("forge-cache-");
+        var missionDir = NewTempDir("forge-mission-");
 
         // Write an expert in the cache dir
         var cacheExpertDir = Path.Combine(cacheDir, "TestExpert");
@@ -192,7 +200,7 @@ public class ExpertResolverTests
     [Fact]
     public void MultipleExperts_AllResolved()
     {
-        var dir = Directory.CreateTempSubdirectory("forge-resolver-multi-").FullName;
+        var dir = NewTempDir("forge-resolver-multi-");
 
         foreach (var name in new[] { "ExpertA", "ExpertB", "ExpertC" })
         {
@@ -262,15 +270,15 @@ public class ExpertResolverTests
     [Fact]
     public void HomeCachePath_LockRoundTrip_IsByteIdentical()
     {
-        var home      = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var cacheRoot = Path.Combine(home, ".forge", $"lock-roundtrip-test-{Guid.NewGuid():N}");
+        var home      = NewTempDir("forge-resolver-home-");
+        var cacheRoot = Path.Combine(home, ".forge", "cache");
         var cachePath = Path.Combine(cacheRoot, "reg", "Name", "sha256-abc", "expert.md");
-        var missionDir = Directory.CreateTempSubdirectory("forge-resolver-test-").FullName;
+        var missionDir = NewTempDir("forge-resolver-test-");
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
             File.WriteAllText(cachePath, ExpertMd);
-            var lockPath = ExpertResolver.ToLockPath(cachePath);
+            var lockPath = ExpertResolver.ToLockPath(cachePath, home);
             var expected = "~/" + Path.GetRelativePath(home, cachePath).Replace(Path.DirectorySeparatorChar, '/');
             Assert.Equal(expected, lockPath);
 
@@ -287,12 +295,12 @@ public class ExpertResolverTests
             Assert.Equal(bytes, File.ReadAllBytes(lockFilePath));
 
             var verbose = new StringWriter();
-            ExpertResolver.ResolveAll(read, missionDir, verbose);
+            ExpertResolver.ResolveAll(read, missionDir, verbose, warnings: null, home);
             Assert.Contains($"→ cache    ({lockPath})", verbose.ToString());
         }
         finally
         {
-            Directory.Delete(cacheRoot, recursive: true);
+            Directory.Delete(home, recursive: true);
             Directory.Delete(missionDir, recursive: true);
         }
     }

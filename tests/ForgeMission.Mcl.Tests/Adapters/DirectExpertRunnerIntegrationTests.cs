@@ -8,16 +8,14 @@ using OpenAI;
 namespace ForgeMission.Tests.Adapters;
 
 /// <summary>
-/// Integration tests against a real LLM. Skipped automatically if OPENAI_API_KEY is not set.
-/// Run with: OPENAI_API_KEY=sk-... dotnet test --filter Category=Integration
+/// Integration tests against a real LLM. Skipped unless FORGE_RUN_INTEGRATION=1 and OPENAI_API_KEY are set.
+/// Run with: FORGE_RUN_INTEGRATION=1 OPENAI_API_KEY=sk-... dotnet test --filter Category=Integration
 /// </summary>
 public class DirectExpertRunnerIntegrationTests
 {
-    private static readonly string? ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-
     private static IChatClient BuildChatClient()
     {
-        var openAiClient = new OpenAIClient(ApiKey!);
+        var openAiClient = new OpenAIClient(IntegrationGate.SkipUnlessOptedIn("OPENAI_API_KEY"));
         return openAiClient.GetChatClient("gpt-4o-mini").AsIChatClient();
     }
 
@@ -25,7 +23,7 @@ public class DirectExpertRunnerIntegrationTests
     [Trait("Category", "Integration")]
     public async Task SingleExpert_RealLlm_ReturnsNonEmptyResponse()
     {
-        Skip.If(string.IsNullOrWhiteSpace(ApiKey), "OPENAI_API_KEY not set — skipping integration test");
+        var chatClient = BuildChatClient();
 
         var expert = new ExpertDefinition(
             "Summariser",
@@ -33,7 +31,7 @@ public class DirectExpertRunnerIntegrationTests
             "Summary",
             "You are a concise summariser. Summarise the input in one sentence.");
 
-        var runner = new DirectExpertRunner(BuildChatClient());
+        var runner = new DirectExpertRunner(chatClient);
         var context = new Dictionary<string, object> { ["output"] = "The sky is blue because of Rayleigh scattering of sunlight." };
         var result = await runner.RunAsync(expert, context);
 
@@ -44,7 +42,7 @@ public class DirectExpertRunnerIntegrationTests
     [Trait("Category", "Integration")]
     public async Task TwoStepPipeline_RealLlm_ContextFlowsBetweenSteps()
     {
-        Skip.If(string.IsNullOrWhiteSpace(ApiKey), "OPENAI_API_KEY not set — skipping integration test");
+        var chatClient = BuildChatClient();
 
         var ast = MclParser.Parse("""
             mission TestMission = {
@@ -62,7 +60,7 @@ public class DirectExpertRunnerIntegrationTests
         };
 
         var started    = new List<string>();
-        var runner     = new PipelineRunner(new DirectExpertRunner(BuildChatClient()));
+        var runner     = new PipelineRunner(new DirectExpertRunner(chatClient));
         var options    = new PipelineRunOptions(
             "TestMission",
             Vars: new Dictionary<string, string> { ["output"] = "The sky is blue because of Rayleigh scattering of sunlight." },

@@ -16,7 +16,7 @@ public sealed class ForgeProjectTests
         try
         {
             var application = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(RunCore.DeclaringType!.Assembly.Location)!, "ForgeMission.Application.dll"));
-            Assert.Equal(new Version(0, 19, 0, 0), application.GetName().Version);
+            Assert.Equal(ReferencedApplicationVersion(), application.GetName().Version);
             var composition = application.GetType("ForgeMission.Application.ApplicationComposition", true)!;
             await using var app = (IAsyncDisposable)composition.GetMethod("Create")!.Invoke(null, [host, CancellationToken.None])!;
             var conversations = composition.GetProperty("MissionConversations")!.GetValue(app)!;
@@ -88,11 +88,10 @@ public sealed class ForgeProjectTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Success_forwards_home_once_and_prints_the_next_command(bool explicitFolder)
+    [InlineData(null, "Run `forge run <mission> \"<prompt>\"`.")]
+    [InlineData("project folder", "Run `forge run --project '{projectFile}' <mission> \"<prompt>\"`.")]
+    public async Task Success_forwards_home_once_and_prints_the_next_command(string? folder, string guidance)
     {
-        var folder = explicitFolder ? "project folder" : null;
         var expectedHome = Path.GetFullPath(folder ?? Directory.GetCurrentDirectory());
         var calls = 0;
         using var output = new StringWriter();
@@ -107,7 +106,7 @@ public sealed class ForgeProjectTests
         Assert.Equal(1, calls);
         Assert.Equal("", error.ToString());
         Assert.Contains($"Project: {Path.Combine(expectedHome, "forge.project.json")}", output.ToString());
-        Assert.Contains(explicitFolder ? $"Run `forge run --project '{Path.Combine(expectedHome, "forge.project.json")}' <mission> \"<prompt>\"`." : "Run `forge run <mission> \"<prompt>\"`.", output.ToString());
+        Assert.Contains(guidance.Replace("{projectFile}", Path.Combine(expectedHome, "forge.project.json")), output.ToString());
     }
 
     [Fact]
@@ -151,7 +150,15 @@ public sealed class ForgeProjectTests
         return (result.ExitCode, result.StandardOutput, result.StandardError);
     }
 
+    // The CLI is not a compile reference of this project (tests drive it as a separate program),
+    // so the seam is found by name; a rename fails here with the name, not as a null reference.
     private static MethodInfo LoadRunCore() =>
         Assembly.LoadFrom(ForgeCliHarness.ForgeDllPath).GetType("ForgeMission.Cli.Commands.ForgeProject", throwOnError: true)!
-            .GetMethod("RunCoreAsync", BindingFlags.Static | BindingFlags.NonPublic)!;
+            .GetMethod("RunCoreAsync", BindingFlags.Static | BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("ForgeMission.Cli.Commands.ForgeProject", "RunCoreAsync");
+
+    // The client version forge was built against, so a Katasec.Forge.Client bump needs no test edit.
+    private static Version ReferencedApplicationVersion() =>
+        RunCore.DeclaringType!.Assembly.GetReferencedAssemblies()
+            .Single(reference => reference.Name == "ForgeMission.Application").Version!;
 }
