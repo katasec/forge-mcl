@@ -59,11 +59,12 @@ public sealed class GrokWebSearch(HttpClient http, string apiKey, string model =
         var httpResp = await http.SendAsync(httpReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
         if (httpResp.IsSuccessStatusCode) return httpResp;
 
-        var errBody = await httpResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        var snippet = errBody.Length > 500 ? errBody[..500] : errBody;
-        var status  = (int)httpResp.StatusCode;
-        httpResp.Dispose();
-        throw new WebSearchException($"xAI Responses API returned {status}: {snippet}");
+        using (httpResp)
+        {
+            var errBody = await httpResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var snippet = errBody.Length > 500 ? errBody[..500] : errBody;
+            throw new WebSearchException($"xAI Responses API returned {(int)httpResp.StatusCode}: {snippet}");
+        }
     }
 
     // Pull the synthesized answer + citation URLs off the single "message" item in output[].

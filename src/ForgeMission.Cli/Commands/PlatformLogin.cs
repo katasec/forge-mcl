@@ -237,7 +237,7 @@ internal static class PlatformLogin
     private static async Task<TokenResponse?> ExchangeCodeAsync(HttpClient http, PlatformLoginOptions settings, string code, string verifier,
         string redirectUri, CancellationToken cancellationToken)
     {
-        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["client_id"] = settings.ClientId,
             ["grant_type"] = "authorization_code",
@@ -283,9 +283,9 @@ internal static class PlatformLogin
     {
         try
         {
-            if (OperatingSystem.IsMacOS()) Process.Start("open", url);
-            else if (OperatingSystem.IsWindows()) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            else Process.Start("xdg-open", url);
+            using var browser = OperatingSystem.IsMacOS() ? Process.Start("open", url)
+                : OperatingSystem.IsWindows() ? Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })
+                : Process.Start("xdg-open", url);
         }
         catch { /* the URL is printed as fallback */ }
     }
