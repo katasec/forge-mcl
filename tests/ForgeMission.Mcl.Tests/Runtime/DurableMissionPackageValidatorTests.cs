@@ -9,30 +9,43 @@ namespace ForgeMission.Tests.Runtime;
 /// <summary>Resolved durable content is validated without local configuration or file access.</summary>
 public class DurableMissionPackageValidatorTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Generated_json_roundtrip_preserves_assets_and_canonical_hash(bool withAssets)
+    [Fact]
+    public void Generated_json_roundtrip_preserves_assets_and_canonical_hash()
     {
-        var original = Package("mission Root(message) = { Reader }", "Root", "message", "Reader");
-        if (withAssets) original = Rehash(original with { Assets = [Asset("experts/Reader/read.py", [0, 1, 255])] });
+        var original = Rehash(RootPackage() with { Assets = [Asset("experts/Reader/read.py", [0, 1, 255])] });
+        var (json, restored) = RoundTrip(original);
+        AssertSameHashAndValid(original, restored);
+        Assert.Contains("\"assets\"", json);
+        var asset = Assert.Single(restored.Assets!);
+        Assert.Equal(new byte[] { 0, 1, 255 }, asset.Bytes);
+    }
+
+    [Fact]
+    public void Generated_json_roundtrip_without_assets_omits_them_and_keeps_canonical_hash()
+    {
+        var original = RootPackage();
+        var (json, restored) = RoundTrip(original);
+        AssertSameHashAndValid(original, restored);
+        Assert.DoesNotContain("\"assets\"", json);
+        Assert.Null(restored.Assets);
+        var explicitNull = JsonSerializer.Deserialize(json[..^1] + ",\"assets\":null}", PackageTestJsonContext.Default.DurableMissionPackageInput)!;
+        Assert.Equal(original.PackageHash, DurableMissionPackageValidator.ComputeHash(explicitNull));
+        Assert.Equal(original.PackageHash, DurableMissionPackageValidator.ComputeHash(original with { Assets = [] }));
+    }
+
+    private static DurableMissionPackageInput RootPackage() =>
+        Package("mission Root(message) = { Reader }", "Root", "message", "Reader");
+
+    private static (string Json, DurableMissionPackageInput Restored) RoundTrip(DurableMissionPackageInput original)
+    {
         var json = JsonSerializer.Serialize(original, PackageTestJsonContext.Default.DurableMissionPackageInput);
-        var restored = JsonSerializer.Deserialize(json, PackageTestJsonContext.Default.DurableMissionPackageInput)!;
+        return (json, JsonSerializer.Deserialize(json, PackageTestJsonContext.Default.DurableMissionPackageInput)!);
+    }
+
+    private static void AssertSameHashAndValid(DurableMissionPackageInput original, DurableMissionPackageInput restored)
+    {
         Assert.Equal(original.PackageHash, DurableMissionPackageValidator.ComputeHash(restored));
         Assert.True(DurableMissionPackageValidator.TryValidate(restored, out _, out var reason), reason);
-        if (withAssets)
-        {
-            var asset = Assert.Single(restored.Assets!);
-            Assert.Equal(new byte[] { 0, 1, 255 }, asset.Bytes);
-        }
-        else
-        {
-            Assert.DoesNotContain("\"assets\"", json);
-            Assert.Null(restored.Assets);
-            var explicitNull = JsonSerializer.Deserialize(json[..^1] + ",\"assets\":null}", PackageTestJsonContext.Default.DurableMissionPackageInput)!;
-            Assert.Equal(original.PackageHash, DurableMissionPackageValidator.ComputeHash(explicitNull));
-            Assert.Equal(original.PackageHash, DurableMissionPackageValidator.ComputeHash(original with { Assets = [] }));
-        }
     }
 
     [Fact]
