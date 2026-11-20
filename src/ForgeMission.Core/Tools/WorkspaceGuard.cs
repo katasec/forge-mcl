@@ -71,16 +71,8 @@ public static class WorkspaceGuard
     // target first).
     internal static string RealPath(string fullPath, string? stopAt = null)
     {
-        if (File.Exists(fullPath))
-        {
-            var linkTarget = ResolveLink(new FileInfo(fullPath));
-            if (linkTarget is not null) return linkTarget;
-        }
-        if (Directory.Exists(fullPath))
-        {
-            var linkTarget = ResolveLink(new DirectoryInfo(fullPath));
-            if (linkTarget is not null) return linkTarget;
-        }
+        if (ResolveLinkAt(fullPath) is { } linkTarget)
+            return linkTarget;
 
         if (stopAt is not null && fullPath.Equals(stopAt, PathComparison))
             return fullPath;
@@ -91,6 +83,11 @@ public static class WorkspaceGuard
 
         return Path.Combine(RealPath(parent, stopAt), Path.GetFileName(fullPath));
     }
+
+    // The final target when fullPath is a file link, else when it is a directory link, else null.
+    private static string? ResolveLinkAt(string fullPath) =>
+        (File.Exists(fullPath) ? ResolveLink(new FileInfo(fullPath)) : null)
+        ?? (Directory.Exists(fullPath) ? ResolveLink(new DirectoryInfo(fullPath)) : null);
 
     private static string? ResolveLink(FileSystemInfo info) => info.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
 }

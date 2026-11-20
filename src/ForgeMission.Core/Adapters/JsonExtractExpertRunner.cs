@@ -14,28 +14,8 @@ public class JsonExtractExpertRunner : IExpertRunner
         var raw  = context.TryGetValue(ContextKeys.Output, out var o) ? o?.ToString() ?? "" : "";
         var json = ExtractJson(raw, out var prose);
 
-        JsonDocument doc;
-        try   { doc = JsonDocument.Parse(json); }
-        catch (JsonException ex)
-        {
-            var hint = prose is null
-                ? "output contains neither valid JSON nor a ```json fence"
-                : "content inside ```json fence is not valid JSON";
-            throw new InvalidOperationException($"json_extract ({expert.Name}): {hint}", ex);
-        }
-
-        using (doc)
-        {
-            foreach (var prop in doc.RootElement.EnumerateObject())
-            {
-                context[prop.Name] = prop.Value.ValueKind switch
-                {
-                    JsonValueKind.Number                         => (object)prop.Value.GetDouble(),
-                    JsonValueKind.Array or JsonValueKind.Object  => prop.Value.GetRawText(),
-                    _                                            => prop.Value.ToString(),
-                };
-            }
-        }
+        using (var doc = ParseOrExplain(expert, json, prose))
+            CopyProperties(doc, context);
 
         // Prose (from mixed output) replaces context["output"] so the next LLM step
         // sees the reasoning narrative rather than the raw JSON block.
@@ -43,6 +23,32 @@ public class JsonExtractExpertRunner : IExpertRunner
             context[ContextKeys.Output] = prose;
 
         return Task.FromResult(new StepEnvelope(json));
+    }
+
+    private static JsonDocument ParseOrExplain(ExpertDefinition expert, string json, string? prose)
+    {
+        try { return JsonDocument.Parse(json); }
+        catch (JsonException ex)
+        {
+            var hint = prose is null
+                ? "output contains neither valid JSON nor a ```json fence"
+                : "content inside ```json fence is not valid JSON";
+            throw new InvalidOperationException($"json_extract ({expert.Name}): {hint}", ex);
+        }
+    }
+
+    // Each top-level property becomes a context key: numbers as doubles, arrays/objects as raw JSON.
+    private static void CopyProperties(JsonDocument doc, Dictionary<string, object> context)
+    {
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            context[prop.Name] = prop.Value.ValueKind switch
+            {
+                JsonValueKind.Number                         => (object)prop.Value.GetDouble(),
+                JsonValueKind.Array or JsonValueKind.Object  => prop.Value.GetRawText(),
+                _                                            => prop.Value.ToString(),
+            };
+        }
     }
 
     // Extracts the first ```json ... ``` block from mixed prose+JSON output.

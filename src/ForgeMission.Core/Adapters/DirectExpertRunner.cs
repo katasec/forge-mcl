@@ -134,12 +134,15 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
             return messages;
         }
 
-        var userMessage = context.TryGetValue(ContextKeys.Output, out var output) && !string.IsNullOrWhiteSpace(output?.ToString())
-            ? output.ToString()!
-            : "Begin.";
-        messages.Add(new ChatMessage(ChatRole.User, userMessage));
+        messages.Add(new ChatMessage(ChatRole.User, UserMessage(context)));
         return messages;
     }
+
+    // The step's input is the previous output; a first step with none just begins.
+    private static string UserMessage(Dictionary<string, object> context) =>
+        context.TryGetValue(ContextKeys.Output, out var output) && !string.IsNullOrWhiteSpace(output?.ToString())
+            ? output.ToString()!
+            : "Begin.";
 
     // Explicit closed schema for structured output. GetResponseAsync<StepEnvelope> auto-derives a
     // schema from the record, but StepEnvelope.Meta is an open dictionary, which produces an object

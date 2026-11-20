@@ -50,15 +50,22 @@ public static partial class OciMissionPuller
             // Standard tar writes directory entries; their directories are created from file paths.
             if (entry.EntryType == TarEntryType.Directory) continue;
 
-            if (!names.Add(entry.Name) || names.Count > MaxBundleEntries || entry.Length < 0)
-                throw InvalidBundle();
-            total += entry.Length;
-            if (total > MaxBundleBytes)
-                throw InvalidBundle();
+            total = AdmitEntry(entry, names, total);
 
             await ExtractFileAsync(entry, Path.Combine(directory, Path.Combine(parts)), ct);
         }
         if (!names.Any(name => name == "mission.mcl")) throw new InvalidDataException("Mission bundle does not contain mission.mcl.");
+    }
+
+    // Enforces unique names, the entry-count limit and the total-size limit; returns the new total.
+    private static long AdmitEntry(TarEntry entry, HashSet<string> names, long total)
+    {
+        if (!names.Add(entry.Name) || names.Count > MaxBundleEntries || entry.Length < 0)
+            throw InvalidBundle();
+        total += entry.Length;
+        if (total > MaxBundleBytes)
+            throw InvalidBundle();
+        return total;
     }
 
     private static string[] EntryPathParts(TarEntry entry)

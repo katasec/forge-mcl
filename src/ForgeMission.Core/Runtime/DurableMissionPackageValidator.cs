@@ -262,10 +262,19 @@ public static class DurableMissionPackageValidator
 
     private static string ResolveModelPath(ExpertDefinition expert)
     {
-        if (string.IsNullOrWhiteSpace(expert.Model) || expert.Model.StartsWith('/') || expert.Model.Contains('\\') || expert.Model.Contains(':'))
-            throw new InvalidOperationException("ONNX model must be package-relative.");
-        var segments = new List<string> { "experts", expert.Name };
-        foreach (var segment in expert.Model.Split('/'))
+        var model = RequirePackageRelative(expert.Model);
+        return NormalizeSegments(["experts", expert.Name], model.Split('/'));
+    }
+
+    private static string RequirePackageRelative(string? model) =>
+        string.IsNullOrWhiteSpace(model) || model.StartsWith('/') || model.Contains('\\') || model.Contains(':')
+            ? throw new InvalidOperationException("ONNX model must be package-relative.")
+            : model;
+
+    // Applies "." and ".." segments under the base; ".." past the package root is rejected.
+    private static string NormalizeSegments(List<string> segments, string[] relative)
+    {
+        foreach (var segment in relative)
         {
             if (segment == ".") continue;
             if (segment != "..") { segments.Add(segment); continue; }

@@ -110,12 +110,23 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
     private void AddWorkspaceEnvironment(ProcessStartInfo options, ExpertDefinition expert,
         Dictionary<string, object> inputs, Dictionary<string, object> context)
     {
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        foreach (var key in options.Environment.Keys.Where(k => k.StartsWith("FORGE_INPUT_", comparison)
-            || k.Equals("FORGE_SOURCE_FILE", comparison)).ToArray()) options.Environment.Remove(key);
+        ClearInheritedInputVars(options);
         options.Environment["FORGE_WORK_DIR"] = inputs[ContextKeys.WorkDir].ToString();
         options.Environment["FORGE_INPUT_DIR"] = inputs[ContextKeys.InputDir].ToString();
         options.Environment["FORGE_OUTPUT_DIR"] = inputs[ContextKeys.OutputDir].ToString();
+        AddInputPaths(options, expert, context);
+    }
+
+    // A parent process's FORGE_INPUT_* values never leak into the expert.
+    private static void ClearInheritedInputVars(ProcessStartInfo options)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        foreach (var key in options.Environment.Keys.Where(k => k.StartsWith("FORGE_INPUT_", comparison)
+            || k.Equals("FORGE_SOURCE_FILE", comparison)).ToArray()) options.Environment.Remove(key);
+    }
+
+    private void AddInputPaths(ProcessStartInfo options, ExpertDefinition expert, Dictionary<string, object> context)
+    {
         foreach (var name in expert.Inputs ?? [])
         {
             if (!context.TryGetValue(name, out var value) || VerifiedPath(value) is not { } absolute) continue;

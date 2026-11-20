@@ -181,17 +181,7 @@ public static class ForgeTomlReader
     private static TomlValue ResolveValue(string raw, int lineNum, string path)
     {
         if (raw.StartsWith("env(", StringComparison.Ordinal))
-        {
-            if (!raw.EndsWith(')'))
-                throw new ForgeTomlException($"Line {lineNum}: malformed env() call", path);
-
-            var inner   = raw[4..^1];
-            var parts   = SplitArgs(inner);
-            var varName = parts[0].Trim().Trim('"');
-            var def     = parts.Length > 1 ? parts[1].Trim().Trim('"') : null;
-
-            return TomlValue.String(Environment.GetEnvironmentVariable(varName) ?? def ?? string.Empty);
-        }
+            return ResolveEnvCall(raw, lineNum, path);
 
         if (raw.StartsWith('"') && raw.EndsWith('"') && raw.Length >= 2)
             return TomlValue.String(raw[1..^1]);
@@ -207,6 +197,20 @@ public static class ForgeTomlReader
 
         throw new ForgeTomlException(
             $"Line {lineNum}: value must be a quoted string, env() call, string array, integer, or boolean", path);
+    }
+
+    // env("VAR") or env("VAR", "default"): the variable's value, else the default, else empty.
+    private static TomlValue ResolveEnvCall(string raw, int lineNum, string path)
+    {
+        if (!raw.EndsWith(')'))
+            throw new ForgeTomlException($"Line {lineNum}: malformed env() call", path);
+
+        var inner   = raw[4..^1];
+        var parts   = SplitArgs(inner);
+        var varName = parts[0].Trim().Trim('"');
+        var def     = parts.Length > 1 ? parts[1].Trim().Trim('"') : null;
+
+        return TomlValue.String(Environment.GetEnvironmentVariable(varName) ?? def ?? string.Empty);
     }
 
     private static ArtifactCapabilities BuildArtifactCapabilities(
