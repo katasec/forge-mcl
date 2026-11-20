@@ -1,9 +1,14 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using ForgeMission.Core.Runtime;
 
 namespace ForgeMission.Core.Tools;
 
 public sealed class LocalDiskWorkspace : IWorkspace
 {
+    private const int MaxStreamBytes = 4 * 1024 * 1024;
+    private static readonly ChildProcessLimits Limits = new(MaxStreamBytes, MaxStreamBytes, "Command");
+
     private readonly TimeSpan _timeout;
 
     public LocalDiskWorkspace(string root, TimeSpan? timeout = null)
@@ -47,49 +52,61 @@ public sealed class LocalDiskWorkspace : IWorkspace
         if (workingDir is not null && !TryResolvePath(workingDir, out resolvedWorkingDir, out var pathError))
             return ToolExecutionResult.Error(pathError!);
 
-        var psi = new ProcessStartInfo(OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh")
-        {
-            UseShellExecute        = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            WorkingDirectory       = resolvedWorkingDir,
-        };
-        psi.ArgumentList.Add(OperatingSystem.IsWindows() ? "/c" : "-c");
-        psi.ArgumentList.Add(command);
-
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(_timeout);
 
-        using var process = new Process { StartInfo = psi };
-
+        Process process;
         try
         {
-            process.Start();
+            process = Process.Start(ShellStartInfo(command, resolvedWorkingDir))
+                ?? throw new InvalidOperationException("No process was started.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
             return ToolExecutionResult.Error($"Failed to start command: {ex.Message}");
         }
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cts.Token);
-        var stderrTask = process.StandardError.ReadToEndAsync(cts.Token);
-
-        try
+        using (process)
         {
-            await process.WaitForExitAsync(cts.Token);
+            try
+            {
+                var (stdout, stderr, exitCode) = await ChildProcess.ExchangeAsync(process, "", Limits, cts);
+                return ToResult(stdout, stderr, exitCode);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return ToolExecutionResult.Error($"Command timed out after {_timeout.TotalSeconds:0}s: {command}");
+            }
+            catch (IOException ex)
+            {
+                ct.ThrowIfCancellationRequested();
+                return ToolExecutionResult.Error($"Command failed: {ex.Message}");
+            }
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            process.Kill(entireProcessTree: true);
-            return ToolExecutionResult.Error($"Command timed out after {_timeout.TotalSeconds:0}s: {command}");
-        }
+    }
 
-        var stdout  = await stdoutTask;
-        var stderr  = await stderrTask;
+    // stdin is redirected and closed at once, so the shell never reads the host's stdin (in
+    // forge mcp that is the protocol stream).
+    private static ProcessStartInfo ShellStartInfo(string command, string workingDir)
+    {
+        var psi = new ProcessStartInfo(OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh")
+        {
+            UseShellExecute        = false,
+            RedirectStandardInput  = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            WorkingDirectory       = workingDir,
+        };
+        psi.ArgumentList.Add(OperatingSystem.IsWindows() ? "/c" : "-c");
+        psi.ArgumentList.Add(command);
+        return psi;
+    }
+
+    private static ToolExecutionResult ToResult(string stdout, string stderr, int exitCode)
+    {
         var combined = string.Join('\n', new[] { stdout, stderr }.Where(s => !string.IsNullOrEmpty(s)));
-
-        return process.ExitCode == 0
+        return exitCode == 0
             ? new ToolExecutionResult(combined)
-            : ToolExecutionResult.Error($"Command exited with code {process.ExitCode}\n{combined}".TrimEnd());
+            : ToolExecutionResult.Error($"Command exited with code {exitCode}\n{combined}".TrimEnd());
     }
 }

@@ -93,6 +93,10 @@ public sealed class CapabilityDispatcher(
         CancellationToken ct,
         Action providerInvoked)
     {
+        // An empty old_string matches at every index, so counting it would never advance.
+        if (string.IsNullOrEmpty(request.OldString))
+            return ToolExecutionResult.Error("old_string must not be empty. Use Write to create or replace a whole file.");
+
         if (!TryResolveFile(request.FilePath, providerInvoked, out var files, out var resolved, out var error))
             return error;
 
