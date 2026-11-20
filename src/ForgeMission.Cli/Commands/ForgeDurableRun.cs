@@ -14,12 +14,7 @@ internal static class ForgeDurableRun
     internal static async Task<int> RunAsync(IHttpClientFactory clients, string projectPath, string selector,
         string prompt, IReadOnlyList<string> inputs, string ociBase, bool verbose, CancellationToken ct)
     {
-        var platform = CredentialStore.GetPlatform();
-        if (platform is null || string.IsNullOrEmpty(platform.Key))
-        {
-            Console.Error.WriteLine("Not signed in. Run `forge login`.");
-            return 1;
-        }
+        if (PlatformLogin.SignedInPlatform() is not { } platform) return 1;
 
         await using var app = ApplicationComposition.Create(clients, ct);
         try

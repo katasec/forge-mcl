@@ -10,7 +10,7 @@ namespace ForgeMission.Core.Runtime;
 public sealed class ChatHistory
 {
     /// <summary>Core-owned context-bag key; never a mission variable.</summary>
-    public const string ContextKey = "__chat_history";
+    public const string ContextKey = ContextKeys.ChatHistory;
 
     public ChatHistory(IReadOnlyList<ChatMessage> messages)
     {

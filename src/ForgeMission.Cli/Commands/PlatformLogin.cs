@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using ForgeMission.Core.Resolution;
 using ForgeMission.Cli.Contracts;
 using ForgeMission.Cli.Services;
@@ -66,12 +67,7 @@ internal static class PlatformLogin
     // Show the signed-in user + live balance (reads the stored key, calls /me on its endpoint).
     internal static async Task<int> WhoAmIAsync(IHttpClientFactory clients, CancellationToken cancellationToken)
     {
-        var platform = CredentialStore.GetPlatform();
-        if (platform is null || string.IsNullOrEmpty(platform.Key))
-        {
-            Console.Error.WriteLine("Not signed in. Run `forge login`.");
-            return 1;
-        }
+        if (SignedInPlatform() is not { } platform) return 1;
 
         var me = await FetchMeAsync(clients.CreateClient(CliHttpClients.Login), platform.Endpoint, platform.Key,
             cancellationToken);
@@ -80,6 +76,16 @@ internal static class PlatformLogin
         Console.WriteLine($"Signed in as {me.Email ?? platform.User}");
         Console.WriteLine($"  {FormatBalance(me.BalanceMicroUsd)} credit · {platform.Endpoint}");
         return 0;
+    }
+
+    // The stored platform credential (GetPlatform already treats a blank key as none), or null
+    // after telling the user to sign in.
+    internal static PlatformCredential? SignedInPlatform()
+    {
+        var platform = CredentialStore.GetPlatform();
+        if (platform is null)
+            Console.Error.WriteLine("Not signed in. Run `forge login`.");
+        return platform;
     }
 
     // Clear the stored platform key.
@@ -96,54 +102,58 @@ internal static class PlatformLogin
         return 0;
     }
 
-    private static async Task<MeResponse?> FetchMeAsync(HttpClient http, string endpoint, string key,
+    private static Task<MeResponse?> FetchMeAsync(HttpClient http, string endpoint, string key,
         CancellationToken cancellationToken)
     {
-        var baseUrl = endpoint.TrimEnd('/');
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/me");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-
-        using var resp = await http.SendAsync(req, cancellationToken);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            Console.Error.WriteLine("Your platform key is no longer valid (expired or revoked). Run `forge login`.");
-            return null;
-        }
-
-        if (!resp.IsSuccessStatusCode)
-        {
-            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
-            Console.Error.WriteLine($"whoami failed ({(int)resp.StatusCode}) at {baseUrl}/me: {json}");
-            return null;
-        }
-
-        try { return await resp.Content.ReadFromJsonAsync(PlatformLoginJsonContext.Default.MeResponse, cancellationToken); }
-        catch (JsonException) { Console.Error.WriteLine("whoami returned an unreadable response."); return null; }
+        var url = $"{endpoint.TrimEnd('/')}/me";
+        return SendBearerAsync(http, HttpMethod.Get, url, key, PlatformLoginJsonContext.Default.MeResponse,
+            async (resp, ct) =>
+            {
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    Console.Error.WriteLine("Your platform key is no longer valid (expired or revoked). Run `forge login`.");
+                    return;
+                }
+                var json = await resp.Content.ReadAsStringAsync(ct);
+                Console.Error.WriteLine($"whoami failed ({(int)resp.StatusCode}) at {url}: {json}");
+            },
+            "whoami returned an unreadable response.", cancellationToken);
     }
 
     // Exchange the validated Entra access token for a long-lived platform key (fg_live_…).
-    private static async Task<IssueKeyResponse?> IssuePlatformKeyAsync(HttpClient http, string platformEndpoint, string accessToken,
+    private static Task<IssueKeyResponse?> IssuePlatformKeyAsync(HttpClient http, string platformEndpoint, string accessToken,
         CancellationToken cancellationToken)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{platformEndpoint}/platform/keys");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        var url = $"{platformEndpoint}/platform/keys";
+        return SendBearerAsync(http, HttpMethod.Post, url, accessToken, PlatformLoginJsonContext.Default.IssueKeyResponse,
+            async (resp, ct) =>
+            {
+                var json = await resp.Content.ReadAsStringAsync(ct);
+                Console.Error.WriteLine($"Key issuance failed ({(int)resp.StatusCode}) at {url}: {json}");
+                var wwwAuth = resp.Headers.WwwAuthenticate.ToString();
+                if (!string.IsNullOrEmpty(wwwAuth)) Console.Error.WriteLine($"  WWW-Authenticate: {wwwAuth}");
+            },
+            "Key issuance returned an unreadable response.", cancellationToken);
+    }
+
+    // Sends one bearer-authorised request and reads its JSON body. A failed status goes to
+    // reportFailure and an unreadable body prints unreadableMessage; both return null.
+    private static async Task<T?> SendBearerAsync<T>(HttpClient http, HttpMethod method, string url, string token,
+        JsonTypeInfo<T> responseType, Func<HttpResponseMessage, CancellationToken, Task> reportFailure,
+        string unreadableMessage, CancellationToken cancellationToken) where T : class
+    {
+        using var req = new HttpRequestMessage(method, url);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         using var resp = await http.SendAsync(req, cancellationToken);
         if (!resp.IsSuccessStatusCode)
         {
-            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
-            Console.Error.WriteLine($"Key issuance failed ({(int)resp.StatusCode}) at {platformEndpoint}/platform/keys: {json}");
-            var wwwAuth = resp.Headers.WwwAuthenticate.ToString();
-            if (!string.IsNullOrEmpty(wwwAuth)) Console.Error.WriteLine($"  WWW-Authenticate: {wwwAuth}");
+            await reportFailure(resp, cancellationToken);
             return null;
         }
 
-        try { return await resp.Content.ReadFromJsonAsync(PlatformLoginJsonContext.Default.IssueKeyResponse, cancellationToken); }
-        catch (JsonException)
-        {
-            Console.Error.WriteLine("Key issuance returned an unreadable response.");
-            return null;
-        }
+        try { return await resp.Content.ReadFromJsonAsync(responseType, cancellationToken); }
+        catch (JsonException) { Console.Error.WriteLine(unreadableMessage); return null; }
     }
 
     private static string FormatBalance(long microUsd) => $"${microUsd / 1_000_000.0:0.00}";

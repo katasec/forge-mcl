@@ -4,12 +4,12 @@ using ForgeMission.Parser;
 namespace ForgeMission.Core.Runtime;
 
 // One value-only input policy shared by package admission and root-tool replay.
-internal static class DurableMissionInputPolicy
+public static class DurableMissionInputPolicy
 {
     internal static IReadOnlyList<string> AdmittedNames(
         Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts, string rootName)
     {
-        var root = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault(m => m.Name == rootName);
+        var root = ast.FindMission(rootName);
         return (root?.Params ?? []).Concat(ReachableSteps(ast, rootName)
                 .Where(step => experts.ContainsKey(step.ExpertName))
                 .SelectMany(step => experts[step.ExpertName].Inputs ?? []))
@@ -19,7 +19,7 @@ internal static class DurableMissionInputPolicy
 
     internal static IEnumerable<Step> ReachableSteps(Program ast, string rootName)
     {
-        var missions = ast.Declarations.OfType<MissionDeclaration>().ToDictionary(m => m.Name, StringComparer.Ordinal);
+        var missions = ast.Missions.ToDictionary(m => m.Name, StringComparer.Ordinal);
         var visited = new HashSet<string>(StringComparer.Ordinal);
         return Visit(rootName);
 
@@ -34,6 +34,8 @@ internal static class DurableMissionInputPolicy
         }
     }
 
-    internal static bool IsIdentifier(string name) => !string.IsNullOrEmpty(name)
+    /// <summary>The input-name rule: an ASCII letter, then ASCII letters, digits or '_'. ForgeAPI
+    /// applies the same rule to an upload's input name.</summary>
+    public static bool IsIdentifier(string name) => !string.IsNullOrEmpty(name)
         && char.IsAsciiLetter(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
 }

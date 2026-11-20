@@ -7,7 +7,14 @@ public record Program(
     IReadOnlyList<LetBinding> Bindings,
     IReadOnlyList<Declaration> Declarations,
     IReadOnlyList<OutputDeclaration> Outputs,
-    SourceSpan? Span = null);
+    SourceSpan? Span = null)
+{
+    /// <summary>The mission declarations, in source order.</summary>
+    public IEnumerable<MissionDeclaration> Missions => Declarations.OfType<MissionDeclaration>();
+
+    /// <summary>The mission named <paramref name="name"/> (ordinal match), or null.</summary>
+    public MissionDeclaration? FindMission(string name) => Missions.FirstOrDefault(m => m.Name == name);
+}
 
 public record OutputDeclaration(string MissionName, string? FilePath, SourceSpan? Span = null);
 

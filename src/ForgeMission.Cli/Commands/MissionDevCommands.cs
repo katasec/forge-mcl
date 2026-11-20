@@ -18,7 +18,7 @@ internal static class MissionDevCommands
 
     internal static Command BuildInitCommand()
     {
-        var missionArg  = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
+        var missionArg  = CliHelpers.MissionArgument();
 
         var cmd = new Command("init", "Resolve expert sources and generate mcl.lock");
         cmd.Add(missionArg);
@@ -102,7 +102,7 @@ internal static class MissionDevCommands
 
     internal static Command BuildValidateCommand()
     {
-        var missionArg = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
+        var missionArg = CliHelpers.MissionArgument();
 
         var cmd = new Command("validate", "Validate a mission file and its expert references");
         cmd.Add(missionArg);
@@ -117,7 +117,7 @@ internal static class MissionDevCommands
             var (ast, _) = await CliHelpers.LoadMissionAsync(mission.FullName, cancellationToken);
 
             var expertDefs = File.Exists(lockPath)
-                ? ResolveLockedExperts(lockPath, missionDir)
+                ? CliHelpers.ResolveLockedExperts(LockFileIO.Read(lockPath), missionDir)
                 : LoadUnlockedExperts(missionDir);
 
             if (!CliHelpers.TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
@@ -135,23 +135,13 @@ internal static class MissionDevCommands
         return CliHelpers.LoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
     }
 
-    // mcl.lock present: resolve the locked experts. Any expert-load failure, one error or several,
-    // is reported in full and ends validate with exit 1.
-    static Dictionary<string, ExpertDefinition> ResolveLockedExperts(string lockPath, string missionDir)
-    {
-        var lockFile = LockFileIO.Read(lockPath);
-        try { return ExpertResolver.ResolveAll(lockFile, missionDir, warnings: Console.Error); }
-        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
-        { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
-    }
-
     // ---------------------------------------------------------------------------
     // forge list
 
     internal static Command BuildListCommand()
     {
         var listCommand    = new Command("list", "List available resources");
-        var expertsOpt     = new Option<DirectoryInfo?>("--experts") { Description = "Experts directory (default: ./experts)" };
+        var expertsOpt     = CliHelpers.ExpertsOption();
         var listExpertsCmd = new Command("experts", "List experts in the experts directory");
         listExpertsCmd.Add(expertsOpt);
 
@@ -182,7 +172,7 @@ internal static class MissionDevCommands
         var expertCommand = new Command("expert", "Manage experts");
 
         var nameArg      = new Argument<string>("name") { Description = "Expert name (PascalCase)" };
-        var expertsOpt   = new Option<DirectoryInfo?>("--experts") { Description = "Experts directory (default: ./experts)" };
+        var expertsOpt   = CliHelpers.ExpertsOption();
         var initExpertCmd = new Command("init", "Scaffold a new expert directory");
         initExpertCmd.Add(nameArg);
         initExpertCmd.Add(expertsOpt);

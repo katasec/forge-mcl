@@ -50,9 +50,21 @@ public static class ExpertResolver
             throw new ExpertLoadException(
                 $"{MclErrorCode.ExpertNotFound.Code()} Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
 
-        // A local expert shadows the lock entry when the entry records a different path. Local wins
-        // intentionally, but silent shadowing is a reproducibility risk, so warn when the recorded
-        // file exists; the lock hash is for that recorded version, so it is not checked.
+        var isShadowing = WarnIfShadowing(name, entry, missionDir, absPath, source, warnings);
+        if (!isShadowing)
+            VerifyLockHash(name, entry, absPath);
+
+        verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({ToLockPath(absPath)})");
+
+        return ExpertLoader.ParseFile(absPath);
+    }
+
+    // A local expert shadows the lock entry when the entry records a different path. Local wins
+    // intentionally, but silent shadowing is a reproducibility risk, so warn when the recorded
+    // file exists; the lock hash is for that recorded version, so it is not checked.
+    private static bool WarnIfShadowing(
+        string name, LockFileExpert entry, string missionDir, string absPath, string source, TextWriter? warnings)
+    {
         var recorded = string.IsNullOrEmpty(entry.Path) ? null : ResolveLockPath(entry.Path, missionDir);
         var isShadowing = source == LocalSource && recorded is not null
             && !string.Equals(absPath, recorded, StringComparison.OrdinalIgnoreCase);
@@ -63,20 +75,19 @@ public static class ExpertResolver
                 $"({ToLockPath(recorded!)}). Local version will be used. " +
                 $"Run 'forge init' to update the lock file if this is intentional.");
         }
+        return isShadowing;
+    }
 
-        // Hash verification — skip for legacy lock files without a recorded hash.
-        if (!isShadowing && entry.Hash is { Length: > 0 } expectedHash)
-        {
-            var actualHash = LockFileIO.ComputeHash(absPath);
-            if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
-                throw new ExpertLoadException(
-                    $"{MclErrorCode.ExpertChanged.Code()} Expert '{name}' has changed since last 'forge init'. " +
-                    $"Run 'forge init' to update the lock file.");
-        }
+    // Skipped for legacy lock files without a recorded hash.
+    private static void VerifyLockHash(string name, LockFileExpert entry, string absPath)
+    {
+        if (entry.Hash is not { Length: > 0 } expectedHash) return;
 
-        verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({ToLockPath(absPath)})");
-
-        return ExpertLoader.ParseFile(absPath);
+        var actualHash = LockFileIO.ComputeHash(absPath);
+        if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+            throw new ExpertLoadException(
+                $"{MclErrorCode.ExpertChanged.Code()} Expert '{name}' has changed since last 'forge init'. " +
+                $"Run 'forge init' to update the lock file.");
     }
 
     // Returns (absolutePath, sourceLabel) using the resolution order.

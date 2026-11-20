@@ -18,26 +18,26 @@ public static class MissionValidator
         string? missionFilePath = null,
         IReadOnlyDictionary<string, string>? expertMarkdownByName = null)
     {
-        var missionsByName = ast.Declarations
-            .OfType<MissionDeclaration>()
-            .ToDictionary(m => m.Name, StringComparer.Ordinal);
+        var missionsByName = ast.Missions.ToDictionary(m => m.Name, StringComparer.Ordinal);
 
-        var missionNames = missionsByName.Keys.ToHashSet(StringComparer.Ordinal);
+        RejectMissingExperts(ast, experts, missionsByName.Keys);
+        ValidateMissionReferenceCycles(missionsByName, missionFilePath);
+        ReportContractIssues(ast, experts, expertMarkdownByName, contractErrorsAreFatal, warnings);
+    }
 
-        var missionParams = ast.Declarations
-            .OfType<MissionDeclaration>()
-            .SelectMany(m => m.Params)
-            .ToHashSet(StringComparer.Ordinal);
+    // Every step names an expert, a mission, or a mission parameter.
+    private static void RejectMissingExperts(
+        Program ast,
+        Dictionary<string, ExpertDefinition> experts,
+        IEnumerable<string> missionNames)
+    {
+        var known = missionNames.ToHashSet(StringComparer.Ordinal);
+        known.UnionWith(ast.Missions.SelectMany(m => m.Params));
 
-        var allSteps = ast.Declarations
-            .OfType<MissionDeclaration>()
+        var missing = ast.Missions
             .SelectMany(m => m.Pipeline.Steps().Select(s => s.ExpertName))
-            .Distinct(StringComparer.Ordinal);
-
-        var missing = allSteps
-            .Where(step => !experts.ContainsKey(step)
-                        && !missionNames.Contains(step)
-                        && !missionParams.Contains(step))
+            .Distinct(StringComparer.Ordinal)
+            .Where(step => !experts.ContainsKey(step) && !known.Contains(step))
             .OrderBy(s => s)
             .ToList();
 
@@ -45,11 +45,17 @@ public static class MissionValidator
             throw new ExpertLoadException(
                 $"Missing expert definitions for: {string.Join(", ", missing)}. " +
                 "Each expert must have a matching markdown file in the experts directory.");
+    }
 
-        ValidateMissionReferenceCycles(missionsByName, missionFilePath);
-
-        var contractIssues = ast.Declarations
-            .OfType<MissionDeclaration>()
+    // inputKeys contract issues are fatal when asked, else warnings.
+    private static void ReportContractIssues(
+        Program ast,
+        Dictionary<string, ExpertDefinition> experts,
+        IReadOnlyDictionary<string, string>? expertMarkdownByName,
+        bool contractErrorsAreFatal,
+        TextWriter? warnings)
+    {
+        var contractIssues = ast.Missions
             .SelectMany(m => ValidateContextKeys(m, experts, expertMarkdownByName))
             .ToList();
 
@@ -123,7 +129,7 @@ public static class MissionValidator
                     edges = [];
                     graph[mission.Name] = edges;
                 }
-                edges.Add(new MissionReferenceEdge(mission.Name, step.ExpertName, step));
+                edges.Add(new MissionReferenceEdge(step.ExpertName, step));
             }
         }
         return graph;
@@ -253,5 +259,5 @@ public static class MissionValidator
         return ExpertLoader.FindField(frontmatter.text, blockName, frontmatter.startLine);
     }
 
-    private sealed record MissionReferenceEdge(string FromMission, string ToMission, Step Step);
+    private sealed record MissionReferenceEdge(string ToMission, Step Step);
 }
