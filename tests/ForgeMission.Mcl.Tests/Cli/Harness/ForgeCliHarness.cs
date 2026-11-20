@@ -170,7 +170,7 @@ public sealed class ForgeCliHarness : IAsyncDisposable
     private void IsolateEnvironment(IDictionary<string, string?> environment)
     {
         foreach (var name in OperatorCredentials) environment.Remove(name);
-        foreach (var name in environment.Keys.Where(IsForgeVariable).ToArray()) environment.Remove(name);
+        foreach (var name in environment.Keys.Where(IsForgeOrMclVariable).ToArray()) environment.Remove(name);
 
         environment["HOME"] = Home;
         environment["USERPROFILE"] = Home;
@@ -200,7 +200,8 @@ public sealed class ForgeCliHarness : IAsyncDisposable
         }
     }
 
-    private static bool IsForgeVariable(string name) => name.StartsWith("FORGE_", StringComparison.OrdinalIgnoreCase);
+    private static bool IsForgeOrMclVariable(string name) =>
+        name.StartsWith("FORGE_", StringComparison.OrdinalIgnoreCase) || name.StartsWith("MCL_", StringComparison.OrdinalIgnoreCase);
 
     private static string LocateForgeDll()
     {
