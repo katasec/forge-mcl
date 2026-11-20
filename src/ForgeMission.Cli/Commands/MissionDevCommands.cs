@@ -18,7 +18,7 @@ internal static class MissionDevCommands
 
     internal static Command BuildInitCommand()
     {
-        var missionArg  = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
+        var missionArg  = CliHelpers.MissionArgument();
 
         var cmd = new Command("init", "Resolve expert sources and generate mcl.lock");
         cmd.Add(missionArg);
@@ -102,7 +102,7 @@ internal static class MissionDevCommands
 
     internal static Command BuildValidateCommand()
     {
-        var missionArg = new Argument<FileInfo>("mission") { Description = "Path to the .mcl mission file", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => new FileInfo("mission.mcl") };
+        var missionArg = CliHelpers.MissionArgument();
 
         var cmd = new Command("validate", "Validate a mission file and its expert references");
         cmd.Add(missionArg);
@@ -141,7 +141,7 @@ internal static class MissionDevCommands
     internal static Command BuildListCommand()
     {
         var listCommand    = new Command("list", "List available resources");
-        var expertsOpt     = new Option<DirectoryInfo?>("--experts") { Description = "Experts directory (default: ./experts)" };
+        var expertsOpt     = CliHelpers.ExpertsOption();
         var listExpertsCmd = new Command("experts", "List experts in the experts directory");
         listExpertsCmd.Add(expertsOpt);
 
@@ -172,7 +172,7 @@ internal static class MissionDevCommands
         var expertCommand = new Command("expert", "Manage experts");
 
         var nameArg      = new Argument<string>("name") { Description = "Expert name (PascalCase)" };
-        var expertsOpt   = new Option<DirectoryInfo?>("--experts") { Description = "Experts directory (default: ./experts)" };
+        var expertsOpt   = CliHelpers.ExpertsOption();
         var initExpertCmd = new Command("init", "Scaffold a new expert directory");
         initExpertCmd.Add(nameArg);
         initExpertCmd.Add(expertsOpt);

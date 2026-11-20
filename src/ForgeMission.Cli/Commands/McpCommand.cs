@@ -28,12 +28,7 @@ internal static class McpCommand
     // the server runs until stdin closes or the command's Ctrl+C/SIGTERM token is cancelled.
     internal static Command BuildMcpCommand(ILoggerFactory loggerFactory, IHttpClientFactory clients, IOptions<WebSearchOptions> webSearch)
     {
-        var missionArg = new Argument<FileInfo>("mission")
-        {
-            Description = "Path to the .mcl mission file",
-            Arity = ArgumentArity.ZeroOrOne,
-            DefaultValueFactory = _ => new FileInfo("mission.mcl")
-        };
+        var missionArg = CliHelpers.MissionArgument();
 
         var cmd = new Command("mcp", "Expose a mission as a stdio MCP server (for Claude Desktop and MCP-aware tools)");
         cmd.Add(missionArg);

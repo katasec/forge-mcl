@@ -1,3 +1,4 @@
+using System.CommandLine;
 using System.Diagnostics;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
@@ -8,7 +9,7 @@ using MclProgram = ForgeMission.Parser.Program;
 namespace ForgeMission.Cli.Services;
 
 // Shared CLI helpers used across several commands: file reading, mission parsing, expert loading
-// and validation, the mcl.lock path, the expert scaffold template, and context lookup. Each
+// and validation, the shared <mission> argument and --experts option, the mcl.lock path, the expert scaffold template, and context lookup. Each
 // reports its own failure through CliDiagnostics (Die / the diagnostic renderers), so callers read
 // top-down.
 internal static class CliHelpers
@@ -32,6 +33,19 @@ internal static class CliHelpers
 
         return (ast, manifest);
     }
+
+    // The optional <mission> argument: a .mcl file, mission.mcl by default.
+    internal static Argument<FileInfo> MissionArgument() => new("mission")
+    {
+        Description = "Path to the .mcl mission file",
+        Arity = ArgumentArity.ZeroOrOne,
+        DefaultValueFactory = _ => new FileInfo("mission.mcl")
+    };
+
+    internal static Option<DirectoryInfo?> ExpertsOption() => new("--experts")
+    {
+        Description = "Experts directory (default: ./experts)"
+    };
 
     internal static MclProgram Parse(string source, string filePath)
     {
