@@ -126,7 +126,7 @@ public class ExpertLoaderDiagnosticsCharacterizationTests : IDisposable
     {
         var experts = new ExpertLoader(_dir).LoadAll();
         var aggregate = Assert.Throws<AggregateExpertLoadException>(() =>
-            ExpertLoader.Validate(MclParser.Parse(mission), experts, contractErrorsAreFatal: true));
+            MissionValidator.Validate(MclParser.Parse(mission), experts, contractErrorsAreFatal: true));
         return aggregate.Errors.Select(e => (e.Message, e.Line, e.Column, e.EndColumn)).ToList();
     }
 

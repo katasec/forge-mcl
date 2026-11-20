@@ -80,7 +80,7 @@ public static class DurableMissionPackageValidator
         {
             var experts = ParseExperts(package);
             var ast = MclParser.Parse(package.MissionSource);
-            ExpertLoader.Validate(ast, experts, contractErrorsAreFatal: true, missionFilePath: "mission.mcl",
+            MissionValidator.Validate(ast, experts, contractErrorsAreFatal: true, missionFilePath: "mission.mcl",
                 expertMarkdownByName: package.ResolvedExperts.ToDictionary(e => e.Name, e => e.ExpertMarkdown, StringComparer.Ordinal));
             ValidateSemantics(package, ast, experts);
             ValidateAssets(package, experts);

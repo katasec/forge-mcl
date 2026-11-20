@@ -15,15 +15,15 @@ public class ExpertLoaderTests : IDisposable
         var ast = MclParser.Parse("mission Root(goal) = { Reader }");
         var definitions = new Dictionary<string, ExpertDefinition> { ["Reader"] = expert };
         var sources = new Dictionary<string, string> { ["Reader"] = markdown };
-        if (valid) ExpertLoader.Validate(ast, definitions, contractErrorsAreFatal: true, expertMarkdownByName: sources);
+        if (valid) MissionValidator.Validate(ast, definitions, contractErrorsAreFatal: true, expertMarkdownByName: sources);
         else
         {
             var error = Assert.Throws<AggregateExpertLoadException>(() =>
-                ExpertLoader.Validate(ast, definitions, contractErrorsAreFatal: true, expertMarkdownByName: sources));
+                MissionValidator.Validate(ast, definitions, contractErrorsAreFatal: true, expertMarkdownByName: sources));
             Assert.Contains("MCL012", error.Errors.Single().Message);
             Assert.Equal(6, error.Errors.Single().Line);
         }
-        Assert.Throws<ExpertLoadException>(() => ExpertLoader.Validate(ast, definitions,
+        Assert.Throws<ExpertLoadException>(() => MissionValidator.Validate(ast, definitions,
             contractErrorsAreFatal: true, expertMarkdownByName: new Dictionary<string, string>()));
     }
     private readonly string _dir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -177,7 +177,7 @@ public class ExpertLoaderTests : IDisposable
         WriteDirExpert("KubernetesArchitect", ValidExpertMarkdown("KubernetesArchitect", "MissionBrief", "ArchitectureProposal"));
         var experts = new ExpertLoader(_dir).LoadAll();
 
-        var ex = Assert.Throws<ExpertLoadException>(() => ExpertLoader.Validate(ast, experts));
+        var ex = Assert.Throws<ExpertLoadException>(() => MissionValidator.Validate(ast, experts));
         Assert.Contains("SecurityArchitect", ex.Message);
     }
 
@@ -195,7 +195,7 @@ public class ExpertLoaderTests : IDisposable
         WriteDirExpert("SecurityArchitect",   ValidExpertMarkdown("SecurityArchitect", "ArchitectureProposal", "SecurityReview"));
         var experts = new ExpertLoader(_dir).LoadAll();
 
-        var ex = Record.Exception(() => ExpertLoader.Validate(ast, experts));
+        var ex = Record.Exception(() => MissionValidator.Validate(ast, experts));
         Assert.Null(ex);
     }
 
@@ -219,7 +219,7 @@ public class ExpertLoaderTests : IDisposable
         WriteDirExpert("PlatformArchitect",   ValidExpertMarkdown("PlatformArchitect", "Analysis", "Design"));
         var experts = new ExpertLoader(_dir).LoadAll();
 
-        var ex = Record.Exception(() => ExpertLoader.Validate(ast, experts));
+        var ex = Record.Exception(() => MissionValidator.Validate(ast, experts));
         Assert.Null(ex);
     }
 
@@ -233,7 +233,7 @@ public class ExpertLoaderTests : IDisposable
             """);
 
         var ex = Assert.Throws<ExpertLoadException>(() =>
-            ExpertLoader.Validate(ast, [], missionFilePath: "mission.mcl"));
+            MissionValidator.Validate(ast, [], missionFilePath: "mission.mcl"));
 
         Assert.Contains("Circular mission reference: 'X' -> 'X'", ex.Message);
         Assert.Equal("mission.mcl", ex.FilePath);
@@ -254,7 +254,7 @@ public class ExpertLoaderTests : IDisposable
             """);
 
         var ex = Assert.Throws<ExpertLoadException>(() =>
-            ExpertLoader.Validate(ast, [], missionFilePath: "mission.mcl"));
+            MissionValidator.Validate(ast, [], missionFilePath: "mission.mcl"));
 
         Assert.Contains("Circular mission reference: 'A' -> 'B' -> 'A'", ex.Message);
         Assert.Equal("mission.mcl", ex.FilePath);
@@ -276,7 +276,7 @@ public class ExpertLoaderTests : IDisposable
         WriteDirExpert("SomeExpert", ValidExpertMarkdown("SomeExpert", "input", "output"));
         var experts = new ExpertLoader(_dir).LoadAll();
 
-        var ex = Record.Exception(() => ExpertLoader.Validate(ast, experts));
+        var ex = Record.Exception(() => MissionValidator.Validate(ast, experts));
 
         Assert.Null(ex);
     }
@@ -535,7 +535,7 @@ public class ExpertLoaderTests : IDisposable
         var experts  = new ExpertLoader(_dir).LoadAll();
         var warnings = new StringWriter();
 
-        ExpertLoader.Validate(ast, experts, warnings);
+        MissionValidator.Validate(ast, experts, warnings);
 
         Assert.Empty(warnings.ToString());
     }
@@ -550,7 +550,7 @@ public class ExpertLoaderTests : IDisposable
         var experts  = new ExpertLoader(_dir).LoadAll();
         var warnings = new StringWriter();
 
-        ExpertLoader.Validate(ast, experts, warnings);
+        MissionValidator.Validate(ast, experts, warnings);
 
         Assert.Contains("MCL012", warnings.ToString());
         Assert.Contains("score", warnings.ToString());
@@ -566,7 +566,7 @@ public class ExpertLoaderTests : IDisposable
         var experts  = new ExpertLoader(_dir).LoadAll();
         var warnings = new StringWriter();
 
-        ExpertLoader.Validate(ast, experts, warnings);
+        MissionValidator.Validate(ast, experts, warnings);
 
         Assert.Contains("MCL011", warnings.ToString());
         Assert.Contains("score", warnings.ToString());
@@ -582,7 +582,7 @@ public class ExpertLoaderTests : IDisposable
         var experts  = new ExpertLoader(_dir).LoadAll();
         var warnings = new StringWriter();
 
-        ExpertLoader.Validate(ast, experts, warnings);
+        MissionValidator.Validate(ast, experts, warnings);
 
         Assert.Empty(warnings.ToString());
     }
@@ -603,7 +603,7 @@ public class ExpertLoaderTests : IDisposable
         var experts  = new ExpertLoader(_dir).LoadAll();
         var warnings = new StringWriter();
 
-        ExpertLoader.Validate(ast, experts, warnings);
+        MissionValidator.Validate(ast, experts, warnings);
 
         Assert.Empty(warnings.ToString());
     }
@@ -617,7 +617,7 @@ public class ExpertLoaderTests : IDisposable
         File.WriteAllText(Path.Combine(expertDir, "analysis.py"), "# stub");
 
         var experts = new ExpertLoader(_dir).LoadAll();
-        var ex      = Record.Exception(() => ExpertLoader.Validate(ExecMission, experts));
+        var ex      = Record.Exception(() => MissionValidator.Validate(ExecMission, experts));
 
         Assert.Null(ex);
     }
