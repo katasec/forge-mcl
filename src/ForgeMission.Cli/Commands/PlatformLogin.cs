@@ -61,7 +61,7 @@ internal static class PlatformLogin
         return 0;
     }
 
-    // --- forge whoami / forge logout (T5) -------------------------------------------------------
+    // --- forge whoami / forge logout -------------------------------------------------------
 
     // Show the signed-in user + live balance (reads the stored key, calls /me on its endpoint).
     internal static async Task<int> WhoAmIAsync(IHttpClientFactory clients, CancellationToken cancellationToken)
@@ -299,7 +299,7 @@ internal sealed class PlatformLoginOptions
     [ConfigurationKeyName("FORGE_AUTH_AUTHORITY")]
     public string Authority { get; set; } = "https://forgeids.ciamlogin.com/79c07ac3-4f45-4ea8-9701-94fd2ef1decd";
 
-    // Forge CLI (dev) public client — forge-infra/dev/200-entra/create-cli-app-registration.sh
+    // Forge CLI (dev) public client — forge-infra/dev/entra/create-cli-app-registration.sh
     [ConfigurationKeyName("FORGE_AUTH_CLIENT_ID")]
     public string ClientId { get; set; } = "33595d97-0296-4868-9217-dfab35faa314";
 

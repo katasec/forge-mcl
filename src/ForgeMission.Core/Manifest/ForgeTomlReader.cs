@@ -6,7 +6,7 @@ namespace ForgeMission.Core.Manifest;
 //   [section] and [section.name] headers
 //   key = "string value"
 //   key = env("VAR") or env("VAR", "default")
-//   key = ["string", "array"]
+//   key = ["string", "array"], on one line or across several
 //   key = 100
 //   key = true
 // No inline tables or general TOML semantics — TOML is a superset of what we parse.

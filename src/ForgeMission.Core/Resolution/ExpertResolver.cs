@@ -9,8 +9,8 @@ namespace ForgeMission.Core.Resolution;
 // Hash verification: if the lock file entry has a hash, the loaded file must match.
 // If it doesn't match → the expert was modified since last 'forge init'.
 //
-// Verbose mode logs resolution source + path for each expert to the provided writer.
-// Warnings are always emitted to stderr (independent of verbose flag).
+// The verbose writer, when given, gets each expert's resolution source and path; the warnings
+// writer, when given, gets shadowing warnings whatever the verbose setting.
 public static class ExpertResolver
 {
     // The resolution source each expert reports in verbose output.

@@ -1,6 +1,6 @@
 namespace ForgeMission.Core.Tools;
 
-// Queryable for the lifetime of the Client Runtime. Persistent audit storage is not part of v1.
+// Queryable for the lifetime of the Client Runtime; records are not persisted.
 public sealed class InMemoryCapabilityAuditLog : ICapabilityAuditLog
 {
     private readonly Lock _gate = new();

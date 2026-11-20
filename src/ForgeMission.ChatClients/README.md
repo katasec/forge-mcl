@@ -24,6 +24,7 @@ Provider SDKs and their protocol differences must stay below MCL execution. This
 - The Anthropic Messages client in [`AnthropicChatClient`](AnthropicChatClient.cs), on `Katasec.Anthropic.Models` wire types.
 - Anthropic request/response translation in [`AnthropicMessageMapping`](AnthropicMessageMapping.cs) and SSE streaming in [`AnthropicStream`](AnthropicStream.cs).
 - Anthropic provider-error translation in [`AnthropicProviderError`](AnthropicProviderError.cs).
+- [`ProviderKeyGuard`](ProviderKeyGuard.cs): refuses to send a provider key whose prefix names another vendor.
 
 ## Does not own
 

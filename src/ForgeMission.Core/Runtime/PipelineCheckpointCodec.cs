@@ -17,7 +17,7 @@ internal static class PipelineCheckpointCodec
     /// <summary>The envelope version consumers carry; the payload stays opaque to them.</summary>
     internal const int EnvelopeVersion = 1;
 
-    /// <summary>The checkpoint format inside the payload. Formats 1 and 2 are rejected.</summary>
+    /// <summary>The checkpoint format inside the payload; any other format is rejected.</summary>
     internal const int CheckpointVersion = 3;
 
     internal static bool TryRead(PipelineContinuation continuation, [NotNullWhen(true)] out PipelineContinuationCheckpoint? checkpoint)

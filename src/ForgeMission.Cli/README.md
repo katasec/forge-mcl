@@ -94,7 +94,7 @@ flowchart LR
   before any network call.
 - **Hands:** Always attached by the Client when the conversation opens; there is no flag or
   prompt. Agent experts may Read/Write/Edit inside the project's folders and nowhere else; terminal
-  tools are not granted. Hands owns path and symlink containment. Hands reports print on stderr
+  tools are not granted. Path and symlink containment is Core's [`WorkspaceGuard`](../ForgeMission.Core/Tools/WorkspaceGuard.cs), used by the Hands workspace. Hands reports print on stderr
   as `error: …`.
 - **Composition:** `Program` registers the commands; each command file wires existing owners. Provider and search behavior belong in
   [Chat Clients](../ForgeMission.ChatClients/README.md) and [Scout](../ForgeMission.Scout/README.md);
