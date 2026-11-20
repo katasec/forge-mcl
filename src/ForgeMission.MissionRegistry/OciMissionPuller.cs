@@ -5,7 +5,7 @@ using Katasec.OciClient;
 namespace ForgeMission.MissionRegistry;
 
 /// <summary>Pulls a self-contained OCI mission bundle into the local Forge cache.</summary>
-public static class OciMissionPuller
+public static partial class OciMissionPuller
 {
     internal const int MaxBundleBytes = 32 * 1024 * 1024;
     private const int MaxBundleEntries = 4096;
@@ -163,6 +163,7 @@ public static class OciMissionPuller
         [System.Runtime.InteropServices.FieldOffset(24)] public uint LinuxX64Mode;
     }
 
-    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "lstat", SetLastError = true)]
-    private static extern int LStat(string path, out NativeFileStatus status);
+    [System.Runtime.InteropServices.LibraryImport("libc", EntryPoint = "lstat", SetLastError = true,
+        StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf8)]
+    private static partial int LStat(string path, out NativeFileStatus status);
 }
