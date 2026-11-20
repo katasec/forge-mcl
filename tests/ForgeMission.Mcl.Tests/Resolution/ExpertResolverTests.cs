@@ -262,15 +262,15 @@ public class ExpertResolverTests
     [Fact]
     public void HomeCachePath_LockRoundTrip_IsByteIdentical()
     {
-        var home      = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var cacheRoot = Path.Combine(home, ".forge", $"lock-roundtrip-test-{Guid.NewGuid():N}");
+        var home      = Directory.CreateTempSubdirectory("forge-resolver-home-").FullName;
+        var cacheRoot = Path.Combine(home, ".forge", "cache");
         var cachePath = Path.Combine(cacheRoot, "reg", "Name", "sha256-abc", "expert.md");
         var missionDir = Directory.CreateTempSubdirectory("forge-resolver-test-").FullName;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
             File.WriteAllText(cachePath, ExpertMd);
-            var lockPath = ExpertResolver.ToLockPath(cachePath);
+            var lockPath = ExpertResolver.ToLockPath(cachePath, home);
             var expected = "~/" + Path.GetRelativePath(home, cachePath).Replace(Path.DirectorySeparatorChar, '/');
             Assert.Equal(expected, lockPath);
 
@@ -287,12 +287,12 @@ public class ExpertResolverTests
             Assert.Equal(bytes, File.ReadAllBytes(lockFilePath));
 
             var verbose = new StringWriter();
-            ExpertResolver.ResolveAll(read, missionDir, verbose);
+            ExpertResolver.ResolveAll(read, missionDir, verbose, warnings: null, home);
             Assert.Contains($"→ cache    ({lockPath})", verbose.ToString());
         }
         finally
         {
-            Directory.Delete(cacheRoot, recursive: true);
+            Directory.Delete(home, recursive: true);
             Directory.Delete(missionDir, recursive: true);
         }
     }

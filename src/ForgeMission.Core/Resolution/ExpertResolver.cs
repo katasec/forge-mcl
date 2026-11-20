@@ -22,13 +22,18 @@ public static class ExpertResolver
         string        missionDir,
         TextWriter?   verbose  = null,
         TextWriter?   warnings = null)
+        => ResolveAll(lockFile, missionDir, verbose, warnings, UserHome());
+
+    // The home directory is a parameter so tests can resolve ~/... paths under a temp folder.
+    internal static Dictionary<string, ExpertDefinition> ResolveAll(
+        LockFile lockFile, string missionDir, TextWriter? verbose, TextWriter? warnings, string home)
     {
         var result = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal);
         var errors = new List<ExpertLoadException>();
 
         foreach (var (name, entry) in lockFile.Experts)
         {
-            try { result[name] = Resolve(name, entry, missionDir, verbose, warnings); }
+            try { result[name] = Resolve(name, entry, missionDir, verbose, warnings, home); }
             catch (AggregateExpertLoadException ex) { errors.AddRange(ex.Errors); }
             catch (ExpertLoadException ex)           { errors.Add(ex); }
         }
@@ -42,19 +47,19 @@ public static class ExpertResolver
     // Locates, checks and parses one lock-file expert; throws ExpertLoadException (or the
     // parser's AggregateExpertLoadException) when it cannot be loaded.
     private static ExpertDefinition Resolve(
-        string name, LockFileExpert entry, string missionDir, TextWriter? verbose, TextWriter? warnings)
+        string name, LockFileExpert entry, string missionDir, TextWriter? verbose, TextWriter? warnings, string home)
     {
-        var (absPath, source) = Locate(name, entry, missionDir);
+        var (absPath, source) = Locate(name, entry, missionDir, home);
 
         if (absPath is null)
             throw new ExpertLoadException(
                 $"{MclErrorCode.ExpertNotFound.Code()} Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
 
-        var isShadowing = WarnIfShadowing(name, entry, missionDir, absPath, source, warnings);
+        var isShadowing = WarnIfShadowing(name, entry, missionDir, absPath, source, warnings, home);
         if (!isShadowing)
             VerifyLockHash(name, entry, absPath);
 
-        verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({ToLockPath(absPath)})");
+        verbose?.WriteLine($"[forge] {name,-30} → {source,-8} ({ToLockPath(absPath, home)})");
 
         return ExpertLoader.ParseFile(absPath);
     }
@@ -63,16 +68,16 @@ public static class ExpertResolver
     // intentionally, but silent shadowing is a reproducibility risk, so warn when the recorded
     // file exists; the lock hash is for that recorded version, so it is not checked.
     private static bool WarnIfShadowing(
-        string name, LockFileExpert entry, string missionDir, string absPath, string source, TextWriter? warnings)
+        string name, LockFileExpert entry, string missionDir, string absPath, string source, TextWriter? warnings, string home)
     {
-        var recorded = string.IsNullOrEmpty(entry.Path) ? null : ResolveLockPath(entry.Path, missionDir);
+        var recorded = string.IsNullOrEmpty(entry.Path) ? null : ResolveLockPath(entry.Path, missionDir, home);
         var isShadowing = source == LocalSource && recorded is not null
             && !string.Equals(absPath, recorded, StringComparison.OrdinalIgnoreCase);
         if (isShadowing && File.Exists(recorded))
         {
             warnings?.WriteLine(
                 $"warning {MclErrorCode.LocalExpertShadowsLock.Code()}: local expert '{name}' shadows the lock-file entry " +
-                $"({ToLockPath(recorded!)}). Local version will be used. " +
+                $"({ToLockPath(recorded!, home)}). Local version will be used. " +
                 $"Run 'forge init' to update the lock file if this is intentional.");
         }
         return isShadowing;
@@ -92,7 +97,7 @@ public static class ExpertResolver
 
     // Returns (absolutePath, sourceLabel) using the resolution order.
     // Returns (null, "") if the expert cannot be found at any source.
-    private static (string? Path, string Source) Locate(string name, LockFileExpert entry, string missionDir)
+    private static (string? Path, string Source) Locate(string name, LockFileExpert entry, string missionDir, string home)
     {
         // 1. Local expert directory always wins over the recorded lock path
         var localPath = Path.Combine(missionDir, SourceResolver.DefaultExpertsDir, name, SourceResolver.ExpertFile);
@@ -102,7 +107,7 @@ public static class ExpertResolver
         // 2. Lock file recorded path (relative → absolute, or ~/... → home-relative)
         if (!string.IsNullOrEmpty(entry.Path))
         {
-            var recorded = ResolveLockPath(entry.Path, missionDir);
+            var recorded = ResolveLockPath(entry.Path, missionDir, home);
             if (File.Exists(recorded))
                 return (recorded, entry.Source == SourceResolver.DefaultExpertsDir ? LocalSource : CacheSource);
         }
@@ -113,7 +118,9 @@ public static class ExpertResolver
     // The mcl.lock form of a cache path: ~/... when under the user's home, otherwise unchanged.
     // Also the verbose/warning display form.
     public static string ToLockPath(string absolutePath)
-        => ToLockPath(absolutePath, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        => ToLockPath(absolutePath, UserHome());
+
+    private static string UserHome() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     // Abbreviates only at a directory boundary, so a sibling such as /Users/xyz under home
     // /Users/xy stays unchanged.
@@ -129,11 +136,11 @@ public static class ExpertResolver
         return "~/" + absolutePath[homePrefix.Length..].Replace(Path.DirectorySeparatorChar, '/');
     }
 
-    private static string ResolveLockPath(string path, string missionDir)
+    private static string ResolveLockPath(string path, string missionDir, string home)
     {
         if (path.StartsWith("~/", StringComparison.Ordinal))
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                home,
                 path[2..].Replace('/', Path.DirectorySeparatorChar));
 
         if (Path.IsPathRooted(path))
