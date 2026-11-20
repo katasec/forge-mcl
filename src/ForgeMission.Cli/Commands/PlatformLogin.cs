@@ -20,6 +20,9 @@ namespace ForgeMission.Cli.Commands;
 // Produces Entra tokens proving identity; the access token is then exchanged for a platform key.
 internal static class PlatformLogin
 {
+    private static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(5);
+    private const string UnknownUser = "(unknown user)";
+
     internal static async Task<int> RunAsync(IOptions<PlatformLoginOptions> options, IHttpClientFactory clients,
         CancellationToken cancellationToken)
     {
@@ -58,7 +61,7 @@ internal static class PlatformLogin
         return 0;
     }
 
-    // --- forge whoami / forge logout (T5) -------------------------------------------------------
+    // --- forge whoami / forge logout -------------------------------------------------------
 
     // Show the signed-in user + live balance (reads the stored key, calls /me on its endpoint).
     internal static async Task<int> WhoAmIAsync(IHttpClientFactory clients, CancellationToken cancellationToken)
@@ -175,14 +178,14 @@ internal static class PlatformLogin
         CancellationToken cancellationToken)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromMinutes(5));
+        deadline.CancelAfter(SignInTimeout);
         while (true)
         {
             HttpListenerContext ctx;
             try { ctx = await listener.GetContextAsync().WaitAsync(deadline.Token); }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                Console.Error.WriteLine("Timed out waiting for the browser sign-in (5 minutes).");
+                Console.Error.WriteLine($"Timed out waiting for the browser sign-in ({SignInTimeout.TotalMinutes} minutes).");
                 return null;
             }
 
@@ -234,7 +237,7 @@ internal static class PlatformLogin
     private static async Task<TokenResponse?> ExchangeCodeAsync(HttpClient http, PlatformLoginOptions settings, string code, string verifier,
         string redirectUri, CancellationToken cancellationToken)
     {
-        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["client_id"] = settings.ClientId,
             ["grant_type"] = "authorization_code",
@@ -267,22 +270,22 @@ internal static class PlatformLogin
     // arrived over the TLS channel we initiated (standard native-client posture).
     private static string ReadUserLabel(string? idToken)
     {
-        if (idToken?.Split('.') is not [_, var payload, _]) return "(unknown user)";
+        if (idToken?.Split('.') is not [_, var payload, _]) return UnknownUser;
         try
         {
             var claims = JsonSerializer.Deserialize(Base64Url.DecodeFromChars(payload), PlatformLoginJsonContext.Default.IdTokenClaims);
-            return claims?.Email ?? claims?.PreferredUsername ?? claims?.Name ?? claims?.Sub ?? "(unknown user)";
+            return claims?.Email ?? claims?.PreferredUsername ?? claims?.Name ?? claims?.Sub ?? UnknownUser;
         }
-        catch (Exception e) when (e is JsonException or FormatException) { return "(unknown user)"; }
+        catch (Exception e) when (e is JsonException or FormatException) { return UnknownUser; }
     }
 
     private static void OpenBrowser(string url)
     {
         try
         {
-            if (OperatingSystem.IsMacOS()) Process.Start("open", url);
-            else if (OperatingSystem.IsWindows()) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            else Process.Start("xdg-open", url);
+            using var browser = OperatingSystem.IsMacOS() ? Process.Start("open", url)
+                : OperatingSystem.IsWindows() ? Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })
+                : Process.Start("xdg-open", url);
         }
         catch { /* the URL is printed as fallback */ }
     }
@@ -296,7 +299,7 @@ internal sealed class PlatformLoginOptions
     [ConfigurationKeyName("FORGE_AUTH_AUTHORITY")]
     public string Authority { get; set; } = "https://forgeids.ciamlogin.com/79c07ac3-4f45-4ea8-9701-94fd2ef1decd";
 
-    // Forge CLI (dev) public client — forge-infra/dev/200-entra/create-cli-app-registration.sh
+    // Forge CLI (dev) public client — forge-infra/dev/entra/create-cli-app-registration.sh
     [ConfigurationKeyName("FORGE_AUTH_CLIENT_ID")]
     public string ClientId { get; set; } = "33595d97-0296-4868-9217-dfab35faa314";
 

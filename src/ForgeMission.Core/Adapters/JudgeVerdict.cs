@@ -39,8 +39,8 @@ internal static class JudgeVerdict
             .Where(property => property.Name.Equals("status", StringComparison.OrdinalIgnoreCase)
                 && property.Value.ValueKind == JsonValueKind.String)
             .Select(property => property.Value.GetString())
-            .FirstOrDefault(status => status is "pass" or "fail");
+            .FirstOrDefault(status => status is StepEnvelope.Pass or StepEnvelope.Fail);
 
     private static StepEnvelope Invalid(string reply, string error) =>
-        new(reply, "fail", $"The judge reply was not a valid verdict: {error}");
+        new(reply, StepEnvelope.Fail, $"The judge reply was not a valid verdict: {error}");
 }

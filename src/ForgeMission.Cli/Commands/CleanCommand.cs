@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.CommandLine;
 using ForgeMission.Cli.Services;
 using ForgeMission.MissionRegistry;
@@ -24,7 +25,7 @@ internal static class CleanCommand
     {
         int count;
         try { count = ForgeCache.Clear(registry); }
-        catch (ArgumentException failure) { CliDiagnostics.Die(failure.Message); return 1; }
+        catch (ArgumentException failure) { CliDiagnostics.Die(failure.Message); throw new UnreachableException(); }
 
         var scope = registry is null ? "" : $" for {registry}";
         Console.WriteLine(count == 0

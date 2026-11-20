@@ -35,7 +35,7 @@ public class OnnxExpertRunner : IExpertRunner
         var exceeded   = score > threshold;
         // Only gate the pipeline when role:judge is explicitly set.
         // Without it, the score is written to the context bag for when() routing and the step always passes.
-        var status = exceeded && expert.IsJudge ? "fail" : "pass";
+        var status = exceeded && expert.IsJudge ? StepEnvelope.Fail : StepEnvelope.Pass;
         var reason = exceeded && expert.IsJudge
             ? string.Create(CultureInfo.InvariantCulture, $"Anomaly score {score:F4} exceeds threshold {threshold}")
             : null;

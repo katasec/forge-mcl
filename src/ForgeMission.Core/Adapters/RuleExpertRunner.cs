@@ -11,14 +11,14 @@ public class RuleExpertRunner : IExpertRunner
         Dictionary<string, object> context,
         CancellationToken ct = default)
     {
-        var text = context.TryGetValue("output", out var o) ? o?.ToString() ?? "" : "";
+        var text = context.TryGetValue(ContextKeys.Output, out var o) ? o?.ToString() ?? "" : "";
 
         if (RuleExpression.Evaluate(expert.Check, text))
             return Task.FromResult(new StepEnvelope(text));
 
         // Write feedback to context so PipelineRunner can propagate it to the next loop iteration.
         var message = string.IsNullOrWhiteSpace(expert.OnFail) ? "Rule check failed." : expert.OnFail;
-        context["feedback"] = message;
-        return Task.FromResult(new StepEnvelope(text, "fail", message));
+        context[ContextKeys.Feedback] = message;
+        return Task.FromResult(new StepEnvelope(text, StepEnvelope.Fail, message));
     }
 }

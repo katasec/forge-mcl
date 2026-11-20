@@ -60,7 +60,7 @@ forge-client.
 | [CliDiagnostics](Services/CliDiagnostics.cs) | Error rendering and `Die`, which throws [ForgeExitException](Services/ForgeExitException.cs) for Program's handler. |
 | [CliHttpClients](Services/CliHttpClients.cs) | The named outbound HTTP clients registered on the host. |
 | [ForgeSettings](Services/ForgeSettings.cs) | The `~/.forge/config.json` settings (API endpoint, OCI endpoint for short mission selectors) bound by the CLI host. |
-| [ProviderClientBuilder](Services/ProviderClientBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
+| [WebSearchBuilder](Services/WebSearchBuilder.cs) | Optional live-search wiring from xAI/Grok environment keys. |
 | [ImmediateProgress](Services/ImmediateProgress.cs) | Shows the shared Client's Hands reports at once, in order. |
 | [FreePort](Services/FreePort.cs) | Picks a free loopback port for the sign-in listener. |
 
@@ -94,7 +94,7 @@ flowchart LR
   before any network call.
 - **Hands:** Always attached by the Client when the conversation opens; there is no flag or
   prompt. Agent experts may Read/Write/Edit inside the project's folders and nowhere else; terminal
-  tools are not granted. Hands owns path and symlink containment. Hands reports print on stderr
+  tools are not granted. Path and symlink containment is Core's [`WorkspaceGuard`](../ForgeMission.Core/Tools/WorkspaceGuard.cs), used by the Hands workspace. Hands reports print on stderr
   as `error: …`.
 - **Composition:** `Program` registers the commands; each command file wires existing owners. Provider and search behavior belong in
   [Chat Clients](../ForgeMission.ChatClients/README.md) and [Scout](../ForgeMission.Scout/README.md);

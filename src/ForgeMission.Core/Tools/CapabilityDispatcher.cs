@@ -57,10 +57,10 @@ public sealed class CapabilityDispatcher(
         (capabilityName, request) switch
         {
             (_, InvalidCapabilityRequest invalid) => Task.FromResult(ToolExecutionResult.Error(invalid.Error)),
-            ("file", ReadFileCapabilityRequest read) => ReadFileAsync(read, ct, providerInvoked),
-            ("file", EditFileCapabilityRequest edit) => EditFileAsync(edit, ct, providerInvoked),
-            ("file", WriteFileCapabilityRequest write) => WriteFileAsync(write, ct, providerInvoked),
-            ("terminal", ExecuteTerminalCapabilityRequest terminal) => ExecuteTerminalAsync(terminal, ct, providerInvoked),
+            (CapabilityNames.File, ReadFileCapabilityRequest read) => ReadFileAsync(read, ct, providerInvoked),
+            (CapabilityNames.File, EditFileCapabilityRequest edit) => EditFileAsync(edit, ct, providerInvoked),
+            (CapabilityNames.File, WriteFileCapabilityRequest write) => WriteFileAsync(write, ct, providerInvoked),
+            (CapabilityNames.Terminal, ExecuteTerminalCapabilityRequest terminal) => ExecuteTerminalAsync(terminal, ct, providerInvoked),
             _ => Task.FromResult(ToolExecutionResult.Error($"Unsupported capability request for {capabilityName}.")),
         };
 
@@ -157,7 +157,7 @@ public sealed class CapabilityDispatcher(
     {
         resolved = string.Empty;
         error = null;
-        if (!capabilities.TryGetProvider(out files) || files is null)
+        if (!capabilities.TryGetProvider(out files))
         {
             error = ToolExecutionResult.Error("File capability is unavailable.");
             return false;
@@ -176,7 +176,7 @@ public sealed class CapabilityDispatcher(
         CancellationToken ct,
         Action providerInvoked)
     {
-        if (!capabilities.TryGetProvider<ITerminalProvider>(out var terminal) || terminal is null)
+        if (!capabilities.TryGetProvider<ITerminalProvider>(out var terminal))
             return ToolExecutionResult.Error("Terminal capability is unavailable.");
 
         providerInvoked();

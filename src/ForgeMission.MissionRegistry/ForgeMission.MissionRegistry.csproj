@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- The LibraryImport source generator for lstat emits unsafe code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>true</IsPackable>
     <PackageId>Katasec.Forge.Mcl.MissionRegistry</PackageId>
     <Version>0.1.3</Version>

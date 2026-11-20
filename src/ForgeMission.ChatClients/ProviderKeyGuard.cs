@@ -3,9 +3,9 @@ using ForgeMission.Core.Manifest;
 namespace ForgeMission.ChatClients;
 
 // A provider key is a credential issued by one vendor; sending it to any other vendor hands it to a
-// third party. Provider resolution falls back to "openai" when nothing names a provider, so a mission
-// whose MCL_API_KEY held an Anthropic credential sent that credential to api.openai.com (R16). The
-// guard recognises a key's issuer from its documented prefix and refuses to build a client that would
+// third party. Provider resolution falls back to "openai" when nothing names a provider, so without
+// this guard a mission whose MCL_API_KEY holds an Anthropic credential would send it to
+// api.openai.com. The guard recognises a key's issuer from its documented prefix and refuses to build a client that would
 // send it to a different provider. A key with no recognisable prefix (Azure, gateways, test stubs)
 // passes: only a positive mismatch is refused, and the error never echoes the key.
 internal static class ProviderKeyGuard

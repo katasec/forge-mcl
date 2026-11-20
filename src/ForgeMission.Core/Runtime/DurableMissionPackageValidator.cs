@@ -72,7 +72,7 @@ public static class DurableMissionPackageValidator
 
         if (JsonSerializer.SerializeToUtf8Bytes(package, DurablePackageJsonContext.Default.DurableMissionPackageInput).Length > MaxPackageUtf8Bytes)
         {
-            reason = "The serialized durable package exceeds 4 MiB.";
+            reason = $"The serialized durable package exceeds {MaxPackageUtf8Bytes / (1024 * 1024)} MiB.";
             return false;
         }
 
@@ -80,7 +80,7 @@ public static class DurableMissionPackageValidator
         {
             var experts = ParseExperts(package);
             var ast = MclParser.Parse(package.MissionSource);
-            ExpertLoader.Validate(ast, experts, contractErrorsAreFatal: true, missionFilePath: "mission.mcl",
+            MissionValidator.Validate(ast, experts, contractErrorsAreFatal: true, missionFilePath: "mission.mcl",
                 expertMarkdownByName: package.ResolvedExperts.ToDictionary(e => e.Name, e => e.ExpertMarkdown, StringComparer.Ordinal));
             ValidateSemantics(package, ast, experts);
             ValidateAssets(package, experts);
@@ -106,7 +106,7 @@ public static class DurableMissionPackageValidator
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in names)
         {
-            if (!DurableMissionInputPolicy.IsIdentifier(name) || DurableMissionInputPolicy.IsReserved(name)
+            if (!DurableMissionInputPolicy.IsIdentifier(name) || ContextKeys.IsReserved(name)
                 || !seen.Add(name) || !package.AdmittedInputNames.Contains(name, StringComparer.Ordinal))
             {
                 reason = $"Input name '{name}' is invalid, reserved, duplicated or undeclared.";
@@ -198,17 +198,17 @@ public static class DurableMissionPackageValidator
         var root = missions.FirstOrDefault();
         if (root is null || root.Name != package.RootMissionName || (root.Params.FirstOrDefault() ?? "") != package.RootInputName)
             throw new InvalidOperationException("Root metadata must select the first mission and its first parameter.");
-        if (ast.Bindings.Any(b => b.Value is EnvLetValue || DurableMissionInputPolicy.IsReserved(b.Name))
-            || missions.SelectMany(m => m.Params).Any(DurableMissionInputPolicy.IsReserved)
-            || missions.SelectMany(m => DurableMissionInputPolicy.Steps(m.Pipeline)).SelectMany(s => s.Context)
-                .Any(b => b.Value is EnvBindingValue || DurableMissionInputPolicy.IsReserved(b.Key)))
+        if (ast.Bindings.Any(b => b.Value is EnvLetValue || ContextKeys.IsReserved(b.Name))
+            || missions.SelectMany(m => m.Params).Any(ContextKeys.IsReserved)
+            || missions.SelectMany(m => m.Pipeline.Steps()).SelectMany(s => s.Context)
+                .Any(b => b.Value is EnvBindingValue || ContextKeys.IsReserved(b.Key)))
             throw new InvalidOperationException("Environment expressions and reserved authored bindings are not admitted.");
         foreach (var expert in experts.Values)
         {
             if (!ExpertKinds.IsKnown(expert.Kind))
                 throw new InvalidOperationException($"Unknown expert kind '{expert.Kind}'.");
             if ((expert.Inputs ?? []).Any(name => !DurableMissionInputPolicy.IsIdentifier(name)
-                || (DurableMissionInputPolicy.IsReserved(name) && !DurableMissionInputPolicy.IsRuntimeDirectory(name))))
+                || (ContextKeys.IsReserved(name) && !ContextKeys.IsRuntimeDirectory(name))))
                 throw new InvalidOperationException("Expert inputs contain invalid or reserved names.");
         }
     }

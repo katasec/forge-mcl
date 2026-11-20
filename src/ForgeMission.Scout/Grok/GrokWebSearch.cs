@@ -59,11 +59,12 @@ public sealed class GrokWebSearch(HttpClient http, string apiKey, string model =
         var httpResp = await http.SendAsync(httpReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
         if (httpResp.IsSuccessStatusCode) return httpResp;
 
-        var errBody = await httpResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        var snippet = errBody.Length > 500 ? errBody[..500] : errBody;
-        var status  = (int)httpResp.StatusCode;
-        httpResp.Dispose();
-        throw new WebSearchException($"xAI Responses API returned {status}: {snippet}");
+        using (httpResp)
+        {
+            var errBody = await httpResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var snippet = errBody.Length > 500 ? errBody[..500] : errBody;
+            throw new WebSearchException($"xAI Responses API returned {(int)httpResp.StatusCode}: {snippet}");
+        }
     }
 
     // Pull the synthesized answer + citation URLs off the single "message" item in output[].
@@ -73,25 +74,21 @@ public sealed class GrokWebSearch(HttpClient http, string apiKey, string model =
         var sources = new List<SourceRef>();
         var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var item in resp.Output ?? [])
+        var texts = (resp.Output ?? [])
+            .Where(item => item.Type == "message" && item.Content is not null)
+            .SelectMany(item => item.Content!)
+            .Where(content => content.Type == "output_text");
+
+        foreach (var content in texts)
         {
-            if (item.Type != "message" || item.Content is null) continue;
+            if (!string.IsNullOrEmpty(content.Text))
+                answer.Append(content.Text);
 
-            foreach (var content in item.Content)
-            {
-                if (content.Type != "output_text") continue;
-
-                if (!string.IsNullOrEmpty(content.Text))
-                    answer.Append(content.Text);
-
-                foreach (var ann in content.Annotations ?? [])
-                {
-                    // Grok's annotation "title" is a numeric citation label ("1"), not a page title —
-                    // leave SourceRef.Title null rather than mislabel. Provider tag travels with each.
-                    if (ann.Type == "url_citation" && !string.IsNullOrEmpty(ann.Url) && seenUrls.Add(ann.Url))
-                        sources.Add(new SourceRef(ann.Url, Title: null, ProviderName));
-                }
-            }
+            // Grok's annotation "title" is a numeric citation label ("1"), not a page title —
+            // leave SourceRef.Title null rather than mislabel. Provider tag travels with each.
+            foreach (var ann in content.Annotations ?? [])
+                if (ann.Type == "url_citation" && !string.IsNullOrEmpty(ann.Url) && seenUrls.Add(ann.Url))
+                    sources.Add(new SourceRef(ann.Url, Title: null, ProviderName));
         }
 
         return new WebSearchResult(

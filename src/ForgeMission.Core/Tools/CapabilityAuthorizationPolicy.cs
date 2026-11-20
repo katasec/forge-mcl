@@ -10,8 +10,8 @@ public sealed record CapabilityAuthorizationRule(
     AuthorizationOutcome Outcome,
     CapabilityPolicySource Source = CapabilityPolicySource.Local);
 
-// Local v1 policy configuration. Distribution of administrator-owned rules is deliberately
-// outside this layer; Source merely preserves where a resolved rule came from.
+// Maps capability names to authorization rules; a capability with no rule gets the default rule.
+// Distributing administrator-owned rules is outside this layer; Source records where a rule came from.
 public sealed class CapabilityAuthorizationPolicy
 {
     private readonly IReadOnlyDictionary<string, CapabilityAuthorizationRule> _rules;
@@ -34,9 +34,9 @@ public sealed class CapabilityAuthorizationPolicy
     public static CapabilityAuthorizationPolicy Default { get; } = new(
     [
         new KeyValuePair<string, CapabilityAuthorizationRule>(
-            "file", new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
+            CapabilityNames.File, new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
         new KeyValuePair<string, CapabilityAuthorizationRule>(
-            "terminal", new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
+            CapabilityNames.Terminal, new CapabilityAuthorizationRule(AuthorizationOutcome.AutoApproved)),
     ]);
 }
 

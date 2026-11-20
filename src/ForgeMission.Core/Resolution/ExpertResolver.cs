@@ -9,10 +9,14 @@ namespace ForgeMission.Core.Resolution;
 // Hash verification: if the lock file entry has a hash, the loaded file must match.
 // If it doesn't match → the expert was modified since last 'forge init'.
 //
-// Verbose mode logs resolution source + path for each expert to the provided writer.
-// Warnings are always emitted to stderr (independent of verbose flag).
+// The verbose writer, when given, gets each expert's resolution source and path; the warnings
+// writer, when given, gets shadowing warnings whatever the verbose setting.
 public static class ExpertResolver
 {
+    // The resolution source each expert reports in verbose output.
+    private const string LocalSource = "local";
+    private const string CacheSource = "cache";
+
     public static Dictionary<string, ExpertDefinition> ResolveAll(
         LockFile      lockFile,
         string        missionDir,
@@ -46,26 +50,21 @@ public static class ExpertResolver
             throw new ExpertLoadException(
                 $"{MclErrorCode.ExpertNotFound.Code()} Expert '{name}' not found at '{entry.Path}'. Run 'forge init' to regenerate the lock file.");
 
-        // Warn when a local expert shadows a non-local (OCI/cache) entry in the lock file.
-        // Local wins intentionally — but silent shadowing is a reproducibility risk.
-        if (source == "local" && !string.IsNullOrEmpty(entry.Path))
+        // A local expert shadows the lock entry when the entry records a different path. Local wins
+        // intentionally, but silent shadowing is a reproducibility risk, so warn when the recorded
+        // file exists; the lock hash is for that recorded version, so it is not checked.
+        var recorded = string.IsNullOrEmpty(entry.Path) ? null : ResolveLockPath(entry.Path, missionDir);
+        var isShadowing = source == LocalSource && recorded is not null
+            && !string.Equals(absPath, recorded, StringComparison.OrdinalIgnoreCase);
+        if (isShadowing && File.Exists(recorded))
         {
-            var recorded = ResolveLockPath(entry.Path, missionDir);
-            if (!string.Equals(absPath, recorded, StringComparison.OrdinalIgnoreCase)
-                && File.Exists(recorded))
-            {
-                warnings?.WriteLine(
-                    $"warning {MclErrorCode.LocalExpertShadowsLock.Code()}: local expert '{name}' shadows the lock-file entry " +
-                    $"({ToLockPath(recorded)}). Local version will be used. " +
-                    $"Run 'forge init' to update the lock file if this is intentional.");
-            }
+            warnings?.WriteLine(
+                $"warning {MclErrorCode.LocalExpertShadowsLock.Code()}: local expert '{name}' shadows the lock-file entry " +
+                $"({ToLockPath(recorded!)}). Local version will be used. " +
+                $"Run 'forge init' to update the lock file if this is intentional.");
         }
 
         // Hash verification — skip for legacy lock files without a recorded hash.
-        // Also skip when a local expert shadows a non-local entry: the lock hash
-        // is for the non-local version and does not apply to the local override.
-        var isShadowing = source == "local" && !string.IsNullOrEmpty(entry.Path)
-            && !string.Equals(absPath, ResolveLockPath(entry.Path, missionDir), StringComparison.OrdinalIgnoreCase);
         if (!isShadowing && entry.Hash is { Length: > 0 } expectedHash)
         {
             var actualHash = LockFileIO.ComputeHash(absPath);
@@ -85,16 +84,16 @@ public static class ExpertResolver
     private static (string? Path, string Source) Locate(string name, LockFileExpert entry, string missionDir)
     {
         // 1. Local expert directory always wins over the recorded lock path
-        var localPath = Path.Combine(missionDir, SourceResolver.DefaultExpertsDir, name, "expert.md");
+        var localPath = Path.Combine(missionDir, SourceResolver.DefaultExpertsDir, name, SourceResolver.ExpertFile);
         if (File.Exists(localPath))
-            return (localPath, "local");
+            return (localPath, LocalSource);
 
         // 2. Lock file recorded path (relative → absolute, or ~/... → home-relative)
         if (!string.IsNullOrEmpty(entry.Path))
         {
             var recorded = ResolveLockPath(entry.Path, missionDir);
             if (File.Exists(recorded))
-                return (recorded, entry.Source == SourceResolver.DefaultExpertsDir ? "local" : "cache");
+                return (recorded, entry.Source == SourceResolver.DefaultExpertsDir ? LocalSource : CacheSource);
         }
 
         return (null, "");

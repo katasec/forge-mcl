@@ -21,10 +21,11 @@ Mission semantics must be executable without coupling the language runtime to a 
 - Expert definitions and loading, mission/lock-file resolution, and `forge.toml` manifest reading.
 - Pipeline execution, trace/result contracts, and the provider-neutral [`IExpertRunner`](Runtime/IExpertRunner.cs) seam.
 - Reusable workspace and capability contracts and dispatch primitives.
+- The user's Forge home ([`ForgeHome`](Resolution/ForgeHome.cs)) and its credential file ([`CredentialStore`](Resolution/CredentialStore.cs)).
 
 ## Does not own
 
-- Provider SDK selection or credentials, command-line UX, HTTP serving, or Project/conversation state.
+- Provider SDK selection, command-line UX, HTTP serving, or Project/conversation state.
 - The scoped local-capability authority: Client Runtime (Bob, in forge-client) composes these capability primitives and owns its policy, admission, confirmation, audit, and lifetime.
 
 ## Change admission
@@ -37,7 +38,7 @@ A change belongs here only if it advances provider-neutral MCL execution, resolu
 - [`PipelineRunOptions.StreamLlmDeltas`](Runtime/PipelineRunOptions.cs) (set only by a durable executor) streams each tool-free, non-judge llm step and emits its chunks as `PipelineStepDelta` trace facts; the step completes with its plain text as a pass. Judges, steps with tools attached, and parallel steps keep `RunAsync`. One helper in `PipelineRunner` decides streaming.
 - [`PipelineRunOptions.ChatHistory`](Runtime/ChatHistory.cs) carries a durable chat's earlier turns as user/assistant messages; every llm step of the root mission sends `system + history + user(step input)`; step 1's input is the root mission's first declared parameter (the new message), not "Begin.". Child missions get none, and it is never checkpointed (pass it again on resume).
 - [`IExpertRunner`](Runtime/IExpertRunner.cs) is the only runner abstraction used by the pipeline.
-- [`ExpertResolver`](Resolution/ExpertResolver.cs), [`ExpertLoader`](Experts/ExpertLoader.cs), and [`ForgeTomlReader`](Manifest/ForgeTomlReader.cs) provide the resolution inputs.
+- [`ExpertResolver`](Resolution/ExpertResolver.cs), [`ExpertLoader`](Experts/ExpertLoader.cs), and [`ForgeTomlReader`](Manifest/ForgeTomlReader.cs) provide the resolution inputs; [`MissionValidator`](Experts/MissionValidator.cs) checks a parsed mission against its experts.
 - [`DurableMissionPackageValidator`](Runtime/DurableMissionPackageValidator.cs) constructs and validates resolved package values without reading files, credentials or environment expressions. `TryCreate` selects the first mission and its first parameter (empty for a parameterless root). `TryValidateInputNames` checks required root parameters and reachable declared expert inputs. Validated output reports sorted `AdmittedInputNames` and actual `ProviderProfileNames`; deployment owns provider availability.
 - [`PipelineRunnerTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Runtime/PipelineRunnerTests.cs) and [`CapabilityDispatcherTests`](https://github.com/katasec/forge-mcl/blob/main/tests/ForgeMission.Mcl.Tests/Tools/CapabilityDispatcherTests.cs) cover execution and capability contracts.
 

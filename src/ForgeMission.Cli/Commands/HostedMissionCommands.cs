@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.CommandLine;
 using ForgeMission.Cli.Services;
 using ForgeMission.Core.Resolution;
@@ -74,7 +75,7 @@ internal static class HostedMissionCommands
             // Publish reads its target with the same grammar `forge run` pulls with.
             OciReference target;
             try { target = OciReference.ResolveTagged(reference, ociBase); }
-            catch (ArgumentException ex) { CliDiagnostics.Die(ex.Message); return; }
+            catch (ArgumentException ex) { CliDiagnostics.Die(ex.Message); throw new UnreachableException(); }
             var (registry, name, tag) = (target.Registry, target.Name, target.Reference);
 
             var bundle = MissionBundle.Pack(dir.FullName);

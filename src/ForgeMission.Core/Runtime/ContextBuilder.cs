@@ -14,7 +14,7 @@ public static class ContextBuilder
         foreach (var binding in ast.Bindings)
             context[binding.Name] = ResolveLetValue(binding.Value, binding.Name);
 
-        context["output"] = string.Empty;
+        context[ContextKeys.Output] = string.Empty;
 
         if (vars is not null)
             foreach (var (key, value) in vars)

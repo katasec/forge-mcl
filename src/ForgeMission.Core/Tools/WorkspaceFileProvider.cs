@@ -4,7 +4,7 @@ namespace ForgeMission.Core.Tools;
 // Confinement remains the workspace's responsibility; this wrapper deliberately adds no policy.
 public sealed class WorkspaceFileProvider(IWorkspace workspace) : IFileProvider
 {
-    public string CapabilityName => "file";
+    public string CapabilityName => CapabilityNames.File;
 
     public IReadOnlyList<string> Roots => workspace.Roots;
 

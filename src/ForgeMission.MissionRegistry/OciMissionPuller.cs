@@ -5,9 +5,9 @@ using Katasec.OciClient;
 namespace ForgeMission.MissionRegistry;
 
 /// <summary>Pulls a self-contained OCI mission bundle into the local Forge cache.</summary>
-public static class OciMissionPuller
+public static partial class OciMissionPuller
 {
-    private const int MaxBundleBytes = 32 * 1024 * 1024;
+    internal const int MaxBundleBytes = 32 * 1024 * 1024;
     private const int MaxBundleEntries = 4096;
 
     public static async Task<(string Directory, string Status)> PullVerifiedAsync(OciReference reference,
@@ -35,7 +35,7 @@ public static class OciMissionPuller
 
     internal static async Task ExtractBundleAsync(byte[] bundle, string directory, CancellationToken ct)
     {
-        if (bundle.Length > MaxBundleBytes) throw new InvalidDataException("Mission bundle exceeds 32 MiB.");
+        if (bundle.Length > MaxBundleBytes) throw new InvalidDataException($"Mission bundle exceeds {MaxBundleBytes / (1024 * 1024)} MiB.");
         using var input = new MemoryStream(bundle, writable: false);
         using var reader = new TarReader(input);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -163,6 +163,7 @@ public static class OciMissionPuller
         [System.Runtime.InteropServices.FieldOffset(24)] public uint LinuxX64Mode;
     }
 
-    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "lstat", SetLastError = true)]
-    private static extern int LStat(string path, out NativeFileStatus status);
+    [System.Runtime.InteropServices.LibraryImport("libc", EntryPoint = "lstat", SetLastError = true,
+        StringMarshalling = System.Runtime.InteropServices.StringMarshalling.Utf8)]
+    private static partial int LStat(string path, out NativeFileStatus status);
 }

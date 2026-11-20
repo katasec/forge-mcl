@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Buffers;
 using System.CommandLine;
 using System.Text.Json;
@@ -49,7 +50,7 @@ internal static class McpCommand
 
             LockFile lockFile;
             try { lockFile = LockFileIO.Read(lockPath); }
-            catch (Exception ex) { CliDiagnostics.Die($"Cannot read mcl.lock: {ex.Message}"); return; }
+            catch (Exception ex) { CliDiagnostics.Die($"Cannot read mcl.lock: {ex.Message}"); throw new UnreachableException(); }
 
             Dictionary<string, ExpertDefinition> expertDefs;
             try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose: null, warnings: Console.Error); }
@@ -143,7 +144,7 @@ internal static class McpCommand
             var runOptions  = new PipelineRunOptions(toolName, callVars);
 
             MissionResult missionResult;
-            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, ProviderClientBuilder.BuildWebSearch(webSearch, clients)).RunAsync(ast, expertDefs, runOptions, ct); }
+            try { missionResult = await new PipelineRunner(callRunners, manifest?.Execution, WebSearchBuilder.Build(webSearch, clients)).RunAsync(ast, expertDefs, runOptions, ct); }
             catch (Exception ex) when (!ct.IsCancellationRequested) { return ErrorResult(ex.Message); }
 
             return ToToolResult(missionResult);

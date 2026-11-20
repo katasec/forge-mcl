@@ -60,7 +60,7 @@ internal static class CliHelpers
     {
         try
         {
-            ExpertLoader.Validate(ast, experts, Console.Error, contractErrorsAreFatal, missionFilePath);
+            MissionValidator.Validate(ast, experts, Console.Error, contractErrorsAreFatal, missionFilePath);
             return true;
         }
         catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)

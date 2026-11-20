@@ -5,9 +5,7 @@ namespace ForgeMission.MissionRegistry;
 
 internal static class RegistryCredentialStore
 {
-    private static readonly string CredentialsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".forge", "credentials.json");
+    private static readonly string CredentialsPath = Path.Combine(ForgeCache.Root, "credentials.json");
 
     public static string? GetToken(string registry)
     {

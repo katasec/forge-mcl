@@ -11,7 +11,7 @@ public class JsonExtractExpertRunner : IExpertRunner
         Dictionary<string, object> context,
         CancellationToken ct = default)
     {
-        var raw  = context.TryGetValue("output", out var o) ? o?.ToString() ?? "" : "";
+        var raw  = context.TryGetValue(ContextKeys.Output, out var o) ? o?.ToString() ?? "" : "";
         var json = ExtractJson(raw, out var prose);
 
         JsonDocument doc;
@@ -40,7 +40,7 @@ public class JsonExtractExpertRunner : IExpertRunner
         // Prose (from mixed output) replaces context["output"] so the next LLM step
         // sees the reasoning narrative rather than the raw JSON block.
         if (prose is not null)
-            context["output"] = prose;
+            context[ContextKeys.Output] = prose;
 
         return Task.FromResult(new StepEnvelope(json));
     }
