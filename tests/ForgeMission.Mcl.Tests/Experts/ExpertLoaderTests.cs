@@ -419,37 +419,26 @@ public class ExpertLoaderTests : IDisposable
         Assert.Equal("0.85", def.Threshold);
     }
 
-    [Fact]
-    public void OnnxExpert_MissingModel_Throws()
+    [Theory]
+    [InlineData("model")]
+    [InlineData("inputs")]
+    [InlineData("outputKey")]
+    [InlineData("threshold")]
+    public void OnnxExpert_MissingRequiredField_ThrowsNamingIt(string field)
     {
-        WriteDirExpert("AnomalyDetector", OnnxExpertMarkdown(model: null));
+        WriteDirExpert("AnomalyDetector", OnnxExpertMarkdownWithout(field));
         var agg = Assert.Throws<AggregateExpertLoadException>(() => new ExpertLoader(_dir).LoadAll());
-        Assert.Contains("model", agg.Errors[0].Message);
+        Assert.Contains(field, agg.Errors[0].Message);
     }
 
-    [Fact]
-    public void OnnxExpert_MissingInputs_Throws()
+    private static string OnnxExpertMarkdownWithout(string field) => field switch
     {
-        WriteDirExpert("AnomalyDetector", OnnxExpertMarkdown(inputs: null));
-        var agg = Assert.Throws<AggregateExpertLoadException>(() => new ExpertLoader(_dir).LoadAll());
-        Assert.Contains("inputs", agg.Errors[0].Message);
-    }
-
-    [Fact]
-    public void OnnxExpert_MissingOutputKey_Throws()
-    {
-        WriteDirExpert("AnomalyDetector", OnnxExpertMarkdown(outputKey: null));
-        var agg = Assert.Throws<AggregateExpertLoadException>(() => new ExpertLoader(_dir).LoadAll());
-        Assert.Contains("outputKey", agg.Errors[0].Message);
-    }
-
-    [Fact]
-    public void OnnxExpert_MissingThreshold_Throws()
-    {
-        WriteDirExpert("AnomalyDetector", OnnxExpertMarkdown(threshold: null));
-        var agg = Assert.Throws<AggregateExpertLoadException>(() => new ExpertLoader(_dir).LoadAll());
-        Assert.Contains("threshold", agg.Errors[0].Message);
-    }
+        "model"     => OnnxExpertMarkdown(model: null),
+        "inputs"    => OnnxExpertMarkdown(inputs: null),
+        "outputKey" => OnnxExpertMarkdown(outputKey: null),
+        "threshold" => OnnxExpertMarkdown(threshold: null),
+        _ => throw new ArgumentOutOfRangeException(nameof(field), field, null),
+    };
 
     // ---------------------------------------------------------------------------
     // kind:exec validation (Spoke 5)
