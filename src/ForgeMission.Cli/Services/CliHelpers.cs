@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
+using ForgeMission.Core.Resolution;
 using ForgeMission.Parser;
 using MclProgram = ForgeMission.Parser.Program;
 
@@ -48,6 +49,15 @@ internal static class CliHelpers
     {
         if (!Directory.Exists(expertsDir)) CliDiagnostics.Die($"Experts directory not found: {expertsDir}");
         try { return new ExpertLoader(expertsDir).LoadAll(); }
+        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
+        { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
+    }
+
+    // Resolves the locked experts. Any expert-load failure, one error or several, is reported in
+    // full and ends the command with exit 1.
+    internal static Dictionary<string, ExpertDefinition> ResolveLockedExperts(LockFile lockFile, string missionDir)
+    {
+        try { return ExpertResolver.ResolveAll(lockFile, missionDir, warnings: Console.Error); }
         catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
         { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
     }

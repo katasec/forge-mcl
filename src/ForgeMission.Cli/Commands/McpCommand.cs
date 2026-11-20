@@ -52,10 +52,7 @@ internal static class McpCommand
             try { lockFile = LockFileIO.Read(lockPath); }
             catch (Exception ex) { CliDiagnostics.Die($"Cannot read mcl.lock: {ex.Message}"); throw new UnreachableException(); }
 
-            Dictionary<string, ExpertDefinition> expertDefs;
-            try { expertDefs = ExpertResolver.ResolveAll(lockFile, missionDir, verbose: null, warnings: Console.Error); }
-            catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
-            { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
+            var expertDefs = CliHelpers.ResolveLockedExperts(lockFile, missionDir);
 
             if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName))
                 throw new ForgeExitException(1);

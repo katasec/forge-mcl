@@ -117,7 +117,7 @@ internal static class MissionDevCommands
             var (ast, _) = await CliHelpers.LoadMissionAsync(mission.FullName, cancellationToken);
 
             var expertDefs = File.Exists(lockPath)
-                ? ResolveLockedExperts(lockPath, missionDir)
+                ? CliHelpers.ResolveLockedExperts(LockFileIO.Read(lockPath), missionDir)
                 : LoadUnlockedExperts(missionDir);
 
             if (!CliHelpers.TryValidate(ast, expertDefs, missionFilePath: mission.FullName))
@@ -133,16 +133,6 @@ internal static class MissionDevCommands
     {
         Console.Error.WriteLine($"{CliDiagnostics.BoldYellow("warning")}{CliDiagnostics.Bold($": {MclErrorCode.LockFileMissing.Code()} mcl.lock not found — run 'forge init' to generate it")}");
         return CliHelpers.LoadExperts(Path.Combine(missionDir, SourceResolver.DefaultExpertsDir));
-    }
-
-    // mcl.lock present: resolve the locked experts. Any expert-load failure, one error or several,
-    // is reported in full and ends validate with exit 1.
-    static Dictionary<string, ExpertDefinition> ResolveLockedExperts(string lockPath, string missionDir)
-    {
-        var lockFile = LockFileIO.Read(lockPath);
-        try { return ExpertResolver.ResolveAll(lockFile, missionDir, warnings: Console.Error); }
-        catch (Exception ex) when (ex is ExpertLoadException or AggregateExpertLoadException)
-        { CliDiagnostics.ReportExpertLoadFailure(ex); throw new ForgeExitException(1); }
     }
 
     // ---------------------------------------------------------------------------
