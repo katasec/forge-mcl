@@ -4,7 +4,7 @@ using ForgeMission.Parser;
 namespace ForgeMission.Core.Runtime;
 
 // One value-only input policy shared by package admission and root-tool replay.
-internal static class DurableMissionInputPolicy
+public static class DurableMissionInputPolicy
 {
     internal static IReadOnlyList<string> AdmittedNames(
         Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts, string rootName)
@@ -34,6 +34,8 @@ internal static class DurableMissionInputPolicy
         }
     }
 
-    internal static bool IsIdentifier(string name) => !string.IsNullOrEmpty(name)
+    /// <summary>The input-name rule: an ASCII letter, then ASCII letters, digits or '_'. ForgeAPI
+    /// applies the same rule to an upload's input name.</summary>
+    public static bool IsIdentifier(string name) => !string.IsNullOrEmpty(name)
         && char.IsAsciiLetter(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
 }

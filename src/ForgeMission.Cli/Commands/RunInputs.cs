@@ -1,5 +1,6 @@
 using System.Text;
 using ForgeMission.Conversations.Contracts;
+using ForgeMission.Core.Runtime;
 
 namespace ForgeMission.Cli.Commands;
 
@@ -25,7 +26,7 @@ internal static class RunInputs
                 throw new ArgumentException($"--input '{value}' must be name=value or name=@file.");
             var name = value[..separator];
             var text = value[(separator + 1)..];
-            if (!IsName(name))
+            if (!DurableMissionInputPolicy.IsIdentifier(name))
                 throw new ArgumentException($"--input name '{name}' must start with a letter and use only letters, digits and _.");
             if (inputs.Any(input => input.Name == name))
                 throw new ArgumentException($"--input '{name}' is given more than once.");
@@ -85,8 +86,4 @@ internal static class RunInputs
             throw new ArgumentException($"--input {name}=@{path} is larger than {MissionContentLimits.MaxContentBytes / (1024 * 1024)} MiB.");
         return full;
     }
-
-    // The same rule ForgeAPI applies to an upload's input name.
-    private static bool IsName(string name) => name.Length > 0 && char.IsAsciiLetter(name[0]) &&
-        name.AsSpan(1).IndexOfAnyExcept("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_") < 0;
 }
