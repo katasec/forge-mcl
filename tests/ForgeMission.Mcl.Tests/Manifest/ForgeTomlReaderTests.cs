@@ -164,18 +164,22 @@ public class ForgeTomlReaderTests
     [Fact]
     public void EnvCall_NoDefault_ResolvesVariable()
     {
+        var previous = Environment.GetEnvironmentVariable("FORGE_TEST_KEY");
         Environment.SetEnvironmentVariable("FORGE_TEST_KEY", "resolved-from-env");
-        var path = WriteTempManifest("""
-            [providers.default]
-            provider = "openai"
-            model    = "gpt-4o-mini"
-            apiKey   = env("FORGE_TEST_KEY")
-            """);
+        try
+        {
+            var path = WriteTempManifest("""
+                [providers.default]
+                provider = "openai"
+                model    = "gpt-4o-mini"
+                apiKey   = env("FORGE_TEST_KEY")
+                """);
 
-        var manifest = ForgeTomlReader.TryRead(path);
+            var manifest = ForgeTomlReader.TryRead(path);
 
-        Assert.Equal("resolved-from-env", manifest!.Providers["default"].ApiKey);
-        Environment.SetEnvironmentVariable("FORGE_TEST_KEY", null);
+            Assert.Equal("resolved-from-env", manifest!.Providers["default"].ApiKey);
+        }
+        finally { Environment.SetEnvironmentVariable("FORGE_TEST_KEY", previous); }
     }
 
     [Fact]
