@@ -17,34 +17,51 @@ namespace ForgeMission.Tests.Runtime;
 /// </summary>
 public sealed class AgentToolPipelineTests
 {
+    // Each checkpoint field, once removed and once set to null.
+    public static TheoryData<string, bool> CheckpointFieldDamage()
+    {
+        var data = new TheoryData<string, bool>();
+        foreach (var field in new[]
+        {
+            "rootInputs",
+            "rootExecutionId",
+            "rootMissionName",
+            "rootDefinitionFingerprint",
+            "rootToolScopeFingerprint",
+            "expertName",
+            "missionPath",
+            "toolDeclarations",
+            "turnMessages",
+            "admittedInputNames",
+            "log",
+        })
+        {
+            data.Add(field, true);
+            data.Add(field, false);
+        }
+        return data;
+    }
+
     [Theory]
-    [InlineData("rootInputs")]
-    [InlineData("rootExecutionId")]
-    [InlineData("rootMissionName")]
-    [InlineData("rootDefinitionFingerprint")]
-    [InlineData("rootToolScopeFingerprint")]
-    [InlineData("expertName")]
-    [InlineData("missionPath")]
-    [InlineData("toolDeclarations")]
-    [InlineData("turnMessages")]
-    [InlineData("admittedInputNames")]
-    [InlineData("log")]
-    public async Task Malformed_current_checkpoint_is_rejected_before_any_invocation(string field)
+    [MemberData(nameof(CheckpointFieldDamage))]
+    public async Task Malformed_current_checkpoint_is_rejected_before_any_invocation(string field, bool removed)
     {
         var ast = MclParser.Parse("mission Root = { Enrich -> Respond }");
         var runner = new StubExpertRunner(Scripted);
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(runner).RunAsync(ast, Experts(),
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
         var count = runner.Calls.Count;
-        foreach (var missing in new[] { false, true })
-        {
-            var checkpoint = System.Text.Json.Nodes.JsonNode.Parse(pause.Continuation.Payload)!.AsObject();
-            if (missing) checkpoint.Remove(field);
-            else checkpoint[field] = null;
-            var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
-            Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
-            Assert.Equal(count, runner.Calls.Count);
-        }
+        var checkpoint = System.Text.Json.Nodes.JsonNode.Parse(pause.Continuation.Payload)!.AsObject();
+        Damage(checkpoint, field, removed);
+        var altered = pause with { Continuation = pause.Continuation with { Payload = checkpoint.ToJsonString() } };
+        Assert.Equal(PipelineFailure.InvalidContinuation, (await Resume(new PipelineRunner(runner), ast, Experts(), altered)).Failure);
+        Assert.Equal(count, runner.Calls.Count);
+    }
+
+    private static void Damage(System.Text.Json.Nodes.JsonObject checkpoint, string field, bool removed)
+    {
+        if (removed) checkpoint.Remove(field);
+        else checkpoint[field] = null;
     }
 
     [Theory]
@@ -447,6 +464,34 @@ public sealed class AgentToolPipelineTests
         Assert.Single(multipleClient.Calls);
     }
 
+    [Theory]
+    [InlineData("unparseable payload")]
+    [InlineData("unknown format version")]
+    [InlineData("changed tool name")]
+    public async Task RootScopedToolPause_MalformedContinuation_DoesNotInvokeProvider(string damage)
+    {
+        var ast = MclParser.Parse("mission Root = { Respond }");
+        var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
+        { ["Respond"] = new("Respond", "any", "text", "Respond.", Role: "agent") };
+        var client = new ContinuationClient();
+        var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
+            new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
+        var continuation = damage switch
+        {
+            "unparseable payload" => new PipelineContinuation(1, "{"),
+            "unknown format version" => pause.Continuation with { FormatVersion = 42 },
+            "changed tool name" => pause.Continuation with { Payload = pause.Continuation.Payload.Replace("Read", "Other", StringComparison.Ordinal) },
+            _ => throw new ArgumentOutOfRangeException(nameof(damage), damage, null),
+        };
+
+        var result = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
+            new PipelineResumeRequest(continuation, new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
+            new PipelineRunOptions("ignored"));
+
+        Assert.Equal(PipelineFailure.InvalidContinuation, result.Failure);
+        Assert.Single(client.Calls);
+    }
+
     [Fact]
     public async Task RootScopedToolPause_InvalidContinuations_DoNotInvokeProvider()
     {
@@ -456,19 +501,6 @@ public sealed class AgentToolPipelineTests
         var client = new ContinuationClient();
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
-
-        foreach (var continuation in new[]
-        {
-            new PipelineContinuation(1, "{"),
-            pause.Continuation with { FormatVersion = 42 },
-            pause.Continuation with { Payload = pause.Continuation.Payload.Replace("Read", "Other", StringComparison.Ordinal) },
-        })
-        {
-            var result = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
-                new PipelineResumeRequest(continuation, new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
-                new PipelineRunOptions("ignored"));
-            Assert.Equal(PipelineFailure.InvalidContinuation, result.Failure);
-        }
 
         var wrongCall = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
             new PipelineResumeRequest(pause.Continuation, new PipelineToolResult("wrong", PipelineToolResultStatus.Succeeded)),
