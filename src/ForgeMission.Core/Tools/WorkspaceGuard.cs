@@ -11,9 +11,6 @@ public static class WorkspaceGuard
     private static readonly StringComparison PathComparison =
         OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
-    public static bool TryResolve(string workspaceRoot, string requestedPath, out string resolved, out string? error) =>
-        TryResolve([workspaceRoot], requestedPath, out resolved, out error);
-
     public static bool TryResolve(
         IReadOnlyList<string> workspaceRoots,
         string requestedPath,

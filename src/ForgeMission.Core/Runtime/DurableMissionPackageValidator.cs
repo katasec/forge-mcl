@@ -300,12 +300,7 @@ public sealed record DurableMissionAssetInput(string Path, string ContentType, b
 [method: JsonConstructor]
 public sealed record DurableMissionPackageInput(int FormatVersion, string PackageHash, string MissionSource,
     string RootMissionName, string RootInputName, IReadOnlyList<DurableResolvedExpertInput> ResolvedExperts,
-    IReadOnlyList<DurableMissionAssetInput>? Assets = null)
-{
-    public DurableMissionPackageInput(int FormatVersion, string PackageHash, string MissionSource,
-        string RootMissionName, string RootInputName, IReadOnlyList<DurableResolvedExpertInput> ResolvedExperts)
-        : this(FormatVersion, PackageHash, MissionSource, RootMissionName, RootInputName, ResolvedExperts, null) { }
-}
+    IReadOnlyList<DurableMissionAssetInput>? Assets = null);
 public sealed record ValidatedDurableMissionPackage(DurableMissionPackageInput Input, MclProgram Ast,
     Dictionary<string, ExpertDefinition> Experts, IReadOnlyList<string> AdmittedInputNames, IReadOnlyList<string> ProviderProfileNames);
 
