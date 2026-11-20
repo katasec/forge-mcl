@@ -5,7 +5,7 @@ set -euo pipefail
 package_directory=${1:?usage: verify-core-package.sh <package-directory> <repository-commit>}
 repository_commit=${2:?usage: verify-core-package.sh <package-directory> <repository-commit>}
 package_id=Katasec.Forge.Mcl.Core
-package_version=0.1.9
+package_version=0.2.0
 package_path="$package_directory/$package_id.$package_version.nupkg"
 
 if [[ ! -f "$package_path" ]]; then
@@ -33,8 +33,8 @@ for expected_value in \
   "commit=\"$repository_commit\"" \
   "<license type=\"file\">LICENSE.md</license>" \
   "<readme>README.md</readme>" \
-  "id=\"Katasec.Forge.Mcl.Parser\" version=\"0.1.0\"" \
-  "id=\"Katasec.Forge.Mcl.Scout\" version=\"0.1.0\""; do
+  "id=\"Katasec.Forge.Mcl.Parser\" version=\"0.2.0\"" \
+  "id=\"Katasec.Forge.Mcl.Scout\" version=\"0.2.0\""; do
   if ! grep -Fq "$expected_value" <<<"$nuspec"; then
     echo "Missing package metadata: $expected_value" >&2
     exit 1
