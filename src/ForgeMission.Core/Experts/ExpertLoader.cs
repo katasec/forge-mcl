@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using ForgeMission.Core.Resolution;
+using ForgeMission.Core.Runtime;
 using ForgeMission.Parser;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
@@ -237,9 +238,9 @@ public class ExpertLoader(string expertsDirectory)
     {
         var available = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["output"]    = "string",
-            ["feedback"]  = "string",
-            ["max_loops"] = "int",
+            [ContextKeys.Output]    = "string",
+            [ContextKeys.Feedback]  = "string",
+            [ContextKeys.MaxLoops] = "int",
         };
         foreach (var parameter in mission.Params)
             available.TryAdd(parameter, "string");

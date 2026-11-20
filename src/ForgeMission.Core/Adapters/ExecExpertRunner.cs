@@ -78,9 +78,9 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
                 inputs[name] = absolute;
         var outputDirectory = _workspace.GetStepOutputDirectory(_stepKey, _attempt);
         CreateOutputDirectory(outputDirectory);
-        inputs["work_dir"] = _workspace.RootDirectory;
-        inputs["input_dir"] = Path.Combine(_workspace.RootDirectory, "inputs");
-        inputs["output_dir"] = outputDirectory;
+        inputs[ContextKeys.WorkDir] = _workspace.RootDirectory;
+        inputs[ContextKeys.InputDir] = Path.Combine(_workspace.RootDirectory, "inputs");
+        inputs[ContextKeys.OutputDir] = outputDirectory;
         return inputs;
     }
 
@@ -114,9 +114,9 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         foreach (var key in options.Environment.Keys.Where(k => k.StartsWith("FORGE_INPUT_", comparison)
             || k.Equals("FORGE_SOURCE_FILE", comparison)).ToArray()) options.Environment.Remove(key);
-        options.Environment["FORGE_WORK_DIR"] = inputs["work_dir"].ToString();
-        options.Environment["FORGE_INPUT_DIR"] = inputs["input_dir"].ToString();
-        options.Environment["FORGE_OUTPUT_DIR"] = inputs["output_dir"].ToString();
+        options.Environment["FORGE_WORK_DIR"] = inputs[ContextKeys.WorkDir].ToString();
+        options.Environment["FORGE_INPUT_DIR"] = inputs[ContextKeys.InputDir].ToString();
+        options.Environment["FORGE_OUTPUT_DIR"] = inputs[ContextKeys.OutputDir].ToString();
         foreach (var name in expert.Inputs ?? [])
         {
             if (!context.TryGetValue(name, out var value) || VerifiedPath(value) is not { } absolute) continue;
@@ -133,7 +133,7 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
             throw new ExpertLoadException($"Expert '{expert.Name}' stdout JSON is missing declared outputKey '{expert.OutputKey}'.");
         var text = outputValue.ValueKind == JsonValueKind.String ? outputValue.GetString() ?? "" : outputValue.GetRawText();
         context[expert.OutputKey] = text;
-        context["output"] = text;
+        context[ContextKeys.Output] = text;
         var reason = root.TryGetProperty("reason", out var rv) ? rv.GetString() : null;
         if (expert.IsJudge) return ApplyVerdict(expert, context, JudgeVerdict.Read(root, text, reason));
         var status = root.TryGetProperty("status", out var sv) ? sv.GetString() : null;
@@ -144,7 +144,7 @@ public class ExecExpertRunner(string defaultTimeout = ExecTimeout.Default) : IEx
     private static StepEnvelope ApplyVerdict(ExpertDefinition expert, Dictionary<string, object> context, StepEnvelope verdict)
     {
         if (verdict.Status == "fail")
-            context["feedback"] = !string.IsNullOrWhiteSpace(verdict.Reason) ? verdict.Reason
+            context[ContextKeys.Feedback] = !string.IsNullOrWhiteSpace(verdict.Reason) ? verdict.Reason
                 : !string.IsNullOrWhiteSpace(expert.OnFail) ? expert.OnFail : "Verification failed.";
         return verdict;
     }

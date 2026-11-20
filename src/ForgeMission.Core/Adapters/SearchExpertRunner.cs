@@ -22,7 +22,7 @@ public sealed class SearchExpertRunner(IWebSearch search) : IExpertRunner
         Dictionary<string, object> context,
         CancellationToken ct = default)
     {
-        var query = Resolve(context, "query") ?? Resolve(context, "output");
+        var query = Resolve(context, "query") ?? Resolve(context, ContextKeys.Output);
         if (string.IsNullOrWhiteSpace(query))
             throw new InvalidOperationException(
                 $"kind: search ({expert.Name}) has no query — set a 'query' binding or upstream 'output'.");

@@ -151,7 +151,7 @@ public class PipelineRunner
             if (outcome.Halt is { } halt) return halt;
 
             // Carry feedback written by rule/judge experts into the next loop iteration.
-            if (context.TryGetValue("feedback", out var fb))
+            if (context.TryGetValue(ContextKeys.Feedback, out var fb))
                 loopFeedback = fb?.ToString();
 
             lastResult = AttemptResult(options.MissionName, context, outcome.FailReason, attempt);
@@ -174,14 +174,14 @@ public class PipelineRunner
         if (options.ChatHistory is not null)
         {
             context[ChatHistory.ContextKey] = options.ChatHistory;
-            context["output"] = ChatInput(mission, options.Vars);
+            context[ContextKeys.Output] = ChatInput(mission, options.Vars);
         }
-        context["attempt"]   = attempt.ToString();
-        context["max_loops"] = mission.MaxLoops.ToString();
+        context[ContextKeys.Attempt]   = attempt.ToString();
+        context[ContextKeys.MaxLoops] = mission.MaxLoops.ToString();
         if (loopFeedback is not null)
-            context["feedback"] = loopFeedback;
+            context[ContextKeys.Feedback] = loopFeedback;
         if (history is not null)
-            context["history"] = history;
+            context[ContextKeys.History] = history;
         return context;
     }
 
@@ -234,7 +234,7 @@ public class PipelineRunner
     private static MissionResult AttemptResult(
         string missionName, Dictionary<string, object> context, string? failReason, int attempt)
     {
-        var text = context.TryGetValue("output", out var last) ? last?.ToString() ?? string.Empty : string.Empty;
+        var text = context.TryGetValue(ContextKeys.Output, out var last) ? last?.ToString() ?? string.Empty : string.Empty;
         return failReason is null
             ? new MissionResult(missionName, text, MissionStatus.Pass, null, attempt)
             : new MissionResult(missionName, text, MissionStatus.Fail, failReason, attempt);
@@ -293,7 +293,7 @@ public class PipelineRunner
             return new StepOutcome(null, await PauseAsync(run, key, step, expert, invocation, calls, options, missionPath, attempt, ct));
 
         var envelope = invocation.Envelope;
-        context["output"] = envelope.Text;
+        context[ContextKeys.Output] = envelope.Text;
         RecordHistory(step, envelope, context);
 
         // Emitted for both pass and fail envelopes, after the output/history update above and
@@ -319,14 +319,14 @@ public class PipelineRunner
         var subResult = await RunSubMissionAsync(step, key, ast, experts, context, options, run, missionPath, ct);
         if (Halts(subResult)) return new StepOutcome(null, subResult);
 
-        context["output"] = subResult.Text;
+        context[ContextKeys.Output] = subResult.Text;
         return new StepOutcome(SubMissionFailReason(step, subResult), null);
     }
 
     // A negotiation run's transcript gets each speaker's text, plus its reason when that differs.
     private static void RecordHistory(Step step, StepEnvelope envelope, Dictionary<string, object> context)
     {
-        if (!context.TryGetValue("history", out var historyValue)
+        if (!context.TryGetValue(ContextKeys.History, out var historyValue)
             || historyValue is not SpeakerTranscript history)
             return;
 
@@ -597,7 +597,7 @@ public class PipelineRunner
     // provider's complete reply messages, when the runner left them.
     private static object? DetachTools(Dictionary<string, object> context)
     {
-        context.Remove("tools");
+        context.Remove(ContextKeys.Tools);
         context.Remove(PipelineRuntimeInstructions.AllowMultipleToolCalls);
         context.Remove(PipelineToolContinuationInstructions.TurnMessages);
         context.Remove(PipelineToolContinuationInstructions.ResponseMessages, out var responseMessages);
@@ -608,7 +608,7 @@ public class PipelineRunner
     private static IReadOnlyList<FunctionCallContent>? TakeRootCalls(
         RunState run, ExpertDefinition expert, Dictionary<string, object> context)
         => run.Scope is not null && expert.IsAgent
-           && context.Remove("tool_calls", out var raw) && raw is IReadOnlyList<FunctionCallContent> calls
+           && context.Remove(ContextKeys.ToolCalls, out var raw) && raw is IReadOnlyList<FunctionCallContent> calls
             ? calls
             : null;
 
@@ -629,7 +629,7 @@ public class PipelineRunner
     {
         if (!expert.IsAgent || run.Scope is not { } scope) return;
 
-        context["tools"] = scope.Tools;
+        context[ContextKeys.Tools] = scope.Tools;
         // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
         context[PipelineRuntimeInstructions.AllowMultipleToolCalls] = false;
         if (turn is not null)
@@ -986,7 +986,7 @@ public class PipelineRunner
     }
 
     private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
-        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey("tools");
+        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey(ContextKeys.Tools);
 
     private static bool IsPlainTextLlm(ExpertDefinition expert) =>
         expert.Kind == ExpertKinds.Llm && !expert.IsJudge;

@@ -13,7 +13,7 @@ internal static class DurableMissionInputPolicy
         return (root?.Params ?? []).Concat(ReachableSteps(ast, rootName)
                 .Where(step => experts.ContainsKey(step.ExpertName))
                 .SelectMany(step => experts[step.ExpertName].Inputs ?? []))
-            .Where(name => IsIdentifier(name) && !IsReserved(name))
+            .Where(name => IsIdentifier(name) && !ContextKeys.IsReserved(name))
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     }
 
@@ -43,9 +43,4 @@ internal static class DurableMissionInputPolicy
 
     internal static bool IsIdentifier(string name) => !string.IsNullOrEmpty(name)
         && char.IsAsciiLetter(name[0]) && name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
-    internal static bool IsRuntimeDirectory(string name) => name is "work_dir" or "input_dir" or "output_dir";
-    internal static bool IsReserved(string name) => name is "output" or "feedback" or "attempt" or "max_loops"
-        or "history" or "conversation" or "apiKey" or "model" or "provider" or "endpoint"
-        || IsRuntimeDirectory(name) || name.StartsWith("__", StringComparison.Ordinal)
-        || name.StartsWith("FORGE_", StringComparison.Ordinal);
 }

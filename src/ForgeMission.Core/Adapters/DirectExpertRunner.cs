@@ -77,7 +77,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
     // Tool-capable agent step: the PipelineRunner put the root tools in the bag for this step only.
     private static bool ApplyToolMode(ChatOptions options, Dictionary<string, object> context)
     {
-        if (!context.TryGetValue("tools", out var toolsValue) || toolsValue is not IList<AITool> tools)
+        if (!context.TryGetValue(ContextKeys.Tools, out var toolsValue) || toolsValue is not IList<AITool> tools)
             return false;
 
         options.Tools = tools;
@@ -101,7 +101,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
     {
         var calls = response.Messages.LastOrDefault()?.Contents.OfType<FunctionCallContent>().ToList();
         if (calls is not { Count: > 0 }) return false;
-        context["tool_calls"] = calls;
+        context[ContextKeys.ToolCalls] = calls;
         context[PipelineToolContinuationInstructions.ResponseMessages] = response.Messages.ToArray();
         return true;
     }
@@ -126,7 +126,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
         if (context.TryGetValue(ChatHistory.ContextKey, out var chatValue) && chatValue is ChatHistory chat)
             messages.AddRange(chat.Messages);
 
-        if (context.TryGetValue("history", out var historyValue)
+        if (context.TryGetValue(ContextKeys.History, out var historyValue)
             && historyValue is SpeakerTranscript history
             && history.Turns.Count > 0)
         {
@@ -134,7 +134,7 @@ public class DirectExpertRunner(IChatClient chatClient) : IExpertRunner
             return messages;
         }
 
-        var userMessage = context.TryGetValue("output", out var output) && !string.IsNullOrWhiteSpace(output?.ToString())
+        var userMessage = context.TryGetValue(ContextKeys.Output, out var output) && !string.IsNullOrWhiteSpace(output?.ToString())
             ? output.ToString()!
             : "Begin.";
         messages.Add(new ChatMessage(ChatRole.User, userMessage));

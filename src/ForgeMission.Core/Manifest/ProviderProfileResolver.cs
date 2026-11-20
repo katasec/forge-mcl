@@ -1,3 +1,5 @@
+using ForgeMission.Core.Runtime;
+
 namespace ForgeMission.Core.Manifest;
 
 // Resolves the effective "default" provider profile by layering mission context values over the
@@ -11,10 +13,10 @@ public static class ProviderProfileResolver
 {
     public static ProviderProfile ResolveDefault(ProviderProfile? declared, Func<string, string?> context)
     {
-        var apiKey   = context("apiKey")   ?? declared?.ApiKey;
-        var model    = context("model")    ?? declared?.Model;
-        var provider = context("provider") ?? declared?.Provider ?? "openai";
-        var endpoint = context("endpoint") ?? declared?.Endpoint ?? string.Empty;
+        var apiKey   = context(ContextKeys.ApiKey)   ?? declared?.ApiKey;
+        var model    = context(ContextKeys.Model)    ?? declared?.Model;
+        var provider = context(ContextKeys.Provider) ?? declared?.Provider ?? "openai";
+        var endpoint = context(ContextKeys.Endpoint) ?? declared?.Endpoint ?? string.Empty;
 
         return new ProviderProfile
         {
