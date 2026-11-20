@@ -79,7 +79,7 @@ public class PipelineRunner
         if (ConsumeLocalContinuation(checkpoint) is { } localFailure)
             return Failure(root, localFailure);
 
-        if (FindMission(ast, root) is null)
+        if (ast.FindMission(root) is null)
             return Failure(root, PipelineFailure.InvalidContinuation);
 
         var tools = checkpoint.ToolDeclarations.Select(tool => (AITool)new Katasec.AITools.DeclaredTool(
@@ -128,7 +128,7 @@ public class PipelineRunner
         string keyPrefix,
         CancellationToken ct)
     {
-        var mission = FindMission(ast, options.MissionName)
+        var mission = ast.FindMission(options.MissionName)
             ?? throw new InvalidOperationException(
                 $"Mission '{options.MissionName}' not found in .mcl file");
 
@@ -282,7 +282,7 @@ public class PipelineRunner
         int attempt,
         CancellationToken ct)
     {
-        if (FindMission(ast, step.ExpertName) is not null)
+        if (ast.FindMission(step.ExpertName) is not null)
             return await ExecuteSubMissionStepAsync(step, key, ast, experts, context, options, run, missionPath, ct);
 
         var expert = ResolveExpert(experts, step);
@@ -421,7 +421,7 @@ public class PipelineRunner
         var namedKey = $"{step.ExpertName}.output";
 
         // Sub-mission in parallel block → recurse with isolated child context.
-        if (FindMission(ast, step.ExpertName) is not null)
+        if (ast.FindMission(step.ExpertName) is not null)
         {
             var subResult = await RunSubMissionAsync(step, key, ast, experts, baseContext, options, run, missionPath, cts.Token);
             if (Halts(subResult)) return new BranchOutcome(null, namedKey, subResult.Text, subResult);
@@ -788,13 +788,10 @@ public class PipelineRunner
                 $"Expert '{step.ExpertName}' not found. " +
                 "Run 'forge validate' to check your mission before running.");
 
-    private static MissionDeclaration? FindMission(Program ast, string name)
-        => ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault(m => m.Name == name);
-
     private static bool CanReachAgent(Step step, Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts)
     {
         if (experts.TryGetValue(step.ExpertName, out var expert)) return expert.IsAgent;
-        return FindMission(ast, step.ExpertName) is { } mission && mission.Pipeline.Steps().Any(child => CanReachAgent(child, ast, experts));
+        return ast.FindMission(step.ExpertName) is { } mission && mission.Pipeline.Steps().Any(child => CanReachAgent(child, ast, experts));
     }
 
     // ------------------------------------------------------------------

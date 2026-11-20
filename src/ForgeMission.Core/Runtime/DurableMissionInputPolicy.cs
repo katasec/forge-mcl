@@ -9,7 +9,7 @@ internal static class DurableMissionInputPolicy
     internal static IReadOnlyList<string> AdmittedNames(
         Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts, string rootName)
     {
-        var root = ast.Declarations.OfType<MissionDeclaration>().FirstOrDefault(m => m.Name == rootName);
+        var root = ast.FindMission(rootName);
         return (root?.Params ?? []).Concat(ReachableSteps(ast, rootName)
                 .Where(step => experts.ContainsKey(step.ExpertName))
                 .SelectMany(step => experts[step.ExpertName].Inputs ?? []))
@@ -19,7 +19,7 @@ internal static class DurableMissionInputPolicy
 
     internal static IEnumerable<Step> ReachableSteps(Program ast, string rootName)
     {
-        var missions = ast.Declarations.OfType<MissionDeclaration>().ToDictionary(m => m.Name, StringComparer.Ordinal);
+        var missions = ast.Missions.ToDictionary(m => m.Name, StringComparer.Ordinal);
         var visited = new HashSet<string>(StringComparer.Ordinal);
         return Visit(rootName);
 

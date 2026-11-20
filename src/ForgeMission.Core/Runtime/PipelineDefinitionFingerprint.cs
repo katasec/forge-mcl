@@ -16,7 +16,7 @@ internal static class PipelineDefinitionFingerprint
         AppendMany(text, DurableMissionInputPolicy.AdmittedNames(ast, experts, root));
         Append(text, ast.Bindings.Count.ToString(CultureInfo.InvariantCulture));
         foreach (var binding in ast.Bindings) { Append(text, binding.Name); AppendLet(text, binding.Value); }
-        var missions = ast.Declarations.OfType<MissionDeclaration>().OrderBy(m => m.Name, StringComparer.Ordinal).ToArray();
+        var missions = ast.Missions.OrderBy(m => m.Name, StringComparer.Ordinal).ToArray();
         Append(text, missions.Length.ToString(CultureInfo.InvariantCulture));
         foreach (var mission in missions)
             AppendMission(text, mission);

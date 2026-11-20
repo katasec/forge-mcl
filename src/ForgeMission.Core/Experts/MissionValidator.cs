@@ -18,19 +18,16 @@ public static class MissionValidator
         string? missionFilePath = null,
         IReadOnlyDictionary<string, string>? expertMarkdownByName = null)
     {
-        var missionsByName = ast.Declarations
-            .OfType<MissionDeclaration>()
+        var missionsByName = ast.Missions
             .ToDictionary(m => m.Name, StringComparer.Ordinal);
 
         var missionNames = missionsByName.Keys.ToHashSet(StringComparer.Ordinal);
 
-        var missionParams = ast.Declarations
-            .OfType<MissionDeclaration>()
+        var missionParams = ast.Missions
             .SelectMany(m => m.Params)
             .ToHashSet(StringComparer.Ordinal);
 
-        var allSteps = ast.Declarations
-            .OfType<MissionDeclaration>()
+        var allSteps = ast.Missions
             .SelectMany(m => m.Pipeline.Steps().Select(s => s.ExpertName))
             .Distinct(StringComparer.Ordinal);
 
@@ -48,8 +45,7 @@ public static class MissionValidator
 
         ValidateMissionReferenceCycles(missionsByName, missionFilePath);
 
-        var contractIssues = ast.Declarations
-            .OfType<MissionDeclaration>()
+        var contractIssues = ast.Missions
             .SelectMany(m => ValidateContextKeys(m, experts, expertMarkdownByName))
             .ToList();
 

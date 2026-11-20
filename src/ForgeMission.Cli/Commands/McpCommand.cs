@@ -60,7 +60,7 @@ internal static class McpCommand
             if (!CliHelpers.TryValidate(ast, expertDefs, contractErrorsAreFatal: true, mission.FullName))
                 throw new ForgeExitException(1);
 
-            var firstMission = ast.Declarations.OfType<ForgeMission.Parser.MissionDeclaration>().FirstOrDefault();
+            var firstMission = ast.Missions.FirstOrDefault();
             if (firstMission is null) CliDiagnostics.Die("No mission declaration found in mission file.");
 
             await ServeAsync(loggerFactory, clients, webSearch, firstMission, ast, expertDefs, manifest, mission.FullName,

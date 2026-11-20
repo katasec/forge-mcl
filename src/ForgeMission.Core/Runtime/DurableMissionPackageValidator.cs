@@ -25,7 +25,7 @@ public static class DurableMissionPackageValidator
         reason = null;
         try
         {
-            var root = MclParser.Parse(missionSource).Declarations.OfType<MissionDeclaration>().FirstOrDefault();
+            var root = MclParser.Parse(missionSource).Missions.FirstOrDefault();
             if (root is null)
             {
                 reason = "The durable package has no root mission.";
@@ -114,7 +114,7 @@ public static class DurableMissionPackageValidator
             }
         }
 
-        var root = package.Ast.Declarations.OfType<MissionDeclaration>().First();
+        var root = package.Ast.Missions.First();
         if (root.Params.Any(parameter => !seen.Contains(parameter)))
         {
             reason = "All root mission parameters must be supplied explicitly.";
@@ -194,7 +194,7 @@ public static class DurableMissionPackageValidator
     private static void ValidateSemantics(DurableMissionPackageInput package, MclProgram ast,
         Dictionary<string, ExpertDefinition> experts)
     {
-        var missions = ast.Declarations.OfType<MissionDeclaration>().ToArray();
+        var missions = ast.Missions.ToArray();
         var root = missions.FirstOrDefault();
         if (root is null || root.Name != package.RootMissionName || (root.Params.FirstOrDefault() ?? "") != package.RootInputName)
             throw new InvalidOperationException("Root metadata must select the first mission and its first parameter.");
