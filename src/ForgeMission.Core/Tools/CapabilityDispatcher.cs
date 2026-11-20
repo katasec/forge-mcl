@@ -106,17 +106,9 @@ public sealed class CapabilityDispatcher(
         try
         {
             var content = await files.ReadFileAsync(resolved, ct);
-            var occurrences = CountOccurrences(content, request.OldString);
-            if (occurrences == 0)
-                return ToolExecutionResult.Error("old_string not found in file");
-            if (occurrences > 1 && !request.ReplaceAll)
-                return ToolExecutionResult.Error(
-                    $"old_string is not unique ({occurrences} matches) — pass replace_all: true, " +
-                    "or include more surrounding context to make it unique");
+            var (updated, occurrences, editError) = ApplyEdit(content, request);
+            if (editError is not null) return editError;
 
-            var updated = request.ReplaceAll
-                ? content.Replace(request.OldString, request.NewString)
-                : ReplaceFirst(content, request.OldString, request.NewString);
             await files.WriteFileAsync(resolved, updated, ct);
             return new ToolExecutionResult(request.ReplaceAll
                 ? $"Edited {request.FilePath} ({occurrences} replacements)"
@@ -126,6 +118,24 @@ public sealed class CapabilityDispatcher(
         {
             return ToolExecutionResult.Error($"Failed to edit {request.FilePath}: {ex.Message}");
         }
+    }
+
+    // The edit rule: old_string must occur, and occur once unless replace_all is set.
+    private static (string Updated, int Occurrences, ToolExecutionResult? Error) ApplyEdit(
+        string content, EditFileCapabilityRequest request)
+    {
+        var occurrences = CountOccurrences(content, request.OldString);
+        if (occurrences == 0)
+            return (content, 0, ToolExecutionResult.Error("old_string not found in file"));
+        if (occurrences > 1 && !request.ReplaceAll)
+            return (content, occurrences, ToolExecutionResult.Error(
+                $"old_string is not unique ({occurrences} matches) — pass replace_all: true, " +
+                "or include more surrounding context to make it unique"));
+
+        var updated = request.ReplaceAll
+            ? content.Replace(request.OldString, request.NewString)
+            : ReplaceFirst(content, request.OldString, request.NewString);
+        return (updated, occurrences, null);
     }
 
     private async Task<ToolExecutionResult> WriteFileAsync(
