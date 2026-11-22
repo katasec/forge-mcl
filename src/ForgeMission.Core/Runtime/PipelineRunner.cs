@@ -592,7 +592,7 @@ public class PipelineRunner
         await TraceStepCompletedAsync(step, key, expert, invocation.Envelope, attempt, ct);
 
         if (calls.Count != 1) return Failure(scope.RootMissionName, PipelineFailure.MultipleOutstandingTools);
-        var call = ToPipelineToolCalls(calls).Single();
+        var call = PipelineToolCallConversion.From(calls).Single();
         if (!scope.Declarations.Any(declaration => string.Equals(declaration.Name, call.Name, StringComparison.Ordinal)))
             return Failure(scope.RootMissionName, PipelineFailure.UnsupportedTool);
 
@@ -791,64 +791,6 @@ public class PipelineRunner
             if (!_localContinuations.TryGetValue(rootExecutionId, out var state))
                 _localContinuations[rootExecutionId] = state = new LocalContinuationState();
             state.CurrentOrdinal = ordinal;
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Tool-call and context conversions
-    // ------------------------------------------------------------------
-
-    // Converts each provider-SDK FunctionCallContent to the closed PipelineToolCall shape — no
-    // provider SDK object crosses into the trace. A small Utf8JsonWriter conversion keeps it
-    // reflection-free for Native AOT.
-    private static IReadOnlyList<PipelineToolCall> ToPipelineToolCalls(IReadOnlyList<FunctionCallContent> calls)
-        => calls.Select(call => new PipelineToolCall(
-            call.CallId,
-            call.Name,
-            ToolArgumentsToJsonElement(call.Arguments))).ToList();
-
-    private static JsonElement ToolArgumentsToJsonElement(IDictionary<string, object?>? arguments)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using var writer = new Utf8JsonWriter(buffer);
-        writer.WriteStartObject();
-        foreach (var (name, value) in arguments ?? new Dictionary<string, object?>())
-        {
-            writer.WritePropertyName(name);
-            WriteToolArgumentValue(writer, value);
-        }
-        writer.WriteEndObject();
-        writer.Flush();
-
-        using var document = JsonDocument.Parse(buffer.WrittenMemory);
-        return document.RootElement.Clone();
-    }
-
-    private static void WriteToolArgumentValue(Utf8JsonWriter writer, object? value)
-    {
-        switch (value)
-        {
-            case null:
-                writer.WriteNullValue();
-                return;
-            case string text:
-                writer.WriteStringValue(text);
-                return;
-            case bool boolean:
-                writer.WriteBooleanValue(boolean);
-                return;
-            case long integer:
-                writer.WriteNumberValue(integer);
-                return;
-            case double number:
-                writer.WriteNumberValue(number);
-                return;
-            case JsonElement element:
-                element.WriteTo(writer);
-                return;
-            default:
-                throw new InvalidOperationException(
-                    $"Unsupported tool argument type '{value.GetType().FullName}'.");
         }
     }
 
