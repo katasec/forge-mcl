@@ -663,7 +663,7 @@ public sealed class PipelineRunner
 
         if (calls.Count != 1) return Failure(scope.RootMissionName, PipelineFailure.MultipleOutstandingTools);
         var call = PipelineToolCallConversion.From(calls[0]);
-        if (!scope.Declarations.Any(declaration => string.Equals(declaration.Name, call.Name, StringComparison.Ordinal)))
+        if (!PipelineContinuationIdentity.Declares(scope.Declarations, call.Name))
             return Failure(scope.RootMissionName, PipelineFailure.UnsupportedTool);
 
         if (options.OnTrace is { } onCheckpointed)
