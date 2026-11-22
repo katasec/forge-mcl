@@ -627,10 +627,8 @@ public sealed class PipelineRunner
     }
 
     private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
-        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey(ContextKeys.Tools);
-
-    private static bool IsPlainTextLlm(ExpertDefinition expert) =>
-        expert.Kind == ExpertKinds.Llm && !expert.IsJudge;
+        options.StreamLlmDeltas && expert.Kind == ExpertKinds.Llm && !expert.IsJudge
+        && !context.ContainsKey(ContextKeys.Tools);
 
     // Removes what AttachTools and the runner put on the context for this call only; returns the
     // provider's complete reply messages, when the runner left them.
