@@ -553,8 +553,10 @@ public sealed class AgentToolPipelineTests
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
-        await Assert.ThrowsAsync<OperationCanceledException>(() => new PipelineRunner(new DirectExpertRunner(new ContinuationClient())).RunAsync(
+        var cancelledClient = new ContinuationClient();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => new PipelineRunner(new DirectExpertRunner(cancelledClient)).RunAsync(
             ast, experts, new PipelineRunOptions("Root", RootTools: ClientTools()), cancelled.Token));
+        Assert.Empty(cancelledClient.Calls);
     }
 
     [Fact]

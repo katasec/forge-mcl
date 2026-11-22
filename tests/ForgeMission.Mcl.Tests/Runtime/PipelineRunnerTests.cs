@@ -83,14 +83,39 @@ public class PipelineRunnerTests
             }
             """);
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         cts.Cancel();
+        var stub = new TokenBlindExpertRunner();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new PipelineRunner(new StubExpertRunner())
+            new PipelineRunner(stub)
                 .RunAsync(ast, Experts("KubernetesArchitect", "SecurityArchitect"),
                           new PipelineRunOptions("BuildOperator"),
                           cts.Token));
+
+        Assert.Empty(stub.Calls);
+    }
+
+    [Fact]
+    public async Task CancellationToken_CancelledMidRun_StopsBeforeNextStep()
+    {
+        var ast = MclParser.Parse("""
+            mission BuildOperator = {
+                KubernetesArchitect
+                -> SecurityArchitect
+            }
+            """);
+
+        using var cts = new CancellationTokenSource();
+        var stub = new TokenBlindExpertRunner(cts.Cancel);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new PipelineRunner(stub)
+                .RunAsync(ast, Experts("KubernetesArchitect", "SecurityArchitect"),
+                          new PipelineRunOptions("BuildOperator"),
+                          cts.Token));
+
+        Assert.Equal("KubernetesArchitect", Assert.Single(stub.Calls));
     }
 
     // ── Let bindings ──────────────────────────────────────────────────────────
@@ -858,5 +883,20 @@ public class PipelineRunnerTests
         Assert.Contains("ExpertB", result.FailReason);
         // Synthesiser must not run when a parallel step fails.
         Assert.DoesNotContain(stub.Calls, c => c.ExpertName == "Synthesiser");
+    }
+
+    // Records every call and never checks the token, so only the runner's own
+    // cancellation checks can stop a run.
+    private sealed class TokenBlindExpertRunner(Action? onCall = null) : IExpertRunner
+    {
+        public List<string> Calls { get; } = [];
+
+        public Task<StepEnvelope> RunAsync(
+            ExpertDefinition expert, Dictionary<string, object> context, CancellationToken ct = default)
+        {
+            Calls.Add(expert.Name);
+            onCall?.Invoke();
+            return Task.FromResult(new StepEnvelope($"Output from {expert.Name}"));
+        }
     }
 }
