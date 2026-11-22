@@ -25,11 +25,15 @@ internal static class PipelineContinuationIdentity
         return checkpoint.AdmittedInputNames.SequenceEqual(admittedNames, StringComparer.Ordinal)
             && checkpoint.RootInputs.Keys.All(name => admittedNames.Contains(name, StringComparer.Ordinal))
             && string.Equals(pending.CallId, resultCallId, StringComparison.Ordinal)
-            && checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, pending.Name, StringComparison.Ordinal))
+            && Declares(checkpoint.ToolDeclarations, pending.Name)
             && string.Equals(checkpoint.RootToolScopeFingerprint, ScopeFingerprint(checkpoint.ToolDeclarations), StringComparison.Ordinal)
             && string.Equals(checkpoint.RootDefinitionFingerprint,
                 PipelineDefinitionFingerprint.Compute(ast, experts, checkpoint.RootMissionName), StringComparison.Ordinal);
     }
+
+    // A tool call is in scope only when a root tool declares its exact name, at pause and at resume.
+    internal static bool Declares(IEnumerable<PipelineToolDeclaration> declarations, string toolName)
+        => declarations.Any(declaration => string.Equals(declaration.Name, toolName, StringComparison.Ordinal));
 
     // Pause hashes the declared schemas; resume hashes the checkpoint's re-serialized copies. Both
     // hash the same compact form so schema whitespace never invalidates a continuation.

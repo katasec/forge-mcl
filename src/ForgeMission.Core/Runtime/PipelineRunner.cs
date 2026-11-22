@@ -283,11 +283,11 @@ public sealed class PipelineRunner
         MissionAttempt attempt,
         CancellationToken ct)
     {
-        var subResult = await RunSubMissionAsync(step, key, context, attempt, ct);
-        if (Halts(subResult)) return new StepOutcome(null, subResult);
+        var sub = await RunSubMissionAsync(step, key, context, attempt, ct);
+        if (sub.Halt is not null) return new StepOutcome(null, sub.Halt);
 
-        context[ContextKeys.Output] = subResult.Text;
-        return new StepOutcome(SubMissionFailReason(step, subResult), null);
+        context[ContextKeys.Output] = sub.Text;
+        return new StepOutcome(sub.FailReason, null);
     }
 
     // A negotiation run's transcript gets each speaker's text, plus its reason when that differs.
@@ -333,6 +333,14 @@ public sealed class PipelineRunner
             ? await RunBranchesInOrderAsync(branches, Branch)
             : await RunBranchesConcurrentlyAsync(branches, Branch, ct);
 
+        return MergeBranches(results, parallel.Steps.Count, context);
+    }
+
+    // A halting branch halts the block. Otherwise each finished branch writes its named output, and
+    // the block fails with the first branch failure, or as cancelled when a branch never finished.
+    private static StepOutcome MergeBranches(
+        IReadOnlyList<BranchOutcome> results, int branchCount, Dictionary<string, object> context)
+    {
         if (results.FirstOrDefault(result => result.Halt is not null)?.Halt is { } halt)
             return new StepOutcome(null, halt);
 
@@ -340,15 +348,18 @@ public sealed class PipelineRunner
             context[result.NamedKey] = result.Output;
 
         var failReason = results.Select(result => result.FailReason).FirstOrDefault(reason => reason is not null)
-            ?? (results.Count < parallel.Steps.Count ? "a parallel step was cancelled" : null);
+            ?? (results.Count < branchCount ? "a parallel step was cancelled" : null);
         return new StepOutcome(failReason, null);
     }
 
+    // Mission first, as a step runs: a sub-mission reaches an agent when any step it reaches is one.
     private static bool CanReachAgent(Step step, Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts)
-    {
-        if (experts.TryGetValue(step.ExpertName, out var expert)) return expert.IsAgent;
-        return ast.FindMission(step.ExpertName) is { } mission && mission.Pipeline.Steps().Any(child => CanReachAgent(child, ast, experts));
-    }
+        => ast.FindMission(step.ExpertName) is not null
+            ? DurableMissionInputPolicy.ReachableSteps(ast, step.ExpertName).Any(child => IsAgent(child, experts))
+            : IsAgent(step, experts);
+
+    private static bool IsAgent(Step step, IReadOnlyDictionary<string, ExpertDefinition> experts)
+        => experts.TryGetValue(step.ExpertName, out var expert) && expert.IsAgent;
 
     private static async Task<IReadOnlyList<BranchOutcome>> RunBranchesInOrderAsync(
         IReadOnlyList<(Step step, string key)> branches,
@@ -393,9 +404,8 @@ public sealed class PipelineRunner
         // Sub-mission in parallel block → recurse with isolated child context.
         if (attempt.Ast.FindMission(step.ExpertName) is not null)
         {
-            var subResult = await RunSubMissionAsync(step, key, baseContext, attempt, ct);
-            if (Halts(subResult)) return new BranchOutcome(null, namedKey, subResult.Text, subResult);
-            return new BranchOutcome(SubMissionFailReason(step, subResult), namedKey, subResult.Text, null);
+            var sub = await RunSubMissionAsync(step, key, baseContext, attempt, ct);
+            return new BranchOutcome(sub.FailReason, namedKey, sub.Text, sub.Halt);
         }
 
         var expert = ResolveExpert(attempt.Experts, step);
@@ -421,8 +431,9 @@ public sealed class PipelineRunner
     // Sub-mission: the step name matches a declared mission, so recurse under the step's key with
     // its with-bindings as the child's vars. No synthetic lifecycle fact is emitted for the
     // sub-mission invocation itself — the actual experts inside it, at the deeper path
-    // CreateChildOptions builds, are the visible trail.
-    private async Task<MissionResult> RunSubMissionAsync(
+    // CreateChildOptions builds, are the visible trail. A halting sub-mission carries its result as
+    // the halt and no fail reason; otherwise the fail reason is set only when it failed.
+    private async Task<SubMissionOutcome> RunSubMissionAsync(
         Step step,
         string key,
         Dictionary<string, object> context,
@@ -434,8 +445,12 @@ public sealed class PipelineRunner
             b => ContextBuilder.ResolveBindingValue(b.Value, context),
             StringComparer.Ordinal);
 
-        return await RunCoreAsync(attempt.Ast, attempt.Experts,
+        var result = await RunCoreAsync(attempt.Ast, attempt.Experts,
             CreateChildOptions(attempt.Options, step.ExpertName, childVars, attempt.MissionPath), attempt.Run, ChildPrefix(key), ct);
+
+        return Halts(result)
+            ? new SubMissionOutcome(result.Text, null, result)
+            : new SubMissionOutcome(result.Text, SubMissionFailReason(step, result), null);
     }
 
     // Builds a child mission's options for RunSubMissionAsync.
@@ -464,13 +479,15 @@ public sealed class PipelineRunner
             context[binding.Key] = ContextBuilder.ResolveBindingValue(binding.Value, context);
     }
 
-    private static string? StepFailReason(Step step, StepEnvelope envelope) => envelope.Status == StepEnvelope.Fail
-        ? $"[{step.ExpertName}] {envelope.Reason ?? "step failed"}"
-        : null;
+    private static string? StepFailReason(Step step, StepEnvelope envelope)
+        => FailReason(step, envelope.Status == StepEnvelope.Fail, envelope.Reason, "step failed");
 
-    private static string? SubMissionFailReason(Step step, MissionResult subResult) => subResult.Status == MissionStatus.Fail
-        ? $"[{step.ExpertName}] {subResult.FailReason ?? "sub-mission failed"}"
-        : null;
+    private static string? SubMissionFailReason(Step step, MissionResult subResult)
+        => FailReason(step, subResult.Status == MissionStatus.Fail, subResult.FailReason, "sub-mission failed");
+
+    // A failing step's reason, prefixed with its name so the mission result says which step failed.
+    private static string? FailReason(Step step, bool failed, string? reason, string fallback)
+        => failed ? $"[{step.ExpertName}] {reason ?? fallback}" : null;
 
     private static async Task TraceStepCompletedAsync(
         Step step,
@@ -613,10 +630,8 @@ public sealed class PipelineRunner
     }
 
     private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
-        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey(ContextKeys.Tools);
-
-    private static bool IsPlainTextLlm(ExpertDefinition expert) =>
-        expert.Kind == ExpertKinds.Llm && !expert.IsJudge;
+        options.StreamLlmDeltas && expert.Kind == ExpertKinds.Llm && !expert.IsJudge
+        && !context.ContainsKey(ContextKeys.Tools);
 
     // Removes what AttachTools and the runner put on the context for this call only; returns the
     // provider's complete reply messages, when the runner left them.
@@ -654,31 +669,27 @@ public sealed class PipelineRunner
         MissionAttempt attempt,
         CancellationToken ct)
     {
-        var options = attempt.Options;
-        var run = attempt.Run;
-        var missionPath = attempt.MissionPath;
-        var number = attempt.Number;
-        var scope = run.Scope!;
+        var scope = attempt.Run.Scope!;
         await TraceStepCompletedAsync(step, key, expert, invocation.Envelope, attempt, ct);
 
         if (calls.Count != 1) return Failure(scope.RootMissionName, PipelineFailure.MultipleOutstandingTools);
-        var call = PipelineToolCallConversion.From(calls).Single();
-        if (!scope.Declarations.Any(declaration => string.Equals(declaration.Name, call.Name, StringComparison.Ordinal)))
+        var call = PipelineToolCallConversion.From(calls[0]);
+        if (!PipelineContinuationIdentity.Declares(scope.Declarations, call.Name))
             return Failure(scope.RootMissionName, PipelineFailure.UnsupportedTool);
 
-        if (options.OnTrace is { } onCheckpointed)
-            await onCheckpointed(new PipelineRootToolCheckpointed(options.MissionName, missionPath, step.ExpertName, expert.Kind, number, call) { StepKey = key }, ct);
+        if (attempt.Options.OnTrace is { } onCheckpointed)
+            await onCheckpointed(new PipelineRootToolCheckpointed(attempt.Options.MissionName, attempt.MissionPath, step.ExpertName, expert.Kind, attempt.Number, call) { StepKey = key }, ct);
 
         var ordinal = scope.NextOrdinal();
         RegisterIssuedContinuation(scope.RootExecutionId, ordinal);
         var checkpoint = new PipelineContinuationCheckpoint(PipelineCheckpointCodec.CheckpointVersion,
             Guid.NewGuid().ToString("N"), scope.RootExecutionId, ordinal, scope.RootMissionName,
-            scope.DefinitionFingerprint, scope.ToolScopeFingerprint, scope.Declarations, missionPath, step.ExpertName,
-            number, invocation.Turn, scope.RootInputs, scope.AdmittedInputNames,
-            run.LogSnapshot(), key);
-        var pause = new PipelineToolPause(scope.RootMissionName, missionPath, step.ExpertName, number, call,
+            scope.DefinitionFingerprint, scope.ToolScopeFingerprint, scope.Declarations, attempt.MissionPath, step.ExpertName,
+            attempt.Number, invocation.Turn, scope.RootInputs, scope.AdmittedInputNames,
+            attempt.Run.LogSnapshot(), key);
+        var pause = new PipelineToolPause(scope.RootMissionName, attempt.MissionPath, step.ExpertName, attempt.Number, call,
             new PipelineContinuation(PipelineCheckpointCodec.EnvelopeVersion, PipelineCheckpointCodec.Write(checkpoint)));
-        return new MissionResult(scope.RootMissionName, string.Empty, MissionStatus.Pass, Attempts: number, Pause: pause);
+        return new MissionResult(scope.RootMissionName, string.Empty, MissionStatus.Pass, Attempts: attempt.Number, Pause: pause);
     }
 
     // ------------------------------------------------------------------
@@ -793,6 +804,8 @@ public sealed class PipelineRunner
     private sealed record StepOutcome(string? FailReason, MissionResult? Halt);
 
     private sealed record BranchOutcome(string? FailReason, string NamedKey, string Output, MissionResult? Halt);
+
+    private sealed record SubMissionOutcome(string Text, string? FailReason, MissionResult? Halt);
 
     private sealed record StepInvocation(
         StepEnvelope Envelope,
