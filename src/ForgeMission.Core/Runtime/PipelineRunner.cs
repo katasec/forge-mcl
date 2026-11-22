@@ -3,8 +3,8 @@ using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
 using ForgeMission.Parser;
-using Microsoft.Extensions.AI;
 using ForgeMission.Scout;
+using Microsoft.Extensions.AI;
 
 namespace ForgeMission.Core.Runtime;
 
@@ -115,9 +115,8 @@ public sealed class PipelineRunner
         string? loopFeedback = null;
         var transcript = IsNegotiationEligible(mission, experts) ? new SpeakerTranscript() : null;
 
-        // Fresh array, root mission first, ending with this mission. A
-        // top-level call leaves options.MissionPath null; CreateChildOptions supplies it for a
-        // nested sub-mission invocation.
+        // Root mission first, ending with this one. A top-level call leaves MissionPath null;
+        // CreateChildOptions sets it for a sub-mission.
         IReadOnlyList<string> missionPath = options.MissionPath ?? [options.MissionName];
 
         for (var attempt = 1; attempt <= mission.MaxLoops; attempt++)
@@ -199,7 +198,6 @@ public sealed class PipelineRunner
         MissionAttempt attempt,
         CancellationToken ct)
     {
-        // Track whether any when()-guarded step matched — used for when(else) and error detection.
         var anyGuardedStepMatched = false;
 
         var elements = mission.Pipeline.Elements;
@@ -270,9 +268,8 @@ public sealed class PipelineRunner
         context[ContextKeys.Output] = envelope.Text;
         RecordHistory(step, envelope, context);
 
-        // Emitted for both pass and fail envelopes, after the output/history update above and
-        // before the caller decides whether the envelope fails the mission — always awaited
-        // before the next step begins. A replayed step reports nothing.
+        // Reported for pass and fail, before the caller decides whether the step fails the
+        // mission and before the next step starts. A replayed step reports nothing.
         if (!invocation.Replayed)
             await TraceStepCompletedAsync(step, key, expert, envelope, attempt, ct);
 
@@ -509,8 +506,7 @@ public sealed class PipelineRunner
 
         var runner = RunnerFor(expert, step, attempt.Options, key, attempt.Number);
 
-        // Before invoking a real expert: its attempt is the enclosing
-        // mission's current loop attempt.
+        // The step's attempt is the enclosing mission's current loop attempt.
         if (attempt.Options.OnTrace is { } onStarted)
             await onStarted(new PipelineStepStarted(attempt.Options.MissionName, attempt.MissionPath, step.ExpertName, expert.Kind, attempt.Number) { StepKey = key }, ct);
 
