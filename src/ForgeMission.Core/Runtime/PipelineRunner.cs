@@ -464,13 +464,15 @@ public sealed class PipelineRunner
             context[binding.Key] = ContextBuilder.ResolveBindingValue(binding.Value, context);
     }
 
-    private static string? StepFailReason(Step step, StepEnvelope envelope) => envelope.Status == StepEnvelope.Fail
-        ? $"[{step.ExpertName}] {envelope.Reason ?? "step failed"}"
-        : null;
+    private static string? StepFailReason(Step step, StepEnvelope envelope)
+        => FailReason(step, envelope.Status == StepEnvelope.Fail, envelope.Reason, "step failed");
 
-    private static string? SubMissionFailReason(Step step, MissionResult subResult) => subResult.Status == MissionStatus.Fail
-        ? $"[{step.ExpertName}] {subResult.FailReason ?? "sub-mission failed"}"
-        : null;
+    private static string? SubMissionFailReason(Step step, MissionResult subResult)
+        => FailReason(step, subResult.Status == MissionStatus.Fail, subResult.FailReason, "sub-mission failed");
+
+    // A failing step's reason, prefixed with its name so the mission result says which step failed.
+    private static string? FailReason(Step step, bool failed, string? reason, string fallback)
+        => failed ? $"[{step.ExpertName}] {reason ?? fallback}" : null;
 
     private static async Task TraceStepCompletedAsync(
         Step step,
