@@ -352,11 +352,14 @@ public sealed class PipelineRunner
         return new StepOutcome(failReason, null);
     }
 
+    // Mission first, as a step runs: a sub-mission reaches an agent when any step it reaches is one.
     private static bool CanReachAgent(Step step, Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts)
-    {
-        if (experts.TryGetValue(step.ExpertName, out var expert)) return expert.IsAgent;
-        return ast.FindMission(step.ExpertName) is { } mission && mission.Pipeline.Steps().Any(child => CanReachAgent(child, ast, experts));
-    }
+        => ast.FindMission(step.ExpertName) is not null
+            ? DurableMissionInputPolicy.ReachableSteps(ast, step.ExpertName).Any(child => IsAgent(child, experts))
+            : IsAgent(step, experts);
+
+    private static bool IsAgent(Step step, IReadOnlyDictionary<string, ExpertDefinition> experts)
+        => experts.TryGetValue(step.ExpertName, out var expert) && expert.IsAgent;
 
     private static async Task<IReadOnlyList<BranchOutcome>> RunBranchesInOrderAsync(
         IReadOnlyList<(Step step, string key)> branches,
