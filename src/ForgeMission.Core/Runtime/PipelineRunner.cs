@@ -140,6 +140,24 @@ public sealed class PipelineRunner
         return lastResult!;
     }
 
+    private static bool IsNegotiationEligible(
+        MissionDeclaration mission,
+        IReadOnlyDictionary<string, ExpertDefinition> experts)
+    {
+        if (mission.MaxLoops <= 1) return false;
+
+        foreach (var element in mission.Pipeline.Elements)
+        {
+            if (element is not StepElement stepElement
+                || !experts.TryGetValue(stepElement.Step.ExpertName, out var expert)
+                || expert.Kind != ExpertKinds.Llm
+                || expert.IsAgent)
+                return false;
+        }
+
+        return true;
+    }
+
     // The context one loop attempt starts from: the seeded vars plus the reserved runtime keys.
     private static Dictionary<string, object> SeedAttemptContext(
         Program ast,
@@ -163,6 +181,14 @@ public sealed class PipelineRunner
             context[ContextKeys.History] = transcript;
         return context;
     }
+
+    // In a chat run the first step's input is the new message — the root mission's first
+    // declared parameter. Seeded only when the run carries ChatHistory; every other run starts
+    // with an empty initial output.
+    private static string ChatInput(MissionDeclaration mission, IReadOnlyDictionary<string, string>? vars)
+        => mission.Params.FirstOrDefault() is { } parameter && vars?.TryGetValue(parameter, out var value) == true
+            ? value
+            : string.Empty;
 
     // Runs the mission's elements once, in order. Stops at the first halt or failing step; a
     // pipeline with when() guards must match one of them or have a when(else) branch.
@@ -212,6 +238,12 @@ public sealed class PipelineRunner
             ? new MissionResult(missionName, text, MissionStatus.Pass, null, attempt)
             : new MissionResult(missionName, text, MissionStatus.Fail, failReason, attempt);
     }
+
+    // A pause or a root-tool failure ends the run at every depth; a loop never retries it.
+    private static bool Halts(MissionResult result) => result.Pause is not null || result.Failure is not null;
+
+    private static MissionResult Failure(string missionName, PipelineFailure failure)
+        => new(missionName, string.Empty, MissionStatus.Fail, failure.ToString(), Failure: failure);
 
     // ------------------------------------------------------------------
     // Sequence and parallel steps
@@ -315,6 +347,12 @@ public sealed class PipelineRunner
         return new StepOutcome(failReason, null);
     }
 
+    private static bool CanReachAgent(Step step, Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts)
+    {
+        if (experts.TryGetValue(step.ExpertName, out var expert)) return expert.IsAgent;
+        return ast.FindMission(step.ExpertName) is { } mission && mission.Pipeline.Steps().Any(child => CanReachAgent(child, ast, experts));
+    }
+
     private static async Task<IReadOnlyList<BranchOutcome>> RunBranchesInOrderAsync(
         IReadOnlyList<(Step step, string key)> branches,
         Func<(Step step, string key), Task<BranchOutcome>> run)
@@ -403,6 +441,26 @@ public sealed class PipelineRunner
             CreateChildOptions(attempt.Options, step.ExpertName, childVars, attempt.MissionPath), attempt.Run, ChildPrefix(key), ct);
     }
 
+    // Builds a child mission's options for RunSubMissionAsync.
+    // Deliberately inherits only the trace sink, delta streaming and the execution workspace, so a
+    // sub-mission runs isolated under its own path (e.g. [Janus, Negotiate] and [Janus, Implement]
+    // stay distinct). Root tools are not options state: they reach a child through the run's
+    // pause scope.
+    private static PipelineRunOptions CreateChildOptions(
+        PipelineRunOptions parent,
+        string childMissionName,
+        Dictionary<string, string> childVars,
+        IReadOnlyList<string> parentPath)
+        => new(
+            childMissionName,
+            childVars,
+            OnTrace: parent.OnTrace,
+            MissionPath: [.. parentPath, childMissionName])
+        {
+            StreamLlmDeltas = parent.StreamLlmDeltas,
+            ExecutionWorkspace = parent.ExecutionWorkspace,
+        };
+
     private static void ApplyBindings(Step step, Dictionary<string, object> context)
     {
         foreach (var binding in step.Context)
@@ -430,7 +488,7 @@ public sealed class PipelineRunner
     }
 
     // ------------------------------------------------------------------
-    // Step invocation
+    // Step invocation, streaming and pausing
     // ------------------------------------------------------------------
 
     // The one invoke point for a step's expert, shared by sequence and parallel steps. On replay a
@@ -478,6 +536,23 @@ public sealed class PipelineRunner
         return new StepInvocation(new StepEnvelope(logged.Text, logged.Status, logged.Reason), Replayed: true, null, []);
     }
 
+    // Root tools (and a resumed tool turn) attach to agent experts' calls only, at every depth —
+    // enrichment and verification experts never see them.
+    private static void AttachTools(
+        ExpertDefinition expert,
+        Dictionary<string, object> context,
+        RunState run,
+        IReadOnlyList<ChatMessage>? turn)
+    {
+        if (!expert.IsAgent || run.Scope is not { } scope) return;
+
+        context[ContextKeys.Tools] = scope.Tools;
+        // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
+        context[ContextKeys.AllowMultipleToolCalls] = false;
+        if (turn is not null)
+            context[ContextKeys.ToolTurnMessages] = turn;
+    }
+
     // Runs the expert, then always strips the per-call tool hand-off from the context. A sequence
     // step's failure is wrapped with its name; a parallel step's propagates as thrown.
     private static async Task<(StepEnvelope Envelope, object? ResponseMessages)> RunExpertAsync(
@@ -511,6 +586,42 @@ public sealed class PipelineRunner
         return (envelope, responseMessages);
     }
 
+    // The one place a sequence step's expert is invoked. It streams only when the
+    // durable executor sets StreamLlmDeltas and the step is a tool-free, non-judge llm step.
+    // OnTrace alone never forces streaming: runners that do not override StreamAsync use
+    // IExpertRunner's text-only default, which cannot preserve a failing StepEnvelope.
+    private static async Task<StepEnvelope> InvokeExpertAsync(
+        IExpertRunner runner,
+        ExpertDefinition expert,
+        Dictionary<string, object> context,
+        string expertName,
+        string key,
+        MissionAttempt attempt,
+        CancellationToken ct)
+    {
+        var options = attempt.Options;
+        if (!StreamsStep(expert, context, options))
+            return await runner.RunAsync(expert, context, ct);
+
+        var text = new StringBuilder();
+        await foreach (var chunk in runner.StreamAsync(expert, context, ct))
+        {
+            text.Append(chunk);
+
+            if (options.OnTrace is { } onDelta && !string.IsNullOrEmpty(chunk))
+                await onDelta(new PipelineStepDelta(options.MissionName, attempt.MissionPath, expertName, expert.Kind, attempt.Number, chunk) { StepKey = key }, ct);
+        }
+
+        // A non-judge llm step streams plain text and always passes.
+        return new StepEnvelope(text.ToString());
+    }
+
+    private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
+        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey(ContextKeys.Tools);
+
+    private static bool IsPlainTextLlm(ExpertDefinition expert) =>
+        expert.Kind == ExpertKinds.Llm && !expert.IsJudge;
+
     // Removes what AttachTools and the runner put on the context for this call only; returns the
     // provider's complete reply messages, when the runner left them.
     private static object? DetachTools(Dictionary<string, object> context)
@@ -530,29 +641,11 @@ public sealed class PipelineRunner
             ? calls
             : null;
 
-
     // Existing call-only runners and complete provider replies converge before checkpointing.
     private static IReadOnlyList<ChatMessage> NormalizeToolTurn(IReadOnlyList<ChatMessage>? turn,
         object? responseMessages, IReadOnlyList<FunctionCallContent> calls) =>
         [.. turn ?? [], .. responseMessages is IReadOnlyList<ChatMessage> messages
             ? messages : [new ChatMessage(ChatRole.Assistant, [.. calls])]];
-
-    // Root tools (and a resumed tool turn) attach to agent experts' calls only, at every depth —
-    // enrichment and verification experts never see them.
-    private static void AttachTools(
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        RunState run,
-        IReadOnlyList<ChatMessage>? turn)
-    {
-        if (!expert.IsAgent || run.Scope is not { } scope) return;
-
-        context[ContextKeys.Tools] = scope.Tools;
-        // One call per pause is Core's rule (PipelineToolPause holds exactly one ToolCall).
-        context[ContextKeys.AllowMultipleToolCalls] = false;
-        if (turn is not null)
-            context[ContextKeys.ToolTurnMessages] = turn;
-    }
 
     // A root tool call ends the whole run. The checkpoint holds the log of completed steps, this
     // step's key, and its tool turn so far, so a resume can replay up to here and continue the turn.
@@ -592,52 +685,6 @@ public sealed class PipelineRunner
         return new MissionResult(scope.RootMissionName, string.Empty, MissionStatus.Pass, Attempts: number, Pause: pause);
     }
 
-    // Builds a child mission's options for RunSubMissionAsync.
-    // Deliberately inherits only the trace sink, delta streaming and the execution workspace, so a
-    // sub-mission runs isolated under its own path (e.g. [Janus, Negotiate] and [Janus, Implement]
-    // stay distinct). Root tools are not options state: they reach a child through the run's
-    // pause scope.
-    private static PipelineRunOptions CreateChildOptions(
-        PipelineRunOptions parent,
-        string childMissionName,
-        Dictionary<string, string> childVars,
-        IReadOnlyList<string> parentPath)
-        => new(
-            childMissionName,
-            childVars,
-            OnTrace: parent.OnTrace,
-            MissionPath: [.. parentPath, childMissionName])
-        {
-            StreamLlmDeltas = parent.StreamLlmDeltas,
-            ExecutionWorkspace = parent.ExecutionWorkspace,
-        };
-
-    // In a chat run the first step's input is the new message — the root mission's first
-    // declared parameter. Seeded only when the run carries ChatHistory; every other run starts
-    // with an empty initial output.
-    private static string ChatInput(MissionDeclaration mission, IReadOnlyDictionary<string, string>? vars)
-        => mission.Params.FirstOrDefault() is { } parameter && vars?.TryGetValue(parameter, out var value) == true
-            ? value
-            : string.Empty;
-
-    private static bool IsNegotiationEligible(
-        MissionDeclaration mission,
-        IReadOnlyDictionary<string, ExpertDefinition> experts)
-    {
-        if (mission.MaxLoops <= 1) return false;
-
-        foreach (var element in mission.Pipeline.Elements)
-        {
-            if (element is not StepElement stepElement
-                || !experts.TryGetValue(stepElement.Step.ExpertName, out var expert)
-                || expert.Kind != ExpertKinds.Llm
-                || expert.IsAgent)
-                return false;
-        }
-
-        return true;
-    }
-
     // ------------------------------------------------------------------
     // Step keys and the replay log
     // ------------------------------------------------------------------
@@ -664,25 +711,16 @@ public sealed class PipelineRunner
         return writes;
     }
 
-    // A pause or a root-tool failure ends the run at every depth; a loop never retries it.
-    private static bool Halts(MissionResult result) => result.Pause is not null || result.Failure is not null;
-
-    private static MissionResult Failure(string missionName, PipelineFailure failure)
-        => new(missionName, string.Empty, MissionStatus.Fail, failure.ToString(), Failure: failure);
-
     // ------------------------------------------------------------------
     // Resolution
     // ------------------------------------------------------------------
 
-    private IExpertRunner ResolveRunner(string? profileName)
-    {
-        var key = profileName ?? DefaultProfile;
-        return _runners.TryGetValue(key, out var runner)
-            ? runner
+    private static ExpertDefinition ResolveExpert(IReadOnlyDictionary<string, ExpertDefinition> experts, Step step)
+        => experts.TryGetValue(step.ExpertName, out var expert)
+            ? expert
             : throw new InvalidOperationException(
-                $"Provider profile '{key}' not found. " +
-                $"Add [providers.{key}] to forge.toml. Available: {string.Join(", ", _runners.Keys)}");
-    }
+                $"Expert '{step.ExpertName}' not found. " +
+                "Run 'forge validate' to check your mission before running.");
 
     private IExpertRunner RunnerFor(ExpertDefinition expert, Step step, PipelineRunOptions options, string key, int attempt) => expert.Kind switch
     {
@@ -700,17 +738,14 @@ public sealed class PipelineRunner
                                        $"Expert '{expert.Name}' has unknown kind '{expert.Kind}'.")
     };
 
-    private static ExpertDefinition ResolveExpert(IReadOnlyDictionary<string, ExpertDefinition> experts, Step step)
-        => experts.TryGetValue(step.ExpertName, out var expert)
-            ? expert
-            : throw new InvalidOperationException(
-                $"Expert '{step.ExpertName}' not found. " +
-                "Run 'forge validate' to check your mission before running.");
-
-    private static bool CanReachAgent(Step step, Program ast, IReadOnlyDictionary<string, ExpertDefinition> experts)
+    private IExpertRunner ResolveRunner(string? profileName)
     {
-        if (experts.TryGetValue(step.ExpertName, out var expert)) return expert.IsAgent;
-        return ast.FindMission(step.ExpertName) is { } mission && mission.Pipeline.Steps().Any(child => CanReachAgent(child, ast, experts));
+        var key = profileName ?? DefaultProfile;
+        return _runners.TryGetValue(key, out var runner)
+            ? runner
+            : throw new InvalidOperationException(
+                $"Provider profile '{key}' not found. " +
+                $"Add [providers.{key}] to forge.toml. Available: {string.Join(", ", _runners.Keys)}");
     }
 
     // ------------------------------------------------------------------
@@ -745,46 +780,6 @@ public sealed class PipelineRunner
             state.CurrentOrdinal = ordinal;
         }
     }
-
-    // ------------------------------------------------------------------
-    // Expert invocation and streaming
-    // ------------------------------------------------------------------
-
-    // The one place a sequence step's expert is invoked. It streams only when the
-    // durable executor sets StreamLlmDeltas and the step is a tool-free, non-judge llm step.
-    // OnTrace alone never forces streaming: runners that do not override StreamAsync use
-    // IExpertRunner's text-only default, which cannot preserve a failing StepEnvelope.
-    private static async Task<StepEnvelope> InvokeExpertAsync(
-        IExpertRunner runner,
-        ExpertDefinition expert,
-        Dictionary<string, object> context,
-        string expertName,
-        string key,
-        MissionAttempt attempt,
-        CancellationToken ct)
-    {
-        var options = attempt.Options;
-        if (!StreamsStep(expert, context, options))
-            return await runner.RunAsync(expert, context, ct);
-
-        var text = new StringBuilder();
-        await foreach (var chunk in runner.StreamAsync(expert, context, ct))
-        {
-            text.Append(chunk);
-
-            if (options.OnTrace is { } onDelta && !string.IsNullOrEmpty(chunk))
-                await onDelta(new PipelineStepDelta(options.MissionName, attempt.MissionPath, expertName, expert.Kind, attempt.Number, chunk) { StepKey = key }, ct);
-        }
-
-        // A non-judge llm step streams plain text and always passes.
-        return new StepEnvelope(text.ToString());
-    }
-
-    private static bool StreamsStep(ExpertDefinition expert, Dictionary<string, object> context, PipelineRunOptions options) =>
-        options.StreamLlmDeltas && IsPlainTextLlm(expert) && !context.ContainsKey(ContextKeys.Tools);
-
-    private static bool IsPlainTextLlm(ExpertDefinition expert) =>
-        expert.Kind == ExpertKinds.Llm && !expert.IsJudge;
 
     // ------------------------------------------------------------------
     // Run state
