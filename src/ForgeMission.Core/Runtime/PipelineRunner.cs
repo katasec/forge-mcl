@@ -14,7 +14,7 @@ namespace ForgeMission.Core.Runtime;
 /// <see cref="ResumeAsync"/> runs the mission from the top, returning each logged step's recorded
 /// result instead of running it, until the paused agent continues its tool turn.
 /// </summary>
-public class PipelineRunner
+public sealed class PipelineRunner
 {
     // The runner profile a step uses when it names no `using` profile.
     private const string DefaultProfile = "default";
