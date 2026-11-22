@@ -83,14 +83,39 @@ public class PipelineRunnerTests
             }
             """);
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         cts.Cancel();
+        var stub = new TokenBlindExpertRunner();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new PipelineRunner(new StubExpertRunner())
+            new PipelineRunner(stub)
                 .RunAsync(ast, Experts("KubernetesArchitect", "SecurityArchitect"),
                           new PipelineRunOptions("BuildOperator"),
                           cts.Token));
+
+        Assert.Empty(stub.Calls);
+    }
+
+    [Fact]
+    public async Task CancellationToken_CancelledMidRun_StopsBeforeNextStep()
+    {
+        var ast = MclParser.Parse("""
+            mission BuildOperator = {
+                KubernetesArchitect
+                -> SecurityArchitect
+            }
+            """);
+
+        using var cts = new CancellationTokenSource();
+        var stub = new TokenBlindExpertRunner(cts.Cancel);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new PipelineRunner(stub)
+                .RunAsync(ast, Experts("KubernetesArchitect", "SecurityArchitect"),
+                          new PipelineRunOptions("BuildOperator"),
+                          cts.Token));
+
+        Assert.Equal("KubernetesArchitect", Assert.Single(stub.Calls));
     }
 
     // ── Let bindings ──────────────────────────────────────────────────────────
@@ -358,13 +383,13 @@ public class PipelineRunnerTests
         var stub = new StubExpertRunner((name, ctx) =>
         {
             maxLoopsValues.Add(ctx["max_loops"].ToString()!);
-            return new StepEnvelope("done");
+            return new StepEnvelope("done", "fail", "retry");
         });
 
         await new PipelineRunner(stub)
             .RunAsync(ast, Experts("Worker"), new PipelineRunOptions("Demo"));
 
-        Assert.All(maxLoopsValues, v => Assert.Equal("5", v));
+        Assert.Equal(["5", "5", "5", "5", "5"], maxLoopsValues);
     }
 
     [Fact]
@@ -431,17 +456,17 @@ public class PipelineRunnerTests
             ["Drafter"] = Expert("Drafter"),
             ["WordCheck"] = new ExpertDefinition("WordCheck", "draft", "verdict", "check", Kind: "rule", Check: "word_count >= 1")
         };
-        var historiesPresent = new List<bool>();
-        var stub = new StubExpertRunner((_, context) =>
+        var calls = new List<(string Name, bool HasHistory)>();
+        var stub = new StubExpertRunner((name, context) =>
         {
-            historiesPresent.Add(context.ContainsKey("history"));
+            calls.Add((name, context.ContainsKey("history")));
             return new StepEnvelope("done");
         });
 
         await new PipelineRunner(stub)
             .RunAsync(ast, experts, new PipelineRunOptions("Draft"));
 
-        Assert.DoesNotContain(historiesPresent, present => present);
+        Assert.Equal([("Drafter", false)], calls);
     }
 
     [Fact]
@@ -468,10 +493,11 @@ public class PipelineRunnerTests
             ["Worker"] = Expert("Worker"),
             ["Implementer"] = new ExpertDefinition("Implementer", "plan", "result", "implement", Role: "agent")
         };
-        var historiesPresent = new List<bool>();
-        var stub = new StubExpertRunner((_, context) =>
+        var calls = new List<(string Name, bool HasHistory)>();
+        var stub = new StubExpertRunner((name, context) =>
         {
-            historiesPresent.Add(context.ContainsKey("history"));
+            lock (calls)
+                calls.Add((name, context.ContainsKey("history")));
             return new StepEnvelope("done");
         });
         var runner = new PipelineRunner(stub);
@@ -479,7 +505,9 @@ public class PipelineRunnerTests
         await runner.RunAsync(ast, experts, new PipelineRunOptions("ParallelLoop"));
         await runner.RunAsync(ast, experts, new PipelineRunOptions("AgentLoop"));
 
-        Assert.DoesNotContain(historiesPresent, present => present);
+        Assert.Equal(
+            [("First", false), ("Implementer", false), ("Judge", false), ("Second", false), ("Worker", false)],
+            calls.Order());
     }
 
     [Fact]
@@ -492,11 +520,11 @@ public class PipelineRunnerTests
                 -> Reviewer
             }
             """);
-        var historiesPresent = new List<bool>();
+        var calls = new List<(string Name, bool HasHistory)>();
         var reviewerCalls = 0;
         var stub = new StubExpertRunner((name, context) =>
         {
-            historiesPresent.Add(context.ContainsKey("history"));
+            calls.Add((name, context.ContainsKey("history")));
             return name == "Reviewer" && ++reviewerCalls == 1
                 ? new StepEnvelope("needs revision", "fail", "retry")
                 : new StepEnvelope("done");
@@ -505,7 +533,7 @@ public class PipelineRunnerTests
         await new PipelineRunner(stub)
             .RunAsync(ast, Experts("Worker", "Reviewer"), new PipelineRunOptions("Outer"));
 
-        Assert.DoesNotContain(historiesPresent, present => present);
+        Assert.Equal([("Worker", false), ("Reviewer", false), ("Worker", false), ("Reviewer", false)], calls);
     }
 
     // ── when() routing ────────────────────────────────────────────────────────
@@ -590,10 +618,12 @@ public class PipelineRunnerTests
             return new StepEnvelope($"Output from {name}");
         });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new PipelineRunner(stub)
                 .RunAsync(ast, Experts("Classifier", "Architect", "Developer"),
                           new PipelineRunOptions("HandleRequest")));
+
+        Assert.Equal("No when() guard matched and no when(else) branch exists in the pipeline.", ex.Message);
     }
 
     [Theory]
@@ -717,8 +747,10 @@ public class PipelineRunnerTests
             ["default"] = new StubExpertRunner()
         });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => runner.RunAsync(ast, Experts("Drafter"), new PipelineRunOptions("M")));
+
+        Assert.StartsWith("Provider profile 'ghost' not found.", ex.Message);
     }
 
     [Fact]
@@ -755,8 +787,12 @@ public class PipelineRunnerTests
             .RunAsync(ast, Experts("DataExtractor", "Summariser", "FactChecker", "Synthesiser"),
                       new PipelineRunOptions("Analysis"));
 
+        // Only the steps around the parallel block have a defined order.
         var names = stub.Calls.Select(c => c.ExpertName).ToList();
-        Assert.Equal(["DataExtractor", "Summariser", "FactChecker", "Synthesiser"], names);
+        Assert.Equal(4, names.Count);
+        Assert.Equal("DataExtractor", names[0]);
+        Assert.Equal(["FactChecker", "Summariser"], names[1..3].Order(StringComparer.Ordinal));
+        Assert.Equal("Synthesiser", names[3]);
         Assert.Equal(MissionStatus.Pass, result.Status);
     }
 
@@ -858,5 +894,20 @@ public class PipelineRunnerTests
         Assert.Contains("ExpertB", result.FailReason);
         // Synthesiser must not run when a parallel step fails.
         Assert.DoesNotContain(stub.Calls, c => c.ExpertName == "Synthesiser");
+    }
+
+    // Records every call and never checks the token, so only the runner's own
+    // cancellation checks can stop a run.
+    private sealed class TokenBlindExpertRunner(Action? onCall = null) : IExpertRunner
+    {
+        public List<string> Calls { get; } = [];
+
+        public Task<StepEnvelope> RunAsync(
+            ExpertDefinition expert, Dictionary<string, object> context, CancellationToken ct = default)
+        {
+            Calls.Add(expert.Name);
+            onCall?.Invoke();
+            return Task.FromResult(new StepEnvelope($"Output from {expert.Name}"));
+        }
     }
 }

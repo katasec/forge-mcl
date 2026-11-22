@@ -136,27 +136,32 @@ public class MissionCompositionTests
     [Fact]
     public async Task SubMission_ParentContextDoesNotLeak()
     {
-        // Parent has a context key "secret" — child should not see it (not bound at call site).
+        // Seed runs in the parent before Inner, so the parent has a non-empty output and a
+        // runtime-only key by the time Inner starts. The child must see neither.
         var ast = MclParser.Parse("""
             let secret = "parent-only"
             mission Inner = {
                 Worker
             }
             mission Outer = {
-                Inner
+                Seed
+                -> Inner
             }
             """);
 
-        var stub = new StubExpertRunner();
+        var stub = new StubExpertRunner((name, context) =>
+        {
+            if (name == "Seed") context["parent_only"] = "x";
+            return $"Output from {name}";
+        });
         await new PipelineRunner(stub)
-            .RunAsync(ast, Experts("Worker"), new PipelineRunOptions("Outer"));
+            .RunAsync(ast, Experts("Seed", "Worker"), new PipelineRunOptions("Outer"));
 
-        // Worker is in Inner's context. Inner was called with no explicit bindings.
-        // "secret" comes from the let binding which IS seeded by ContextBuilder.Seed(ast)
-        // in the child — this is expected (let bindings are file-level constants).
-        // What must NOT happen: parent's runtime context["output"] appearing as a leak.
         var workerCtx = stub.Calls.First(c => c.ExpertName == "Worker").Context;
-        Assert.Equal(string.Empty, workerCtx["output"].ToString()); // child starts fresh
+        Assert.Equal(string.Empty, workerCtx["output"].ToString());
+        Assert.False(workerCtx.ContainsKey("parent_only"));
+        // let bindings are file-level constants, so the child seeds them itself by design.
+        Assert.Equal("parent-only", workerCtx["secret"].ToString());
     }
 
     // ── failure propagation ───────────────────────────────────────────────────

@@ -175,8 +175,9 @@ public sealed class AgentToolPipelineTests
     public async Task ToolResponseMetadata_IsConsumedOnExceptionalExit()
     {
         var (runner, captured) = ToolResponseRunner(fail: true);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
             new PipelineRunOptions("Root", RootTools: ClientTools())));
+        Assert.Equal("Step 'Respond' failed: fixture failure", ex.Message);
         AssertResponseKeyConsumed(captured);
     }
 
@@ -517,10 +518,13 @@ public sealed class AgentToolPipelineTests
     }
 
     [Theory]
-    [InlineData(PipelineToolResultStatus.Denied)]
-    [InlineData(PipelineToolResultStatus.Cancelled)]
-    [InlineData(PipelineToolResultStatus.Failed)]
-    public async Task RootScopedToolPause_DeliversNonSuccessResultsAsProviderErrors(PipelineToolResultStatus status)
+    [InlineData(PipelineToolResultStatus.Denied, "detail", "ERROR [Denied]: detail")]
+    [InlineData(PipelineToolResultStatus.Cancelled, "detail", "ERROR [Cancelled]: detail")]
+    [InlineData(PipelineToolResultStatus.Failed, "detail", "ERROR [Failed]: detail")]
+    [InlineData(PipelineToolResultStatus.Failed, null, "ERROR [Failed]: Tool did not complete.")]
+    [InlineData(PipelineToolResultStatus.Succeeded, null, "")]
+    public async Task RootScopedToolPause_DeliversExactToolResultTextToProvider(
+        PipelineToolResultStatus status, string? content, string expected)
     {
         var ast = MclParser.Parse("mission Root = { Respond }");
         var experts = new Dictionary<string, ExpertDefinition>(StringComparer.Ordinal)
@@ -529,11 +533,11 @@ public sealed class AgentToolPipelineTests
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
         var completed = await new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
-            new PipelineResumeRequest(pause.Continuation, new PipelineToolResult(pause.ToolCall.CallId, status, "detail")),
+            new PipelineResumeRequest(pause.Continuation, new PipelineToolResult(pause.ToolCall.CallId, status, content)),
             new PipelineRunOptions("ignored"));
         Assert.Equal(MissionStatus.Pass, completed.Status);
-        var error = Assert.Single(client.Calls[1].Messages.SelectMany(message => message.Contents).OfType<FunctionResultContent>());
-        Assert.Contains(status.ToString(), error.Result?.ToString());
+        var delivered = Assert.Single(client.Calls[1].Messages.SelectMany(message => message.Contents).OfType<FunctionResultContent>());
+        Assert.Equal(expected, delivered.Result);
     }
 
     [Fact]
@@ -546,15 +550,18 @@ public sealed class AgentToolPipelineTests
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
         client.ThrowOnContinuation = true;
-        // Phase 62 R8: one error path — a provider failure throws; the runner turns it into Fail.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
+        // Phase 62 R8: one error path — a provider failure propagates as a step exception.
+        var providerFailure = await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
             new PipelineResumeRequest(pause.Continuation, new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
             new PipelineRunOptions("ignored")));
+        Assert.Equal("Step 'Respond' failed: provider unavailable", providerFailure.Message);
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
-        await Assert.ThrowsAsync<OperationCanceledException>(() => new PipelineRunner(new DirectExpertRunner(new ContinuationClient())).RunAsync(
+        var cancelledClient = new ContinuationClient();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => new PipelineRunner(new DirectExpertRunner(cancelledClient)).RunAsync(
             ast, experts, new PipelineRunOptions("Root", RootTools: ClientTools()), cancelled.Token));
+        Assert.Empty(cancelledClient.Calls);
     }
 
     [Fact]
