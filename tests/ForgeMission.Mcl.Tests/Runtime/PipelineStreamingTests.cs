@@ -78,7 +78,9 @@ public class PipelineStreamingTests
             missionName: "Outer");
 
         Assert.Equal(["Answerer"], runner.Streamed);
-        Assert.All(events.OfType<PipelineStepDelta>(), d => Assert.Equal(["Outer", "Inner"], d.MissionPath));
+        var deltas = events.OfType<PipelineStepDelta>().ToList();
+        Assert.Equal(Chunks, deltas.Select(d => d.Text));
+        Assert.All(deltas, d => Assert.Equal(["Outer", "Inner"], d.MissionPath));
     }
 
     [Fact]
@@ -99,7 +101,7 @@ public class PipelineStreamingTests
 
         Assert.Equal(["Seed"], runner.Streamed);
         Assert.Equal(["A", "B"], runner.Ran.Order());
-        Assert.All(events.OfType<PipelineStepDelta>(), d => Assert.Equal("Seed", d.ExpertName));
+        Assert.Equal(Chunks.Select(c => ("Seed", c)), events.OfType<PipelineStepDelta>().Select(d => (d.ExpertName, d.Text)));
     }
 
     [Fact]

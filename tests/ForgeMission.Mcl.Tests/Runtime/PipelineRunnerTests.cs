@@ -456,17 +456,17 @@ public class PipelineRunnerTests
             ["Drafter"] = Expert("Drafter"),
             ["WordCheck"] = new ExpertDefinition("WordCheck", "draft", "verdict", "check", Kind: "rule", Check: "word_count >= 1")
         };
-        var historiesPresent = new List<bool>();
-        var stub = new StubExpertRunner((_, context) =>
+        var calls = new List<(string Name, bool HasHistory)>();
+        var stub = new StubExpertRunner((name, context) =>
         {
-            historiesPresent.Add(context.ContainsKey("history"));
+            calls.Add((name, context.ContainsKey("history")));
             return new StepEnvelope("done");
         });
 
         await new PipelineRunner(stub)
             .RunAsync(ast, experts, new PipelineRunOptions("Draft"));
 
-        Assert.DoesNotContain(historiesPresent, present => present);
+        Assert.Equal([("Drafter", false)], calls);
     }
 
     [Fact]
@@ -493,11 +493,11 @@ public class PipelineRunnerTests
             ["Worker"] = Expert("Worker"),
             ["Implementer"] = new ExpertDefinition("Implementer", "plan", "result", "implement", Role: "agent")
         };
-        var historiesPresent = new List<bool>();
-        var stub = new StubExpertRunner((_, context) =>
+        var calls = new List<(string Name, bool HasHistory)>();
+        var stub = new StubExpertRunner((name, context) =>
         {
-            lock (historiesPresent)
-                historiesPresent.Add(context.ContainsKey("history"));
+            lock (calls)
+                calls.Add((name, context.ContainsKey("history")));
             return new StepEnvelope("done");
         });
         var runner = new PipelineRunner(stub);
@@ -505,7 +505,9 @@ public class PipelineRunnerTests
         await runner.RunAsync(ast, experts, new PipelineRunOptions("ParallelLoop"));
         await runner.RunAsync(ast, experts, new PipelineRunOptions("AgentLoop"));
 
-        Assert.DoesNotContain(historiesPresent, present => present);
+        Assert.Equal(
+            [("First", false), ("Implementer", false), ("Judge", false), ("Second", false), ("Worker", false)],
+            calls.Order());
     }
 
     [Fact]
@@ -518,11 +520,11 @@ public class PipelineRunnerTests
                 -> Reviewer
             }
             """);
-        var historiesPresent = new List<bool>();
+        var calls = new List<(string Name, bool HasHistory)>();
         var reviewerCalls = 0;
         var stub = new StubExpertRunner((name, context) =>
         {
-            historiesPresent.Add(context.ContainsKey("history"));
+            calls.Add((name, context.ContainsKey("history")));
             return name == "Reviewer" && ++reviewerCalls == 1
                 ? new StepEnvelope("needs revision", "fail", "retry")
                 : new StepEnvelope("done");
@@ -531,7 +533,7 @@ public class PipelineRunnerTests
         await new PipelineRunner(stub)
             .RunAsync(ast, Experts("Worker", "Reviewer"), new PipelineRunOptions("Outer"));
 
-        Assert.DoesNotContain(historiesPresent, present => present);
+        Assert.Equal([("Worker", false), ("Reviewer", false), ("Worker", false), ("Reviewer", false)], calls);
     }
 
     // ── when() routing ────────────────────────────────────────────────────────
