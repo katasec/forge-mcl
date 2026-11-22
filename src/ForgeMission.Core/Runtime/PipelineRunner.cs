@@ -110,7 +110,7 @@ public class PipelineRunner
 
         MissionResult? lastResult = null;
         string? loopFeedback = null;
-        var history = IsNegotiationEligible(mission, experts) ? new SpeakerTranscript() : null;
+        var transcript = IsNegotiationEligible(mission, experts) ? new SpeakerTranscript() : null;
 
         // Fresh array, root mission first, ending with this mission. A
         // top-level call leaves options.MissionPath null; CreateChildOptions supplies it for a
@@ -121,7 +121,7 @@ public class PipelineRunner
         {
             ct.ThrowIfCancellationRequested();
 
-            var context = SeedAttemptContext(ast, mission, options, attempt, loopFeedback, history);
+            var context = SeedAttemptContext(ast, mission, options, attempt, loopFeedback, transcript);
             var outcome = await RunPipelineAsync(
                 mission, keyPrefix, context, new MissionAttempt(ast, experts, options, run, missionPath, attempt), ct);
             if (outcome.Halt is { } halt) return halt;
@@ -144,7 +144,7 @@ public class PipelineRunner
         PipelineRunOptions options,
         int attempt,
         string? loopFeedback,
-        SpeakerTranscript? history)
+        SpeakerTranscript? transcript)
     {
         var context = ContextBuilder.Seed(ast, options.Vars);
         if (options.ChatHistory is not null)
@@ -156,8 +156,8 @@ public class PipelineRunner
         context[ContextKeys.MaxLoops] = mission.MaxLoops.ToString();
         if (loopFeedback is not null)
             context[ContextKeys.Feedback] = loopFeedback;
-        if (history is not null)
-            context[ContextKeys.History] = history;
+        if (transcript is not null)
+            context[ContextKeys.History] = transcript;
         return context;
     }
 
