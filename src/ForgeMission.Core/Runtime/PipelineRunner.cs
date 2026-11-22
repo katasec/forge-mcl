@@ -77,9 +77,6 @@ public class PipelineRunner
         if (ConsumeLocalContinuation(checkpoint) is { } localFailure)
             return Failure(root, localFailure);
 
-        if (ast.FindMission(root) is null)
-            return Failure(root, PipelineFailure.InvalidContinuation);
-
         var tools = checkpoint.ToolDeclarations.Select(tool => (AITool)new Katasec.AITools.DeclaredTool(
             tool.Name, tool.Description, tool.InputSchema)).ToList();
         var scope = new PauseScope(tools, checkpoint.ToolDeclarations, root, checkpoint.RootDefinitionFingerprint,
