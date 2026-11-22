@@ -175,8 +175,9 @@ public sealed class AgentToolPipelineTests
     public async Task ToolResponseMetadata_IsConsumedOnExceptionalExit()
     {
         var (runner, captured) = ToolResponseRunner(fail: true);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(ToolResponseAst, ToolResponseExperts(),
             new PipelineRunOptions("Root", RootTools: ClientTools())));
+        Assert.Equal("Step 'Respond' failed: fixture failure", ex.Message);
         AssertResponseKeyConsumed(captured);
     }
 
@@ -546,10 +547,11 @@ public sealed class AgentToolPipelineTests
         var pause = Assert.IsType<PipelineToolPause>((await new PipelineRunner(new DirectExpertRunner(client)).RunAsync(ast, experts,
             new PipelineRunOptions("Root", RootTools: ClientTools()))).Pause);
         client.ThrowOnContinuation = true;
-        // Phase 62 R8: one error path — a provider failure throws; the runner turns it into Fail.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
+        // Phase 62 R8: one error path — a provider failure propagates as a step exception.
+        var providerFailure = await Assert.ThrowsAsync<InvalidOperationException>(() => new PipelineRunner(new DirectExpertRunner(client)).ResumeAsync(ast, experts,
             new PipelineResumeRequest(pause.Continuation, new PipelineToolResult(pause.ToolCall.CallId, PipelineToolResultStatus.Succeeded)),
             new PipelineRunOptions("ignored")));
+        Assert.Equal("Step 'Respond' failed: provider unavailable", providerFailure.Message);
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();

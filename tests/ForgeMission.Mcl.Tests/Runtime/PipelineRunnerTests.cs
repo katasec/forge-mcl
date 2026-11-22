@@ -615,10 +615,12 @@ public class PipelineRunnerTests
             return new StepEnvelope($"Output from {name}");
         });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new PipelineRunner(stub)
                 .RunAsync(ast, Experts("Classifier", "Architect", "Developer"),
                           new PipelineRunOptions("HandleRequest")));
+
+        Assert.Equal("No when() guard matched and no when(else) branch exists in the pipeline.", ex.Message);
     }
 
     [Theory]
@@ -742,8 +744,10 @@ public class PipelineRunnerTests
             ["default"] = new StubExpertRunner()
         });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => runner.RunAsync(ast, Experts("Drafter"), new PipelineRunOptions("M")));
+
+        Assert.StartsWith("Provider profile 'ghost' not found.", ex.Message);
     }
 
     [Fact]
