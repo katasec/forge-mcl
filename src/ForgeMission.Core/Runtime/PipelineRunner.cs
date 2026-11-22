@@ -16,6 +16,9 @@ namespace ForgeMission.Core.Runtime;
 /// </summary>
 public class PipelineRunner
 {
+    // The runner profile a step uses when it names no `using` profile.
+    private const string DefaultProfile = "default";
+
     private readonly IReadOnlyDictionary<string, IExpertRunner> _runners;
     private readonly ExecutionConfig _execution;
     private readonly HashSet<string> _locallyResumedContinuations = new(StringComparer.Ordinal);
@@ -35,9 +38,9 @@ public class PipelineRunner
         _webSearch = webSearch;
     }
 
-    // Convenience: a single runner registered as "default".
+    // Convenience: a single runner registered as the default profile.
     public PipelineRunner(IExpertRunner defaultRunner, IWebSearch? webSearch = null)
-        : this(new Dictionary<string, IExpertRunner>(StringComparer.Ordinal) { ["default"] = defaultRunner },
+        : this(new Dictionary<string, IExpertRunner>(StringComparer.Ordinal) { [DefaultProfile] = defaultRunner },
                webSearch: webSearch) { }
 
     public async Task<MissionResult> RunAsync(
@@ -673,7 +676,7 @@ public class PipelineRunner
 
     private IExpertRunner ResolveRunner(string? profileName)
     {
-        var key = profileName ?? "default";
+        var key = profileName ?? DefaultProfile;
         return _runners.TryGetValue(key, out var runner)
             ? runner
             : throw new InvalidOperationException(
