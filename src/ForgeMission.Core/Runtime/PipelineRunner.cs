@@ -283,11 +283,11 @@ public sealed class PipelineRunner
         MissionAttempt attempt,
         CancellationToken ct)
     {
-        var subResult = await RunSubMissionAsync(step, key, context, attempt, ct);
-        if (Halts(subResult)) return new StepOutcome(null, subResult);
+        var sub = await RunSubMissionAsync(step, key, context, attempt, ct);
+        if (sub.Halt is not null) return new StepOutcome(null, sub.Halt);
 
-        context[ContextKeys.Output] = subResult.Text;
-        return new StepOutcome(SubMissionFailReason(step, subResult), null);
+        context[ContextKeys.Output] = sub.Text;
+        return new StepOutcome(sub.FailReason, null);
     }
 
     // A negotiation run's transcript gets each speaker's text, plus its reason when that differs.
@@ -393,9 +393,8 @@ public sealed class PipelineRunner
         // Sub-mission in parallel block → recurse with isolated child context.
         if (attempt.Ast.FindMission(step.ExpertName) is not null)
         {
-            var subResult = await RunSubMissionAsync(step, key, baseContext, attempt, ct);
-            if (Halts(subResult)) return new BranchOutcome(null, namedKey, subResult.Text, subResult);
-            return new BranchOutcome(SubMissionFailReason(step, subResult), namedKey, subResult.Text, null);
+            var sub = await RunSubMissionAsync(step, key, baseContext, attempt, ct);
+            return new BranchOutcome(sub.FailReason, namedKey, sub.Text, sub.Halt);
         }
 
         var expert = ResolveExpert(attempt.Experts, step);
@@ -421,8 +420,9 @@ public sealed class PipelineRunner
     // Sub-mission: the step name matches a declared mission, so recurse under the step's key with
     // its with-bindings as the child's vars. No synthetic lifecycle fact is emitted for the
     // sub-mission invocation itself — the actual experts inside it, at the deeper path
-    // CreateChildOptions builds, are the visible trail.
-    private async Task<MissionResult> RunSubMissionAsync(
+    // CreateChildOptions builds, are the visible trail. A halting sub-mission carries its result as
+    // the halt and no fail reason; otherwise the fail reason is set only when it failed.
+    private async Task<SubMissionOutcome> RunSubMissionAsync(
         Step step,
         string key,
         Dictionary<string, object> context,
@@ -434,8 +434,12 @@ public sealed class PipelineRunner
             b => ContextBuilder.ResolveBindingValue(b.Value, context),
             StringComparer.Ordinal);
 
-        return await RunCoreAsync(attempt.Ast, attempt.Experts,
+        var result = await RunCoreAsync(attempt.Ast, attempt.Experts,
             CreateChildOptions(attempt.Options, step.ExpertName, childVars, attempt.MissionPath), attempt.Run, ChildPrefix(key), ct);
+
+        return Halts(result)
+            ? new SubMissionOutcome(result.Text, null, result)
+            : new SubMissionOutcome(result.Text, SubMissionFailReason(step, result), null);
     }
 
     // Builds a child mission's options for RunSubMissionAsync.
@@ -795,6 +799,8 @@ public sealed class PipelineRunner
     private sealed record StepOutcome(string? FailReason, MissionResult? Halt);
 
     private sealed record BranchOutcome(string? FailReason, string NamedKey, string Output, MissionResult? Halt);
+
+    private sealed record SubMissionOutcome(string Text, string? FailReason, MissionResult? Halt);
 
     private sealed record StepInvocation(
         StepEnvelope Envelope,
