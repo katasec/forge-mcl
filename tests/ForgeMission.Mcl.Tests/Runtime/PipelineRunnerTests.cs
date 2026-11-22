@@ -496,7 +496,8 @@ public class PipelineRunnerTests
         var historiesPresent = new List<bool>();
         var stub = new StubExpertRunner((_, context) =>
         {
-            historiesPresent.Add(context.ContainsKey("history"));
+            lock (historiesPresent)
+                historiesPresent.Add(context.ContainsKey("history"));
             return new StepEnvelope("done");
         });
         var runner = new PipelineRunner(stub);
@@ -784,8 +785,12 @@ public class PipelineRunnerTests
             .RunAsync(ast, Experts("DataExtractor", "Summariser", "FactChecker", "Synthesiser"),
                       new PipelineRunOptions("Analysis"));
 
+        // Only the steps around the parallel block have a defined order.
         var names = stub.Calls.Select(c => c.ExpertName).ToList();
-        Assert.Equal(["DataExtractor", "Summariser", "FactChecker", "Synthesiser"], names);
+        Assert.Equal(4, names.Count);
+        Assert.Equal("DataExtractor", names[0]);
+        Assert.Equal(["FactChecker", "Summariser"], names[1..3].Order(StringComparer.Ordinal));
+        Assert.Equal("Synthesiser", names[3]);
         Assert.Equal(MissionStatus.Pass, result.Status);
     }
 

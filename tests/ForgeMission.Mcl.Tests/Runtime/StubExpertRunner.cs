@@ -20,6 +20,8 @@ public class StubExpertRunner : IExpertRunner
         _respond = respond;
     }
 
+    // Parallel branches call the stub concurrently, so every write takes the lock.
+    // Tests read Calls only after the run completes.
     public List<(string ExpertName, Dictionary<string, object> Context)> Calls { get; } = [];
 
     public Task<StepEnvelope> RunAsync(
@@ -28,7 +30,7 @@ public class StubExpertRunner : IExpertRunner
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        Calls.Add((expert.Name, new Dictionary<string, object>(context, StringComparer.Ordinal)));
+        Record(expert.Name, context);
         return Task.FromResult(_respond(expert.Name, context));
     }
 
@@ -38,8 +40,15 @@ public class StubExpertRunner : IExpertRunner
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        Calls.Add((expert.Name, new Dictionary<string, object>(context, StringComparer.Ordinal)));
+        Record(expert.Name, context);
         yield return _respond(expert.Name, context).Text;
         await Task.CompletedTask;
+    }
+
+    private void Record(string expertName, Dictionary<string, object> context)
+    {
+        var snapshot = new Dictionary<string, object>(context, StringComparer.Ordinal);
+        lock (Calls)
+            Calls.Add((expertName, snapshot));
     }
 }
