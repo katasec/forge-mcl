@@ -383,13 +383,13 @@ public class PipelineRunnerTests
         var stub = new StubExpertRunner((name, ctx) =>
         {
             maxLoopsValues.Add(ctx["max_loops"].ToString()!);
-            return new StepEnvelope("done");
+            return new StepEnvelope("done", "fail", "retry");
         });
 
         await new PipelineRunner(stub)
             .RunAsync(ast, Experts("Worker"), new PipelineRunOptions("Demo"));
 
-        Assert.All(maxLoopsValues, v => Assert.Equal("5", v));
+        Assert.Equal(["5", "5", "5", "5", "5"], maxLoopsValues);
     }
 
     [Fact]
