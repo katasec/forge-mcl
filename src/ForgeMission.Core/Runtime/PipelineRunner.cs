@@ -333,6 +333,14 @@ public sealed class PipelineRunner
             ? await RunBranchesInOrderAsync(branches, Branch)
             : await RunBranchesConcurrentlyAsync(branches, Branch, ct);
 
+        return MergeBranches(results, parallel.Steps.Count, context);
+    }
+
+    // A halting branch halts the block. Otherwise each finished branch writes its named output, and
+    // the block fails with the first branch failure, or as cancelled when a branch never finished.
+    private static StepOutcome MergeBranches(
+        IReadOnlyList<BranchOutcome> results, int branchCount, Dictionary<string, object> context)
+    {
         if (results.FirstOrDefault(result => result.Halt is not null)?.Halt is { } halt)
             return new StepOutcome(null, halt);
 
@@ -340,7 +348,7 @@ public sealed class PipelineRunner
             context[result.NamedKey] = result.Output;
 
         var failReason = results.Select(result => result.FailReason).FirstOrDefault(reason => reason is not null)
-            ?? (results.Count < parallel.Steps.Count ? "a parallel step was cancelled" : null);
+            ?? (results.Count < branchCount ? "a parallel step was cancelled" : null);
         return new StepOutcome(failReason, null);
     }
 
