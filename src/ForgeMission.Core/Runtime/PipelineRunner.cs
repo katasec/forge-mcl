@@ -666,11 +666,7 @@ public sealed class PipelineRunner
         MissionAttempt attempt,
         CancellationToken ct)
     {
-        var options = attempt.Options;
-        var run = attempt.Run;
-        var missionPath = attempt.MissionPath;
-        var number = attempt.Number;
-        var scope = run.Scope!;
+        var scope = attempt.Run.Scope!;
         await TraceStepCompletedAsync(step, key, expert, invocation.Envelope, attempt, ct);
 
         if (calls.Count != 1) return Failure(scope.RootMissionName, PipelineFailure.MultipleOutstandingTools);
@@ -678,19 +674,19 @@ public sealed class PipelineRunner
         if (!PipelineContinuationIdentity.Declares(scope.Declarations, call.Name))
             return Failure(scope.RootMissionName, PipelineFailure.UnsupportedTool);
 
-        if (options.OnTrace is { } onCheckpointed)
-            await onCheckpointed(new PipelineRootToolCheckpointed(options.MissionName, missionPath, step.ExpertName, expert.Kind, number, call) { StepKey = key }, ct);
+        if (attempt.Options.OnTrace is { } onCheckpointed)
+            await onCheckpointed(new PipelineRootToolCheckpointed(attempt.Options.MissionName, attempt.MissionPath, step.ExpertName, expert.Kind, attempt.Number, call) { StepKey = key }, ct);
 
         var ordinal = scope.NextOrdinal();
         RegisterIssuedContinuation(scope.RootExecutionId, ordinal);
         var checkpoint = new PipelineContinuationCheckpoint(PipelineCheckpointCodec.CheckpointVersion,
             Guid.NewGuid().ToString("N"), scope.RootExecutionId, ordinal, scope.RootMissionName,
-            scope.DefinitionFingerprint, scope.ToolScopeFingerprint, scope.Declarations, missionPath, step.ExpertName,
-            number, invocation.Turn, scope.RootInputs, scope.AdmittedInputNames,
-            run.LogSnapshot(), key);
-        var pause = new PipelineToolPause(scope.RootMissionName, missionPath, step.ExpertName, number, call,
+            scope.DefinitionFingerprint, scope.ToolScopeFingerprint, scope.Declarations, attempt.MissionPath, step.ExpertName,
+            attempt.Number, invocation.Turn, scope.RootInputs, scope.AdmittedInputNames,
+            attempt.Run.LogSnapshot(), key);
+        var pause = new PipelineToolPause(scope.RootMissionName, attempt.MissionPath, step.ExpertName, attempt.Number, call,
             new PipelineContinuation(PipelineCheckpointCodec.EnvelopeVersion, PipelineCheckpointCodec.Write(checkpoint)));
-        return new MissionResult(scope.RootMissionName, string.Empty, MissionStatus.Pass, Attempts: number, Pause: pause);
+        return new MissionResult(scope.RootMissionName, string.Empty, MissionStatus.Pass, Attempts: attempt.Number, Pause: pause);
     }
 
     // ------------------------------------------------------------------
