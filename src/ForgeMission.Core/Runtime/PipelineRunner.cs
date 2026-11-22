@@ -562,7 +562,10 @@ public class PipelineRunner
         MissionAttempt attempt,
         CancellationToken ct)
     {
-        var (_, _, options, run, missionPath, number) = attempt;
+        var options = attempt.Options;
+        var run = attempt.Run;
+        var missionPath = attempt.MissionPath;
+        var number = attempt.Number;
         var scope = run.Scope!;
         await TraceStepCompletedAsync(step, key, expert, invocation.Envelope, attempt, ct);
 
