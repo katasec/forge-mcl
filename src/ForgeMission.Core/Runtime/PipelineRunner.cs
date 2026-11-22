@@ -443,7 +443,7 @@ public class PipelineRunner
         CancellationToken ct)
     {
         var run = attempt.Run;
-        if (run.Replay(key, step.ExpertName, expert) is { } logged)
+        if (run.AdvanceReplay(key, step.ExpertName, expert) is { } logged)
             return ReplayLogged(logged, context);
 
         var runner = RunnerFor(expert, step, attempt.Options, key, attempt.Number);
@@ -837,9 +837,10 @@ public class PipelineRunner
 
         public bool Replaying { get; private set; }
 
-        /// <summary>The logged entry for a replayed step, or null when the step runs now. A step
-        /// that is neither logged nor the paused agent means the replay diverged.</summary>
-        public PipelineStepLogEntry? Replay(string key, string expertName, ExpertDefinition expert)
+        /// <summary>Moves the replay past this step: returns its logged entry, or null when the step
+        /// runs now. Reaching the paused agent ends the replay; a step that is neither logged nor the
+        /// paused agent throws <see cref="ReplayDivergedException"/>.</summary>
+        public PipelineStepLogEntry? AdvanceReplay(string key, string expertName, ExpertDefinition expert)
         {
             if (!Replaying) return null;
             lock (_gate)
