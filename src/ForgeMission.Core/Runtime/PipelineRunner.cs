@@ -1,6 +1,4 @@
-using System.Buffers;
 using System.Text;
-using System.Text.Json;
 using ForgeMission.Core.Adapters;
 using ForgeMission.Core.Experts;
 using ForgeMission.Core.Manifest;
@@ -54,7 +52,7 @@ public class PipelineRunner
         // A run that can pause sees only the root inputs a resume will see again.
         var admittedNames = DurableMissionInputPolicy.AdmittedNames(ast, experts, options.MissionName);
         var rootInputs = RootInputs(admittedNames, options.Vars);
-        var scope = new PauseScope(rootTools, rootTools.Select(ToDeclaration).ToList(), options.MissionName,
+        var scope = new PauseScope(rootTools, rootTools.Select(PipelineContinuationIdentity.ToDeclaration).ToList(), options.MissionName,
             PipelineDefinitionFingerprint.Compute(ast, experts, options.MissionName), rootInputs, admittedNames,
             Guid.NewGuid().ToString("N"), ordinal: 0);
         return await RunCoreAsync(ast, experts, options with { Vars = rootInputs }, new RunState(scope), string.Empty, ct);
@@ -73,7 +71,7 @@ public class PipelineRunner
 
         var root = checkpoint.RootMissionName;
         var admittedNames = DurableMissionInputPolicy.AdmittedNames(ast, experts, root);
-        if (!IsResumable(checkpoint, admittedNames, request.Result.CallId, ast, experts))
+        if (!PipelineContinuationIdentity.IsResumable(checkpoint, admittedNames, request.Result.CallId, ast, experts))
             return Failure(root, PipelineFailure.InvalidContinuation);
 
         if (ConsumeLocalContinuation(checkpoint) is { } localFailure)
@@ -86,7 +84,7 @@ public class PipelineRunner
             tool.Name, tool.Description, tool.InputSchema)).ToList();
         var scope = new PauseScope(tools, checkpoint.ToolDeclarations, root, checkpoint.RootDefinitionFingerprint,
             checkpoint.RootInputs, admittedNames, checkpoint.RootExecutionId, checkpoint.ContinuationOrdinal);
-        var run = new RunState(scope, checkpoint, ResumedTurn(checkpoint, request.Result));
+        var run = new RunState(scope, checkpoint, PipelineContinuationIdentity.ResumedTurn(checkpoint, request.Result));
         var options = observers with { MissionName = root, Vars = checkpoint.RootInputs, RootTools = tools, MissionPath = null };
 
         try
@@ -99,25 +97,6 @@ public class PipelineRunner
         {
             return Failure(root, PipelineFailure.InvalidContinuation);
         }
-    }
-
-    // A checkpoint resumes only when its inputs, pending call, tool scope and mission definition
-    // all still match what this runner was composed with. Clauses short-circuit cheapest first.
-    private static bool IsResumable(
-        PipelineContinuationCheckpoint checkpoint,
-        IReadOnlyList<string> admittedNames,
-        string resultCallId,
-        Program ast,
-        Dictionary<string, ExpertDefinition> experts)
-    {
-        var pending = PipelineCheckpointCodec.PendingCall(checkpoint);
-        return checkpoint.AdmittedInputNames.SequenceEqual(admittedNames, StringComparer.Ordinal)
-            && checkpoint.RootInputs.Keys.All(name => admittedNames.Contains(name, StringComparer.Ordinal))
-            && string.Equals(pending.CallId, resultCallId, StringComparison.Ordinal)
-            && checkpoint.ToolDeclarations.Any(tool => string.Equals(tool.Name, pending.Name, StringComparison.Ordinal))
-            && string.Equals(checkpoint.RootToolScopeFingerprint, ScopeFingerprint(checkpoint.ToolDeclarations), StringComparison.Ordinal)
-            && string.Equals(checkpoint.RootDefinitionFingerprint,
-                PipelineDefinitionFingerprint.Compute(ast, experts, checkpoint.RootMissionName), StringComparison.Ordinal);
     }
 
     private async Task<MissionResult> RunCoreAsync(
@@ -733,43 +712,14 @@ public class PipelineRunner
     }
 
     // ------------------------------------------------------------------
-    // Continuation identity: fingerprints, root inputs, local resume ordinals
+    // Continuation identity: root inputs, local resume ordinals
     // ------------------------------------------------------------------
-
-    // Pause hashes the declared schemas; resume hashes the checkpoint's re-serialized copies. Both
-    // hash the same compact form so schema whitespace never invalidates a continuation.
-    private static string ScopeFingerprint(IEnumerable<PipelineToolDeclaration> declarations) => Convert.ToHexString(
-        System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n",
-            declarations.Select(d => $"{d.Name}\u001f{d.Description}\u001f{CompactJson(d.InputSchema)}")))));
-
-    private static string CompactJson(JsonElement element)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer)) element.WriteTo(writer);
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
-    }
 
     private static IReadOnlyDictionary<string, string> RootInputs(
         IReadOnlyList<string> admittedNames, IReadOnlyDictionary<string, string>? vars)
         => (vars ?? new Dictionary<string, string>())
             .Where(pair => admittedNames.Contains(pair.Key, StringComparer.Ordinal))
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-    private static PipelineToolDeclaration ToDeclaration(AITool tool)
-    {
-        if (tool is not AIFunction function) throw new InvalidOperationException($"Root tool '{tool.Name}' must be an AIFunction declaration.");
-        return new PipelineToolDeclaration(function.Name, function.Description ?? string.Empty, function.JsonSchema.Clone());
-    }
-
-    // The resumed agent's whole tool turn, as providers expect it resent: every earlier call and
-    // result, the pending call, then this result.
-    private static IReadOnlyList<ChatMessage> ResumedTurn(PipelineContinuationCheckpoint checkpoint, PipelineToolResult result) =>
-        [.. checkpoint.TurnMessages, new ChatMessage(ChatRole.Tool, [new FunctionResultContent(result.CallId, ToolResultText(result))])];
-
-    private static string ToolResultText(PipelineToolResult result) => result.Status switch
-    {
-        PipelineToolResultStatus.Succeeded => result.Content ?? string.Empty,
-        _ => $"ERROR [{result.Status}]: {result.Content ?? "Tool did not complete."}",
-    };
 
     private PipelineFailure? ConsumeLocalContinuation(PipelineContinuationCheckpoint checkpoint)
     {
@@ -933,7 +883,7 @@ public class PipelineRunner
         public IReadOnlyList<PipelineToolDeclaration> Declarations { get; } = declarations;
         public string RootMissionName { get; } = rootMissionName;
         public string DefinitionFingerprint { get; } = definitionFingerprint;
-        public string ToolScopeFingerprint { get; } = ScopeFingerprint(declarations);
+        public string ToolScopeFingerprint { get; } = PipelineContinuationIdentity.ScopeFingerprint(declarations);
         public IReadOnlyDictionary<string, string> RootInputs { get; } = rootInputs;
         public IReadOnlyList<string> AdmittedInputNames { get; } = admittedInputNames;
         public string RootExecutionId { get; } = rootExecutionId;
