@@ -286,8 +286,14 @@ public class PipelineRunner
         var snapshot = new Dictionary<string, object>(context, StringComparer.Ordinal);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var branches = parallel.Steps.Select((step, branch) => (step, key: $"{key}.{branch}")).ToList();
-        Task<BranchOutcome> Branch((Step step, string key) branch) => ExecuteParallelStepAsync(
-            branch.step, branch.key, snapshot, attempt, linkedCts);
+
+        // A failing branch cancels its siblings; a halting branch does not.
+        async Task<BranchOutcome> Branch((Step step, string key) branch)
+        {
+            var outcome = await ExecuteParallelStepAsync(branch.step, branch.key, snapshot, attempt, linkedCts.Token);
+            if (outcome.FailReason is not null) linkedCts.Cancel();
+            return outcome;
+        }
 
         var inOrder = attempt.Run.Scope is not null
             && parallel.Steps.Any(step => CanReachAgent(step, attempt.Ast, attempt.Experts));
@@ -342,16 +348,16 @@ public class PipelineRunner
         string key,
         Dictionary<string, object> baseContext,
         MissionAttempt attempt,
-        CancellationTokenSource cts)
+        CancellationToken ct)
     {
         var namedKey = $"{step.ExpertName}.output";
 
         // Sub-mission in parallel block → recurse with isolated child context.
         if (attempt.Ast.FindMission(step.ExpertName) is not null)
         {
-            var subResult = await RunSubMissionAsync(step, key, baseContext, attempt, cts.Token);
+            var subResult = await RunSubMissionAsync(step, key, baseContext, attempt, ct);
             if (Halts(subResult)) return new BranchOutcome(null, namedKey, subResult.Text, subResult);
-            return CompleteBranch(SubMissionFailReason(step, subResult), namedKey, subResult.Text, cts);
+            return new BranchOutcome(SubMissionFailReason(step, subResult), namedKey, subResult.Text, null);
         }
 
         var expert = ResolveExpert(attempt.Experts, step);
@@ -360,25 +366,18 @@ public class PipelineRunner
         var localContext = new Dictionary<string, object>(baseContext, StringComparer.Ordinal);
         ApplyBindings(step, localContext);
 
-        var invocation = await InvokeStepAsync(step, key, expert, localContext, attempt, inParallel: true, cts.Token);
+        var invocation = await InvokeStepAsync(step, key, expert, localContext, attempt, inParallel: true, ct);
         if (invocation.RootCalls is { } calls)
             return new BranchOutcome(null, namedKey, string.Empty,
-                await PauseAsync(key, step, expert, invocation, calls, attempt, cts.Token));
+                await PauseAsync(key, step, expert, invocation, calls, attempt, ct));
 
         // Parallel steps may call the sink concurrently and retain their own facts/path/attempt;
         // there is no global sequence across them.
         var envelope = invocation.Envelope;
         if (!invocation.Replayed)
-            await TraceStepCompletedAsync(step, key, expert, envelope, attempt, cts.Token);
+            await TraceStepCompletedAsync(step, key, expert, envelope, attempt, ct);
 
-        return CompleteBranch(StepFailReason(step, envelope), namedKey, envelope.Text, cts);
-    }
-
-    // A failing branch signals its siblings to stop.
-    private static BranchOutcome CompleteBranch(string? failReason, string namedKey, string output, CancellationTokenSource cts)
-    {
-        if (failReason is not null) cts.Cancel();
-        return new BranchOutcome(failReason, namedKey, output, null);
+        return new BranchOutcome(StepFailReason(step, envelope), namedKey, envelope.Text, null);
     }
 
     // Sub-mission: the step name matches a declared mission, so recurse under the step's key with
