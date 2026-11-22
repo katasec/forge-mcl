@@ -662,7 +662,7 @@ public sealed class PipelineRunner
         await TraceStepCompletedAsync(step, key, expert, invocation.Envelope, attempt, ct);
 
         if (calls.Count != 1) return Failure(scope.RootMissionName, PipelineFailure.MultipleOutstandingTools);
-        var call = PipelineToolCallConversion.From(calls).Single();
+        var call = PipelineToolCallConversion.From(calls[0]);
         if (!scope.Declarations.Any(declaration => string.Equals(declaration.Name, call.Name, StringComparison.Ordinal)))
             return Failure(scope.RootMissionName, PipelineFailure.UnsupportedTool);
 

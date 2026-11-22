@@ -5,17 +5,14 @@ using Microsoft.Extensions.AI;
 namespace ForgeMission.Core.Runtime;
 
 /// <summary>
-/// Converts each provider-SDK FunctionCallContent to the closed PipelineToolCall shape — no
+/// Converts a provider-SDK FunctionCallContent to the closed PipelineToolCall shape — no
 /// provider SDK object crosses into the trace. A small Utf8JsonWriter conversion keeps it
 /// reflection-free for Native AOT.
 /// </summary>
 internal static class PipelineToolCallConversion
 {
-    public static IReadOnlyList<PipelineToolCall> From(IReadOnlyList<FunctionCallContent> calls)
-        => calls.Select(call => new PipelineToolCall(
-            call.CallId,
-            call.Name,
-            ToolArgumentsToJsonElement(call.Arguments))).ToList();
+    public static PipelineToolCall From(FunctionCallContent call)
+        => new(call.CallId, call.Name, ToolArgumentsToJsonElement(call.Arguments));
 
     private static JsonElement ToolArgumentsToJsonElement(IDictionary<string, object?>? arguments)
     {
