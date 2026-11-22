@@ -19,7 +19,7 @@ internal static class PipelineContinuationIdentity
         IReadOnlyList<string> admittedNames,
         string resultCallId,
         Program ast,
-        Dictionary<string, ExpertDefinition> experts)
+        IReadOnlyDictionary<string, ExpertDefinition> experts)
     {
         var pending = PipelineCheckpointCodec.PendingCall(checkpoint);
         return checkpoint.AdmittedInputNames.SequenceEqual(admittedNames, StringComparer.Ordinal)

@@ -101,7 +101,7 @@ public sealed class PipelineRunner
 
     private async Task<MissionResult> RunCoreAsync(
         Program ast,
-        Dictionary<string, ExpertDefinition> experts,
+        IReadOnlyDictionary<string, ExpertDefinition> experts,
         PipelineRunOptions options,
         RunState run,
         string keyPrefix,
@@ -700,7 +700,7 @@ public sealed class PipelineRunner
                                        $"Expert '{expert.Name}' has unknown kind '{expert.Kind}'.")
     };
 
-    private static ExpertDefinition ResolveExpert(Dictionary<string, ExpertDefinition> experts, Step step)
+    private static ExpertDefinition ResolveExpert(IReadOnlyDictionary<string, ExpertDefinition> experts, Step step)
         => experts.TryGetValue(step.ExpertName, out var expert)
             ? expert
             : throw new InvalidOperationException(
@@ -793,7 +793,7 @@ public sealed class PipelineRunner
     // What stays fixed across every step of one loop attempt of one mission.
     private sealed record MissionAttempt(
         Program Ast,
-        Dictionary<string, ExpertDefinition> Experts,
+        IReadOnlyDictionary<string, ExpertDefinition> Experts,
         PipelineRunOptions Options,
         RunState Run,
         IReadOnlyList<string> MissionPath,
