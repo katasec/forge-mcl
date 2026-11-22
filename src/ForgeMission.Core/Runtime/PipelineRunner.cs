@@ -207,9 +207,9 @@ public class PipelineRunner
             StepOutcome outcome;
             if (element is ParallelElement parallel)
                 outcome = await ExecuteParallelAsync(parallel, stepKey, context, attempt, ct);
-            else if (element is StepElement { Step: var step } && WhenAdmits(step.When, context, anyGuardedStepMatched))
+            else if (element is StepElement { Step: var step } && WhenGuards.Admits(step.When, context, anyGuardedStepMatched))
             {
-                anyGuardedStepMatched |= IsGuarded(step.When);
+                anyGuardedStepMatched |= WhenGuards.IsGuarded(step.When);
                 outcome = await ExecuteStepAsync(step, stepKey, context, attempt, ct);
             }
             else
@@ -218,7 +218,7 @@ public class PipelineRunner
             if (outcome.Halt is not null || outcome.FailReason is not null) return outcome;
         }
 
-        if (HasUnmatchedGuards(mission, anyGuardedStepMatched))
+        if (WhenGuards.HasUnmatchedGuards(mission, anyGuardedStepMatched))
             throw new InvalidOperationException(
                 "No when() guard matched and no when(else) branch exists in the pipeline.");
 
@@ -232,32 +232,6 @@ public class PipelineRunner
         return failReason is null
             ? new MissionResult(missionName, text, MissionStatus.Pass, null, attempt)
             : new MissionResult(missionName, text, MissionStatus.Fail, failReason, attempt);
-    }
-
-    // ------------------------------------------------------------------
-    // when() guards
-    // ------------------------------------------------------------------
-
-    // A guarded step runs only when its guard matches; when(else) runs only when no guard has.
-    private static bool WhenAdmits(WhenClause? when, Dictionary<string, object> context, bool anyGuardedStepMatched) => when switch
-    {
-        StringEqualsWhen stringEquals => context.TryGetValue(stringEquals.Key, out var value)
-                                         && value?.ToString() == stringEquals.Value,
-        NumericCompareWhen numericCompare => context.TryGetValue(numericCompare.Key, out var raw)
-                                             && TryParseDouble(raw, out var actual)
-                                             && EvaluateNumericOp(actual, numericCompare.Op, numericCompare.Threshold),
-        ElseWhen => !anyGuardedStepMatched,
-        _ => true,
-    };
-
-    private static bool IsGuarded(WhenClause? when) => when is StringEqualsWhen or NumericCompareWhen;
-
-    private static bool HasUnmatchedGuards(MissionDeclaration mission, bool anyGuardedStepMatched)
-    {
-        var steps = mission.Pipeline.Elements.OfType<StepElement>().ToList();
-        return steps.Any(e => IsGuarded(e.Step.When))
-            && !anyGuardedStepMatched
-            && !steps.Any(e => e.Step.When is ElseWhen);
     }
 
     // ------------------------------------------------------------------
@@ -877,31 +851,6 @@ public class PipelineRunner
                     $"Unsupported tool argument type '{value.GetType().FullName}'.");
         }
     }
-
-    private static bool TryParseDouble(object? value, out double result)
-    {
-        result = 0;
-        return value switch
-        {
-            double d   => (result = d)    == d,
-            float f    => (result = f)    == f,
-            int i      => (result = i)    == i,
-            long l     => (result = l)    == l,
-            string s   => double.TryParse(s, System.Globalization.NumberStyles.Any,
-                              System.Globalization.CultureInfo.InvariantCulture, out result),
-            _          => false
-        };
-    }
-
-    private static bool EvaluateNumericOp(double actual, CompOp op, double threshold) => op switch
-    {
-        CompOp.Gt  => actual >  threshold,
-        CompOp.Lt  => actual <  threshold,
-        CompOp.Gte => actual >= threshold,
-        CompOp.Lte => actual <= threshold,
-        CompOp.Eq  => Math.Abs(actual - threshold) < 1e-10,
-        _          => false
-    };
 
     // ------------------------------------------------------------------
     // Expert invocation and streaming
